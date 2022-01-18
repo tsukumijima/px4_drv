@@ -1,0 +1,47 @@
+w=WScript;s=w.ScriptFullName;p=s+'.ps1';a=ActiveXObject;f=new a('ADODB.Stream');f.Type=2;f.charset='UTF-8';f.Open();f.LoadFromFile(s);t=f.ReadText(-1);f.Position=0;f.SetEOS;f.WriteText(t.match(new RegExp('/\\*([\\s\\S]*?)\\*/'))[1]);f.SaveToFile(p,2);w.CreateObject('WScript.Shell').Run('powershell.exe -NoProfile -ExecutionPolicy Unrestricted -File "'+p+'"',1,true);w.Sleep(999);new a('Scripting.FileSystemObject').DeleteFile(p);/*
+
+# 管理者権限で実行されていない場合、自動的に管理者に昇格する
+if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')) {
+    Start-Process powershell.exe "-NoProfile -ExecutionPolicy Unrestricted -File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
+
+# インストールする自己署名証明書のパス
+$CertPath = (Join-Path (Split-Path $MyInvocation.MyCommand.Path -Parent) px4_drv_winusb.cer)
+
+# コンソールウインドウのサイズを変更
+$ErrorActionPreference = 'Stop'  # エラーを確実に catch する
+try { (Get-Host).UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(120,25) } catch {}
+try { (Get-Host).UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(120,25) } catch {}
+
+Write-Host ''
+Write-Host ''
+
+function Pause {
+    Write-Host ''
+    Write-Host '    終了するには何かキーを押してください。'
+    (Get-Host).UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
+}
+
+# 証明書を「信頼されたルート証明機関」ストアにインストール
+certutil.exe -addstore Root `"$CertPath`" | Out-Null
+if ($? -eq $False) {
+    Write-Host '    自己署名証明書のインストールに失敗しました。'
+    Pause
+    exit
+}
+
+# 証明書を「信頼された発行元」ストアにインストール
+certutil.exe -addstore TrustedPublisher `"$CertPath`" | Out-Null
+if ($? -eq $False) {
+    Write-Host '    自己署名証明書のインストールに失敗しました。'
+    Pause
+    exit
+}
+
+Write-Host '    自己署名証明書のインストールに成功しました。'
+Write-Host '    自己署名証明書はインストールしたドライバを信頼するために必要です。'
+Write-Host '    アンインストールするとドライバが信頼されなくなってしまうので、十分注意してください。'
+Pause
+
+*/
