@@ -7,6 +7,7 @@ Class=Media
 ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%AuthorName%
 DriverVer=05/01/2021,21.05.01.00
+CatalogFile=px4_drv_winusb.cat
 
 [Manufacturer]
 %AuthorName%=PXW3U4_WinUSB,ntx86,ntamd64
