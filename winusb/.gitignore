@@ -1,7 +1,9 @@
 .vs/
 build/
+dist/
 
 *.aps
 *.user
 
 !*.rc
+!it930x-firmware.bin
