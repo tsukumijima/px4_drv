@@ -1,0 +1,37 @@
+;
+; PLEX PX-Q3PE5 WinUSB
+;
+[Version]
+Signature="$Windows NT$"
+Class=Media
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%AuthorName%
+DriverVer=05/01/2021,21.05.01.00
+CatalogFile=px4_drv_winusb.cat
+
+[Manufacturer]
+%AuthorName%=PXQ3PE5_WinUSB,ntx86,ntamd64
+
+[PXQ3PE5_WinUSB.ntx86]
+%PXQ3PE5_WinUSB.DeviceDesc%=PXQ3PE5_WinUSB.DeviceInstall,USB\VID_0511&PID_074A
+
+[PXQ3PE5_WinUSB.ntamd64]
+%PXQ3PE5_WinUSB.DeviceDesc%=PXQ3PE5_WinUSB.DeviceInstall,USB\VID_0511&PID_074A
+
+[PXQ3PE5_WinUSB.DeviceInstall]
+Include=winusb.inf
+Needs=WINUSB.NT
+
+[PXQ3PE5_WinUSB.DeviceInstall.Services]
+Include=winusb.inf
+Needs=WINUSB.NT.Services
+
+[PXQ3PE5_WinUSB.DeviceInstall.HW]
+AddReg=PXQ3PE5_WinUSB.DeviceSetup.AddReg
+
+[PXQ3PE5_WinUSB.DeviceSetup.AddReg]
+HKR,,DeviceInterfaceGUIDs,0x00010000,"{c78aa8ba-8476-4047-a089-7c3ed43503a6}"
+
+[Strings]
+AuthorName="nns779"
+PXQ3PE5_WinUSB.DeviceDesc="PLEX PX-Q3PE5 ISDB-T/S Receiver Device (WinUSB)"
