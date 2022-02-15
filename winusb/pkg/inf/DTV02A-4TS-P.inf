@@ -10,12 +10,15 @@ DriverVer=05/01/2021,21.05.01.00
 CatalogFile=px4_drv_winusb.cat
 
 [Manufacturer]
-%AuthorName%=ISDB6014_WinUSB,ntx86,ntamd64
+%AuthorName%=ISDB6014_WinUSB,ntx86,ntamd64,ntarm64
 
 [ISDB6014_WinUSB.ntx86]
 %ISDB6014_WinUSB.DeviceDesc%=ISDB6014_WinUSB.DeviceInstall,USB\VID_0511&PID_0254
 
 [ISDB6014_WinUSB.ntamd64]
+%ISDB6014_WinUSB.DeviceDesc%=ISDB6014_WinUSB.DeviceInstall,USB\VID_0511&PID_0254
+
+[ISDB6014_WinUSB.ntarm64]
 %ISDB6014_WinUSB.DeviceDesc%=ISDB6014_WinUSB.DeviceInstall,USB\VID_0511&PID_0254
 
 [ISDB6014_WinUSB.DeviceInstall]

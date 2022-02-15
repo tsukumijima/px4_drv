@@ -10,12 +10,15 @@ DriverVer=05/01/2021,21.05.01.00
 CatalogFile=px4_drv_winusb.cat
 
 [Manufacturer]
-%AuthorName%=PXMLT5PE_WinUSB,ntx86,ntamd64
+%AuthorName%=PXMLT5PE_WinUSB,ntx86,ntamd64,ntarm64
 
 [PXMLT5PE_WinUSB.ntx86]
 %PXMLT5PE_WinUSB.DeviceDesc%=PXMLT5PE_WinUSB.DeviceInstall,USB\VID_0511&PID_024E
 
 [PXMLT5PE_WinUSB.ntamd64]
+%PXMLT5PE_WinUSB.DeviceDesc%=PXMLT5PE_WinUSB.DeviceInstall,USB\VID_0511&PID_024E
+
+[PXMLT5PE_WinUSB.ntarm64]
 %PXMLT5PE_WinUSB.DeviceDesc%=PXMLT5PE_WinUSB.DeviceInstall,USB\VID_0511&PID_024E
 
 [PXMLT5PE_WinUSB.DeviceInstall]

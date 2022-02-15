@@ -10,12 +10,15 @@ DriverVer=05/01/2021,21.05.01.00
 CatalogFile=px4_drv_winusb.cat
 
 [Manufacturer]
-%AuthorName%=PXW3U4_WinUSB,ntx86,ntamd64
+%AuthorName%=PXW3U4_WinUSB,ntx86,ntamd64,ntarm64
 
 [PXW3U4_WinUSB.ntx86]
 %PXW3U4_WinUSB.DeviceDesc%=PXW3U4_WinUSB.DeviceInstall,USB\VID_0511&PID_083F
 
 [PXW3U4_WinUSB.ntamd64]
+%PXW3U4_WinUSB.DeviceDesc%=PXW3U4_WinUSB.DeviceInstall,USB\VID_0511&PID_083F
+
+[PXW3U4_WinUSB.ntarm64]
 %PXW3U4_WinUSB.DeviceDesc%=PXW3U4_WinUSB.DeviceInstall,USB\VID_0511&PID_083F
 
 [PXW3U4_WinUSB.DeviceInstall]
