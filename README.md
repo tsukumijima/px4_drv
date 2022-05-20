@@ -25,6 +25,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - バージョン情報が DLL のプロパティに表示されないのを修正
 - ビルドとパッケージングを全自動で行うスクリプトを追加
   - Visual Studio 2019 が入っていれば、build.jse をクリックするだけで全自動でビルドからパッケージングまで行える
+- README（このページ）に WinUSB 版についての記述を追記
 
 ## 対応デバイス
 
@@ -236,13 +237,9 @@ Windows では、BonDriver_PX4-S.ini の `LNBPower=0` の項目を `LNBPower=1` 
 
 出力なしと 15V の出力のみに対応しているものと思われます。
 
-### PLEX PX-MLT5PE
+### PLEX PX-MLT5PE/MLT8PE
 
-対応しておりません。
-
-### PLEX PX-MLT8PE
-
-不明です。
+対応していないものとされていましたが、5ch の有志により、正しく LNB 電源を出力できることが確認されています ([参考](https://mevius.5ch.net/test/read.cgi/avi/1648542476/267-288))。
 
 ### e-Better DTV02-1T1S-U/DTV02A-1T1S-U
 
@@ -250,7 +247,7 @@ Windows では、BonDriver_PX4-S.ini の `LNBPower=0` の項目を `LNBPower=1` 
 
 ### e-Better DTV02A-4TS-P
 
-不明です。
+対応していると思われます。
 
 ## 備考
 
