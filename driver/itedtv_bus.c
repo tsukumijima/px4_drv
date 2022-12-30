@@ -363,27 +363,27 @@ static void itedtv_usb_free_urb_buffers(struct itedtv_usb_context *ctx,
 	return;
 }
 
-static void itedtv_usb_clean_context(struct itedtv_usb_context *ctx)
+static void itedtv_usb_clean_context(struct itedtv_usb_context *ctx, bool free_works)
 {
 #ifdef ITEDTV_BUS_USE_WORKQUEUE
 	if (ctx->wq)
 		destroy_workqueue(ctx->wq);
 #endif
 
-	if (ctx->works) {
+	if (free_works && ctx->works) {
 		itedtv_usb_free_urb_buffers(ctx, true);
 		kfree(ctx->works);
+		ctx->num_urb = 0;
+		ctx->works = NULL;
+		ctx->num_works = 0;
 	}
 
 	ctx->stream_handler = NULL;
 	ctx->ctx = NULL;
-	ctx->num_urb = 0;
 	ctx->no_dma = false;
 #ifdef ITEDTV_BUS_USE_WORKQUEUE
 	ctx->wq = NULL;
 #endif
-	ctx->num_works = 0;
-	ctx->works = NULL;
 
 	return;
 }
@@ -481,7 +481,7 @@ fail:
 		flush_workqueue(ctx->wq);
 #endif
 
-	itedtv_usb_clean_context(ctx);
+	itedtv_usb_clean_context(ctx, true);
 
 	mutex_unlock(&ctx->lock);
 
@@ -512,7 +512,7 @@ static int itedtv_usb_stop_streaming(struct itedtv_bus *bus)
 			usb_kill_urb(works[i].urb);
 	}
 
-	itedtv_usb_clean_context(ctx);
+	itedtv_usb_clean_context(ctx, false);
 
 	mutex_unlock(&ctx->lock);
 
@@ -603,6 +603,7 @@ int itedtv_bus_term(struct itedtv_bus *bus)
 			if (atomic_read_acquire(&ctx->streaming))
 				itedtv_usb_stop_streaming(bus);
 
+			itedtv_usb_clean_context(ctx, true);
 			mutex_destroy(&ctx->lock);
 			kfree(ctx);
 		}
