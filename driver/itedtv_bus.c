@@ -245,11 +245,19 @@ static int itedtv_usb_alloc_urb_buffers(struct itedtv_usb_context *ctx,
 
 		if (!urb->transfer_buffer) {
 #ifdef __linux__
+#ifdef __GFP_RETRY_MAYFAIL
 			if (!no_dma)
 				p = usb_alloc_coherent(dev, buf_size,
-						       GFP_KERNEL, &dma);
+						       GFP_KERNEL | __GFP_RETRY_MAYFAIL, &dma);
 			else
-				p = kmalloc(buf_size, GFP_KERNEL);
+				p = kmalloc(buf_size, GFP_KERNEL | __GFP_RETRY_MAYFAIL);
+#else
+			if (!no_dma)
+				p = usb_alloc_coherent(dev, buf_size,
+						       GFP_KERNEL | __GFP_REPEAT, &dma);
+			else
+				p = kmalloc(buf_size, GFP_KERNEL | __GFP_REPEAT);
+#endif
 #else
 			p = kmalloc(buf_size, GFP_KERNEL);
 #endif
