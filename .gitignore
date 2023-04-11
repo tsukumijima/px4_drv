@@ -13,6 +13,7 @@ modules.order
 *.mod.o
 
 /driver/revision.h
+/fwtool/fwtool
 
 *.bin
 *.sys

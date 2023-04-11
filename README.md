@@ -5,7 +5,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 ## このフォークについて
 
-主に WinUSB 版に関する変更を行っています。Linux 版はオリジナルのままです。
+主に WinUSB 版に関する変更を行っています。
 
 - エラー発生時の MessageBox を表示しない設定を追加 
   - BonDriver の ini 内の `DisplayErrorMessage` を 1 に設定すると今まで通り MessageBox が表示される
@@ -26,6 +26,8 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - ビルドとパッケージングを全自動で行うスクリプトを追加
   - Visual Studio 2019 が入っていれば、build.jse をクリックするだけで全自動でビルドからパッケージングまで行える
 - README（このページ）に WinUSB 版についての記述を追記
+
+Linux 版は、[otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込んだこと以外はオリジナルのままです。
 
 ## 対応デバイス
 
@@ -86,11 +88,14 @@ unzip, gcc, make がインストールされている必要があります。
 	$ cd fwtool
 	$ make
 	$ wget http://plex-net.co.jp/plex/pxw3u4/pxw3u4_BDA_ver1x64.zip -O pxw3u4_BDA_ver1x64.zip
-	$ unzip -oj pxw3u4_BDA_ver1x64.zip pxw3u4_BDA_ver1x64/PXW3U4.sys
-	$ ./fwtool PXW3U4.sys it930x-firmware.bin
-	$ sudo mkdir -p /lib/firmware
-	$ sudo cp it930x-firmware.bin /lib/firmware/
+	$ unzip -oj pxw3u4_BDA_ver1x64.zip pxw3u4_BDA_ver1x64/PXW3U4.sys && rm pxw3u4_BDA_ver1x64.zip
+	$ ./fwtool PXW3U4.sys it930x-firmware.bin && rm PXW3U4.sys
+	$ sudo mkdir -p /lib/firmware && sudo cp it930x-firmware.bin /lib/firmware/
 	$ cd ../
+
+または、抽出済みのファームウェアを利用することもできます。
+
+	$ sudo mkdir -p /lib/firmware && sudo cp winusb/pkg/DriverHost_PX4/it930x-firmware.bin /lib/firmware/
 
 ### 2. ドライバのインストール
 
