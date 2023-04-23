@@ -3,6 +3,8 @@
 PLEXやe-Betterから発売された各種ISDB-T/Sチューナー向けのchardev版非公式Linuxドライバです。  
 PLEX社の[Webサイト](http://plex-net.co.jp)にて配布されている公式Linuxドライバとは**別物**です。
 
+本リポジトリのものは nns779 さんのものをフォークして他デバイスに対応してみたものとなっています。
+
 ## 対応デバイス
 
 - PLEX
@@ -15,6 +17,7 @@ PLEX社の[Webサイト](http://plex-net.co.jp)にて配布されている公式
 	- PX-Q3PE5
 	- PX-MLT5PE
 	- PX-MLT8PE
+  - PX-M1UR
 
 - e-Better
 
@@ -111,6 +114,14 @@ gcc, make, カーネルソース/ヘッダ, dkmsがインストールされて�
 	/dev/pxmlt8video2  /dev/pxmlt8video5
 
 すべてのチューナーにおいて、ISDB-TとISDB-Sのどちらも受信可能です。
+
+##### PLEX PX-M1URを接続した場合
+
+	$ ls /dev/pxm1urvideo*
+	/dev/pxm1urvideo0
+
+すべてのチューナーにおいて、ISDB-TとISDB-Sのどちらも受信可能です。
+
 
 ##### e-Better DTV02-1T1S-U/DTV02A-1T1S-Uを接続した場合
 
