@@ -1,0 +1,7 @@
+Maintainer: Kazuki Kuroda <maleicacid824+dev@gmail.com>
+Build-Depends: debhelper (>= 9), dpkg
+Package: px4-drv
+Architecture: all
+Depends: px4-drv-dkms
+Description: Binary blob(s) for the it930x driver
+Version: 0.1
