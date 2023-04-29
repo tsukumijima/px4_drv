@@ -1,4 +1,5 @@
 description	target	size	crc32	align	firmware_code	firmware_segment	firmware_partition	firmware_crc32
+PX-M1UR Ver 2022.07 64bit	it930x	187136	c1fab42a	4	000225B0	00024120	000245b8	df0bf49a
 PX-W3U4 BDA Ver.1.4 64bit	it930x	207232	a1e8223d	4	00029f50	0002bac0	0002bf58	df0bf49a
 PX-Q3U4 BDA Ver.1.4 64bit	it930x	207232	f9953f08	4	00029f50	0002bac0	0002bf58	df0bf49a
 PX-W3PE4 BDA Ver.1.4 64bit	it930x	207232	69900db0	4	00029f50	0002bac0	0002bf58	df0bf49a
