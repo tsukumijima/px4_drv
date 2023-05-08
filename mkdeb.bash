@@ -17,5 +17,4 @@ cp ./fwtool/it930x-firmware.bin ./installer/lib/firmware
 
 dkms mkdeb
 dpkg-deb --build installer
-mv ./installer.deb ../
-
+mv ./installer.deb ../px4-drv.deb
