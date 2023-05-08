@@ -119,8 +119,8 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 	$ sudo dkms install px4_drv/0.2.1
 	
 	
-#### ビルト済みバイナリをDebianパッケージからインストールする
-`mkdeb.bash`を実行すると、
+#### ビルド済みバイナリをDebianパッケージからインストールする
+`build_deb.sh`を実行すると、
 - px4-drv-***.deb
 - px4-drv_dkms-***.deb
 の２つのファイルが生成されます。
