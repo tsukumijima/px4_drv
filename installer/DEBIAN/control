@@ -4,4 +4,4 @@ Package: px4-drv
 Architecture: all
 Depends: px4-drv-dkms
 Description: Binary blob(s) for the it930x driver
-Version: 0.1
+Version: 0.2.1
