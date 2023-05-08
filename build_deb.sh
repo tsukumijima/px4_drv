@@ -9,7 +9,7 @@ VER_BUILD=1
 ARCH="amd64"
 
 ## Prep with fwtool
-# apt install dkms dpkg make unzip --no-install-recommends -y
+# sudo apt install dkms dpkg make unzip --no-install-recommends -y
 # cd $SCRIPT_DIR/fwtool
 # make
 # wget http://plex-net.co.jp/plex/pxw3u4/pxw3u4_BDA_ver1x64.zip -O pxw3u4_BDA_ver1x64.zip
@@ -19,7 +19,7 @@ ARCH="amd64"
 #mkdir -p ./installer/lib/firmware
 #cp ./fwtool/it930x-firmware.bin ./installer/lib/firmware
 
-apt install dkms dpkg
+sudo apt install dkms dpkg
 mkdir -p ./installer/lib/firmware
 cp ./winusb/pkg/DriverHost_PX4/it930x-firmware.bin ./installer/lib/firmware
 
