@@ -6,7 +6,8 @@ SCRIPT_DIR=$(cd $(dirname $0) && pwd)
 VER_MAJ=0
 VER_MIN=2
 VER_BUILD=1
-ARCH="amd64"
+
+cd $SCRIPT_DIR
 
 ## Prep with fwtool
 # sudo apt install dkms dpkg make unzip --no-install-recommends -y
@@ -25,7 +26,7 @@ cp ./winusb/pkg/DriverHost_PX4/it930x-firmware.bin ./installer/lib/firmware
 
 
 dkms mkdeb
-cp -r ./DEBIAN ./installer/ 
+cp -r ./debian ./installer/DEBIAN
 dpkg-deb --build installer
 rm -rf installer
-mv ./installer.deb ../px4-drv_${VER_MAJ}.${VER_MIN}.${VER_BUILD}_${ARCH}.deb -v
+mv ./installer.deb ../px4-drv_${VER_MAJ}.${VER_MIN}.${VER_BUILD}_all.deb -v
