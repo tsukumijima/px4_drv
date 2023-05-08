@@ -5,7 +5,6 @@
 の２つのファイルが生成されます。
 
 # 生成されたパッケージのインストール
-これを、
 ```
 sudo apt install px4-drv.deb px4-drv_dkms-***.deb -y
 ```

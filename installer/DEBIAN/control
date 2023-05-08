@@ -1,4 +1,4 @@
-Maintainer: Kazuki Kuroda <maleicacid824+dev@gmail.com>
+Maintainer: nns779 <25547272+nns779@users.noreply.github.com>
 Build-Depends: debhelper (>= 9), dpkg
 Package: px4-drv
 Architecture: all
