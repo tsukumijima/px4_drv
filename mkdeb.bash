@@ -19,11 +19,13 @@ ARCH="amd64"
 #mkdir -p ./installer/lib/firmware
 #cp ./fwtool/it930x-firmware.bin ./installer/lib/firmware
 
-
+apt install dkms dpkg
 mkdir -p ./installer/lib/firmware
 cp ./winusb/pkg/DriverHost_PX4/it930x-firmware.bin ./installer/lib/firmware
 
 
 dkms mkdeb
+cp -r ./DEBIAN ./installer/ 
 dpkg-deb --build installer
+rm -rf installer
 mv ./installer.deb ../px4-drv_${VER_MAJ}.${VER_MIN}.${VER_BUILD}_${ARCH}.deb -v
