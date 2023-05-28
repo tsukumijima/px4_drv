@@ -27,7 +27,8 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
   - Visual Studio 2019 が入っていれば、build.jse をクリックするだけで全自動でビルドからパッケージングまで行える
 - README（このページ）に WinUSB 版についての記述を追記
 
-Linux 版は、[otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込んだこと以外はオリジナルのままです。
+Linux 版は、[otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込んだことと、  
+[techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR に対応したこと以外はオリジナルのままです。
 
 ## 対応デバイス
 
@@ -41,6 +42,7 @@ Linux 版は、[otya 氏のフォーク](https://github.com/otya128/px4_drv) で
 	- PX-Q3PE5
 	- PX-MLT5PE
 	- PX-MLT8PE
+    - PX-M1UR (Windows 非対応)
 
 - e-Better
 
@@ -167,6 +169,13 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 	/dev/pxmlt8video0  /dev/pxmlt8video3  /dev/pxmlt8video6
 	/dev/pxmlt8video1  /dev/pxmlt8video4  /dev/pxmlt8video7
 	/dev/pxmlt8video2  /dev/pxmlt8video5
+
+すべてのチューナーにおいて、ISDB-T と ISDB-S のどちらも受信可能です。
+
+##### PLEX PX-M1UR を接続した場合
+
+	$ ls /dev/pxm1urvideo*
+	/dev/pxm1urvideo0
 
 すべてのチューナーにおいて、ISDB-T と ISDB-S のどちらも受信可能です。
 
