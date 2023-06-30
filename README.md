@@ -5,7 +5,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 ## このフォークについて
 
-主に WinUSB 版に関する変更を行っています。
+### 変更点 (WinUSB 版)
 
 - エラー発生時の MessageBox を表示しない設定を追加 
   - BonDriver の ini 内の `DisplayErrorMessage` を 1 に設定すると今まで通り MessageBox が表示される
@@ -25,10 +25,17 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - バージョン情報が DLL のプロパティに表示されないのを修正
 - ビルドとパッケージングを全自動で行うスクリプトを追加
   - Visual Studio 2019 が入っていれば、build.jse をクリックするだけで全自動でビルドからパッケージングまで行える
-- README（このページ）に WinUSB 版についての記述を追記
+- README（このページ）に WinUSB 版のインストール方法などを追記
 
-Linux 版は、[otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込んだことと、  
-[techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR に対応したこと以外はオリジナルのままです。
+### 変更点 (Linux 版)
+
+動作確認は Ubuntu 20.04 LTS (x64) で行っています。
+
+- [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み
+- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR に対応
+- Debian パッケージ (.deb) の作成とインストールに対応
+- DKMS でのインストール時にファームウェアを自動でインストールするように変更
+- README (このページ) に Debian パッケージからのインストール方法などを追記
 
 ## 対応デバイス
 
