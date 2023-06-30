@@ -15,7 +15,7 @@ modules.order
 /driver/revision.h
 /fwtool/fwtool
 
-*.bin
+fwtool/*.bin
 *.sys
 *.zip
 

@@ -85,6 +85,9 @@ BonDriver と同じフォルダに DriverHost_PX4.exe / DriverHost_PX4.ini / it9
 
 ### 1. ファームウェアの抽出とインストール
 
+> **px4_drv を Debian パッケージや DKMS を使ってインストールする場合、ファームウェアは自動的にインストールされます。**  
+> Debian パッケージや DKMS を使ってインストールする場合は、この手順は不要です。
+
 unzip, gcc, make がインストールされている必要があります。
 
 	$ cd fwtool
@@ -97,39 +100,40 @@ unzip, gcc, make がインストールされている必要があります。
 
 または、抽出済みのファームウェアを利用することもできます。
 
-	$ sudo mkdir -p /lib/firmware && sudo cp winusb/pkg/DriverHost_PX4/it930x-firmware.bin /lib/firmware/
+	$ sudo mkdir -p /lib/firmware && sudo cp etc/it930x-firmware.bin /lib/firmware/
 
 ### 2. ドライバのインストール
 
 一部の Linux ディストリビューションでは、udev のインストールが別途必要になる場合があります。
+	
+#### Debian パッケージを使用してインストール
 
-#### DKMS を使用しない場合
+`./build_deb.sh` を実行すると、./build_deb.sh の一つ上層のディレクトリに `px4-drv-dkms_0.2.1_(amd64|arm64).deb` という名前の Debian パッケージが生成されます。  
 
-gcc, make, カーネルソース/ヘッダがインストールされている必要があります。
+	$ ./build_deb.sh
+	$ sudo apt install -y ../px4-drv-dkms_0.2.1_amd64.deb
 
-	$ cd driver
-	$ make
-	$ sudo make install
-	$ cd ../
+上記コマンドで、px4_drv の Debian パッケージをインストールできます。
 
-#### DKMS を使用する場合
+#### DKMS を使用してインストールする
 
 gcc, make, カーネルソース/ヘッダ, dkms がインストールされている必要があります。
 
 	$ sudo cp -a ./ /usr/src/px4_drv-0.2.1
 	$ sudo dkms add px4_drv/0.2.1
 	$ sudo dkms install px4_drv/0.2.1
-	
-#### ビルド済みバイナリを Debian パッケージからインストールする
 
-`build_deb.sh` を実行すると、
-- px4-drv-***.deb
-- px4-drv-dkms-***.deb
-の２つのファイルが生成されます。
-```
-sudo apt install ./px4-drv*.deb -y
-```
-とする事でインストールができます。
+#### DKMS を使用せずにインストールする
+
+gcc, make, カーネルソース/ヘッダがインストールされている必要があります。
+
+> DKMS を使用せずにインストールした場合、カーネルのアップデート時にドライバが自動的に再ビルドされないため、アップデート後に再度インストールを行う必要があります。  
+> 基本 DKMS を使用してインストールすることをおすすめします。
+
+	$ cd driver
+	$ make
+	$ sudo make install
+	$ cd ../
 
 ### 3. 確認
 
@@ -220,18 +224,26 @@ sudo apt install ./px4-drv*.deb -y
 
 ### 1. ドライバのアンインストール
 
-#### DKMS を使用せずにインストールした場合
+#### Debian パッケージを使用してインストールした場合
 
-	$ cd driver
-	$ sudo make uninstall
-	$ cd ../
+	$ sudo apt purge px4-drv-dkms
 
 #### DKMS を使用してインストールした場合
 
 	$ sudo dkms remove px4_drv/0.2.1 --all
 	$ sudo rm -rf /usr/src/px4_drv-0.2.1
 
+#### DKMS を使用せずにインストールした場合
+
+	$ sudo modprobe -r px4_drv
+	$ cd driver
+	$ sudo make uninstall
+	$ cd ../
+
 ### 2. ファームウェアのアンインストール
+
+> **px4_drv を Debian パッケージや DKMS を使ってインストールした場合、ファームウェアは自動的にアンインストールされます。**  
+> Debian パッケージや DKMS を使ってインストールした場合は、この手順は不要です。
 
 	$ sudo rm /lib/firmware/it930x-firmware.bin
 
