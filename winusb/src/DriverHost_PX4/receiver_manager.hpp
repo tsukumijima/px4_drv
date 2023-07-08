@@ -3,7 +3,7 @@
 #pragma once
 
 #include <shared_mutex>
-#include <unordered_map>
+#include <map>
 
 #include "command.hpp"
 #include "receiver_base.hpp"
@@ -38,7 +38,7 @@ private:
 	bool GenerateDataId(px4::ReceiverBase *receiver, std::uint32_t &data_id);
 
 	std::shared_mutex mtx_;
-	std::unordered_map<px4::ReceiverBase*, ReceiverData> data_;
+	std::map<px4::ReceiverBase*, ReceiverData> data_;
 };
 
 } // namespace px4
