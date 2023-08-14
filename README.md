@@ -18,6 +18,7 @@ PLEX社の[Webサイト](http://plex-net.co.jp)にて配布されている公式
 	- PX-MLT5PE
 	- PX-MLT8PE
   - PX-M1UR
+	- PX-S1UR
 
 - e-Better
 
@@ -119,6 +120,13 @@ gcc, make, カーネルソース/ヘッダ, dkmsがインストールされて�
 
 	$ ls /dev/pxm1urvideo*
 	/dev/pxm1urvideo0
+
+すべてのチューナーにおいて、ISDB-TとISDB-Sのどちらも受信可能です。
+
+##### PLEX PX-S1URを接続した場合
+
+	$ ls /dev/pxs1urvideo*
+	/dev/pxs1urvideo0
 
 すべてのチューナーにおいて、ISDB-TとISDB-Sのどちらも受信可能です。
 
