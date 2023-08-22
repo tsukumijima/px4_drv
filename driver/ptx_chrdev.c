@@ -226,7 +226,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 				break;
 			} else if (freq.freq_no < 12) {
 				/* BS */
-				if (freq.slot >= 8) {
+				if (0 && freq.slot >= 8) {
 					ret = -EINVAL;
 					break;
 				}
@@ -268,7 +268,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 					break;
 				} else if (freq.freq_no < 12) {
 					/* BS */
-					if (freq.slot >= 8) {
+					if (0 && freq.slot >= 8) {
 						ret = -EINVAL;
 						break;
 					}
