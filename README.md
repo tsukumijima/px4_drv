@@ -33,6 +33,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 - [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み
 - [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR / PX-S1UR に対応
+- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の内容を取り込み Linux カーネル 6.4 系以降の API 変更に対応
 - Debian パッケージ (.deb) の作成とインストールに対応
 - DKMS でのインストール時にファームウェアを自動でインストールするように変更
 - README (このページ) に Debian パッケージからのインストール方法などを追記
