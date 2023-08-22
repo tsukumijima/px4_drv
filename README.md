@@ -32,7 +32,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 動作確認は Ubuntu 20.04 LTS (x64) で行っています。
 
 - [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み
-- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR に対応
+- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR / PX-S1UR に対応
 - Debian パッケージ (.deb) の作成とインストールに対応
 - DKMS でのインストール時にファームウェアを自動でインストールするように変更
 - README (このページ) に Debian パッケージからのインストール方法などを追記
@@ -50,6 +50,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	- PX-MLT5PE
 	- PX-MLT8PE
     - PX-M1UR (Windows 非対応)
+    - PX-S1UR (Windows 非対応)
 
 - e-Better
 
@@ -105,15 +106,15 @@ unzip, gcc, make がインストールされている必要があります。
 	$ sudo mkdir -p /lib/firmware && sudo cp it930x-firmware.bin /lib/firmware/
 	$ cd ../
 
-または、抽出済みのファームウェアを利用することもできます。
+または、抽出済みのファームウェアを利用することもできます (推奨) 。
 
-	$ sudo mkdir -p /lib/firmware && sudo cp etc/it930x-firmware.bin /lib/firmware/
+	$ sudo mkdir -p /lib/firmware && sudo cp ./etc/it930x-firmware.bin /lib/firmware/
 
 ### 2. ドライバのインストール
 
 一部の Linux ディストリビューションでは、udev のインストールが別途必要になる場合があります。
 	
-#### Debian パッケージを使用してインストール
+#### Debian パッケージを使用してインストール (推奨)
 
 `./build_deb.sh` を実行すると、./build_deb.sh の一つ上層のディレクトリに `px4-drv-dkms_0.2.1_(amd64|arm64).deb` という名前の Debian パッケージが生成されます。  
 
@@ -134,8 +135,8 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 gcc, make, カーネルソース/ヘッダがインストールされている必要があります。
 
-> DKMS を使用せずにインストールした場合、カーネルのアップデート時にドライバが自動的に再ビルドされないため、アップデート後に再度インストールを行う必要があります。  
-> 基本 DKMS を使用してインストールすることをおすすめします。
+> DKMS を使用せずにインストールした場合、カーネルのアップデート時に自動ではドライバが再ビルドされないため、アップデート後に再度インストールを行う必要があります。  
+> できるだけ DKMS を使用してインストールすることをおすすめします。
 
 	$ cd driver
 	$ make
@@ -175,7 +176,7 @@ gcc, make, カーネルソース/ヘッダがインストールされている�
 	/dev/px4video0  /dev/px4video2  /dev/px4video4  /dev/px4video6
 	/dev/px4video1  /dev/px4video3  /dev/px4video5  /dev/px4video7
 
-チューナーは、`px4video0` から ISDB-S, ISDB-S, ISDB-T, ISDB-T, ISDB-S, ISDB-S, ISDB-T, ISDB-T というように、SとTが2つずつ交互に割り当てられます。
+チューナーは、`px4video0` から ISDB-S, ISDB-S, ISDB-T, ISDB-T, ISDB-S, ISDB-S, ISDB-T, ISDB-T というように、S と T が2つずつ交互に割り当てられます。
 
 ##### PLEX PX-MLT5PE を接続した場合
 
@@ -200,6 +201,13 @@ gcc, make, カーネルソース/ヘッダがインストールされている�
 	/dev/pxm1urvideo0
 
 すべてのチューナーにおいて、ISDB-T と ISDB-S のどちらも受信可能です。
+
+##### PLEX PX-S1UR を接続した場合
+
+	$ ls /dev/pxs1urvideo*
+	/dev/pxs1urvideo0
+
+すべてのチューナーにおいて、ISDB-T のみ受信可能です。
 
 ##### e-Better DTV02-1T1S-U/DTV02A-1T1S-U を接続した場合
 

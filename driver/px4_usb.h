@@ -21,6 +21,8 @@
 #define USB_PID_DIGIBEST_ISDB2056	0x004b
 #define USB_PID_DIGIBEST_ISDB6014_4TS	0x0254
 #define USB_PID_PX_M1UR                0x0854
+#define USB_PID_PX_S1UR                0x0855
+
 
 enum px4_usb_device_type {
 	UNKNOWN_USB_DEVICE = 0,
@@ -30,6 +32,9 @@ enum px4_usb_device_type {
 	ISDB2056_USB_DEVICE,
 	ISDB6014_4TS_USB_DEVICE,
 	PXM1UR_USB_DEVICE,
+	PXS1UR_USB_DEVICE,
+	//----
+	MAX_USB_DEVICE_TYPE,
 };
 
 int px4_usb_register(void);
