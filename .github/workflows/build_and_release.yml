@@ -1,0 +1,33 @@
+name: Build and Release Debian Package
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+
+  build_and_release:
+    name: Build and Release Debian Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install DKMS
+        run: sudo apt-get install -y dkms dpkg
+
+      - name: Build Debian package
+        run: dkms mkdeb --source-only
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ github.ref }}
+          tag_name: ${{ github.ref }}
+          generate_release_notes: true
+          files: |
+            ../*.deb

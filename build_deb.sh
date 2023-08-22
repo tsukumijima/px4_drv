@@ -6,4 +6,4 @@ set -CEuo pipefail
 sudo apt-get install -y dkms dpkg
 
 # Build dkms deb
-dkms mkdeb
+dkms mkdeb --source-only

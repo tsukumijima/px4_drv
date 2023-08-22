@@ -117,10 +117,10 @@ unzip, gcc, make がインストールされている必要があります。
 	
 #### Debian パッケージを使用してインストール (推奨)
 
-`./build_deb.sh` を実行すると、./build_deb.sh の一つ上層のディレクトリに `px4-drv-dkms_0.2.1_(amd64|arm64).deb` という名前の Debian パッケージが生成されます。  
+`./build_deb.sh` を実行すると、./build_deb.sh の一つ上層のディレクトリに `px4-drv-dkms_0.2.1_all.deb` という名前の Debian パッケージが生成されます。  
 
 	$ ./build_deb.sh
-	$ sudo apt install -y ../px4-drv-dkms_0.2.1_amd64.deb
+	$ sudo apt install -y ../px4-drv-dkms_0.2.1_all.deb
 
 上記コマンドで、px4_drv の Debian パッケージをインストールできます。
 
@@ -156,7 +156,7 @@ gcc, make, カーネルソース/ヘッダがインストールされている�
 
 何も表示されない場合は、下記のコマンドを実行してから、再度上記のコマンドを実行して確認を行ってください。
 
-	$ modprobe px4_drv
+	$ sudo modprobe px4_drv
 
 それでもカーネルモジュールが正常にロードされない場合は、インストールから再度やり直してください。
 
