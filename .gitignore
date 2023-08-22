@@ -21,3 +21,6 @@ fwtool/*.bin
 
 *.obj
 *.exe
+
+.vscode/
+!.vscode/c_cpp_properties.json
