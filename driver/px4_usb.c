@@ -23,6 +23,8 @@
 #include "px4_device.h"
 #include "pxmlt_device.h"
 #include "isdb2056_device.h"
+#include "s1ur_device.h"
+#include "m1ur_device.h"
 
 #ifndef PX4_USB_MAX_DEVICE
 #define PX4_USB_MAX_DEVICE	16
@@ -54,6 +56,12 @@
 #endif
 #define PXM1UR_USB_MAX_CHRDEV	(PXM1UR_USB_MAX_DEVICE * ISDB2056_CHRDEV_NUM)
 
+#ifndef PXS1UR_USB_MAX_DEVICE
+#define PXS1UR_USB_MAX_DEVICE	64
+#endif
+#define PXS1UR_USB_MAX_CHRDEV	(PXS1UR_USB_MAX_DEVICE * ISDB2056_CHRDEV_NUM)
+
+
 struct px4_usb_context {
 	enum px4_usb_device_type type;
 	struct completion quit_completion;
@@ -61,10 +69,12 @@ struct px4_usb_context {
 		struct px4_device px4;
 		struct pxmlt_device pxmlt;
 		struct isdb2056_device isdb2056;
+		struct s1ur_device s1ur;
+		struct m1ur_device m1ur;
 	} ctx;
 };
 
-static struct ptx_chrdev_context *px4_usb_chrdev_ctx[7];
+static struct ptx_chrdev_context *px4_usb_chrdev_ctx[MAX_USB_DEVICE_TYPE];
 
 static int px4_usb_init_bridge(struct device *dev, struct usb_device *usb_dev,
 			       struct it930x_bridge *it930x)
@@ -201,9 +211,22 @@ static int px4_usb_probe(struct usb_interface *intf,
 				break;
 
 			ctx->type = PXM1UR_USB_DEVICE;
-			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev,
+			ret = m1ur_device_init(&ctx->ctx.m1ur, dev,
 						   px4_usb_chrdev_ctx[PXM1UR_USB_DEVICE],
 						   &ctx->quit_completion);
+			break;
+		
+		case USB_PID_PX_S1UR:
+			ret = px4_usb_init_bridge(dev, usb_dev,
+							&ctx->ctx.s1ur.it930x);
+			if (ret)
+				break;
+
+			ctx->type = PXS1UR_USB_DEVICE;
+			ret = s1ur_device_init(&ctx->ctx.s1ur, dev,
+						   px4_usb_chrdev_ctx[PXS1UR_USB_DEVICE],
+						   &ctx->quit_completion);
+
 			break;
 
 		default:
@@ -265,7 +288,12 @@ static void px4_usb_disconnect(struct usb_interface *intf)
 		break;
 	
 	case PXM1UR_USB_DEVICE:
-		isdb2056_device_term(&ctx->ctx.isdb2056);
+		m1ur_device_term(&ctx->ctx.m1ur);
+		wait_for_completion(&ctx->quit_completion);
+		break;
+
+	case PXS1UR_USB_DEVICE:
+		s1ur_device_term(&ctx->ctx.s1ur);
 		wait_for_completion(&ctx->quit_completion);
 		break;
 
@@ -306,6 +334,7 @@ static const struct usb_device_id px4_usb_ids[] = {
 	{ USB_DEVICE(0x0511, USB_PID_DIGIBEST_ISDB2056) },
 	{ USB_DEVICE(0x0511, USB_PID_DIGIBEST_ISDB6014_4TS) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_M1UR) },
+	{ USB_DEVICE(0x0511, USB_PID_PX_S1UR) },
 	{ 0 }
 };
 
@@ -380,6 +409,14 @@ int px4_usb_register()
 		goto fail_pxm1ur;
 	}
 
+	ret = ptx_chrdev_context_create("pxs1ur", "pxs1urvideo",
+					PXS1UR_USB_MAX_CHRDEV,
+					&px4_usb_chrdev_ctx[PXS1UR_USB_DEVICE]);
+	if (ret) {
+		pr_err("px4_usb_register: ptx_chrdev_context_create(\"pxs1ur\") failed.\n");
+		goto fail_pxs1ur;
+	}
+
 	ret = usb_register(&px4_usb_driver);
 	if (ret) {
 		pr_err("px4_usb_register: usb_register() failed.\n");
@@ -390,6 +427,9 @@ int px4_usb_register()
 
 fail_usb:
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[ISDB6014_4TS_USB_DEVICE]);
+
+fail_pxs1ur:
+	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[PXS1UR_USB_DEVICE]);
 
 fail_pxm1ur:
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[PXM1UR_USB_DEVICE]);
@@ -413,6 +453,7 @@ fail:
 void px4_usb_unregister()
 {
 	usb_deregister(&px4_usb_driver);
+	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[PXS1UR_USB_DEVICE]);
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[PXM1UR_USB_DEVICE]);
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[ISDB6014_4TS_USB_DEVICE]);
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[ISDB2056_USB_DEVICE]);
