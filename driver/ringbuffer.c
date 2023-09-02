@@ -104,8 +104,13 @@ int ringbuffer_alloc(struct ringbuffer *ringbuf, size_t size)
 	ringbuffer_reset_nolock(ringbuf);
 
 	if (!ringbuf->buf) {
-		ringbuf->buf = (u8 *)__get_free_pages(GFP_KERNEL,
+#ifdef __GFP_RETRY_MAYFAIL
+		ringbuf->buf = (u8 *)__get_free_pages(GFP_KERNEL | __GFP_RETRY_MAYFAIL,
 						      get_order(size));
+#else
+		ringbuf->buf = (u8 *)__get_free_pages(GFP_KERNEL | __GFP_REPEAT,
+						      get_order(size));
+#endif
 		if (!ringbuf->buf)
 			ret = -ENOMEM;
 		else
