@@ -84,7 +84,7 @@ static int px4_usb_init_bridge(struct device *dev, struct usb_device *usb_dev,
 	bus->dev = dev;
 	bus->type = ITEDTV_BUS_USB;
 	bus->usb.dev = usb_dev;
-	bus->usb.ctrl_timeout = 3000;
+	bus->usb.ctrl_timeout = px4_usb_params.ctrl_timeout;
 	bus->usb.streaming.urb_buffer_size = 188 * px4_usb_params.urb_max_packets;
 	bus->usb.streaming.urb_num = px4_usb_params.max_urbs;
 	bus->usb.streaming.no_dma = px4_usb_params.no_dma;
