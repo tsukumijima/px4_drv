@@ -6,6 +6,7 @@
 #include <linux/types.h>
 
 struct px4_usb_param_set {
+	int ctrl_timeout;
 	unsigned int xfer_packets;
 	unsigned int urb_max_packets;
 	unsigned int max_urbs;

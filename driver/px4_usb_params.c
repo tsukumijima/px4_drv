@@ -11,11 +11,18 @@
 #include <linux/module.h>
 
 struct px4_usb_param_set px4_usb_params = {
+	.ctrl_timeout = 3000,
 	.xfer_packets = 816,
 	.urb_max_packets = 816,
 	.max_urbs = 6,
 	.no_dma = false
 };
+
+module_param_named(ctrl_timeout, px4_usb_params.ctrl_timeout,
+		   int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(ctrl_timeout,
+		 "Time in msecs to wait for the message to complete " \
+		 "before timing out (if 0 the wait is forever). (default: 3000)");
 
 module_param_named(xfer_packets, px4_usb_params.xfer_packets,
 		   uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
