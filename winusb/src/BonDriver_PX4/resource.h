@@ -4,11 +4,11 @@
 
 #include <windows.h>
 
-#define VER_FILE	0,4,0,0
-#define VER_FILE_STR	"0.4.0"
+#define VER_FILE	0,4,1,0
+#define VER_FILE_STR	"0.4.1"
 
-#define VER_PRODUCT	0,4,0,0
-#define VER_PRODUCT_STR	"0.4.0"
+#define VER_PRODUCT	0,4,1,0
+#define VER_PRODUCT_STR	"0.4.1"
 
 #define VER_COMMENTS_STR		""
 #define VER_COMPANYNAME_STR		"nns779"
