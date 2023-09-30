@@ -1001,6 +1001,7 @@ int m1ur_device_init(struct m1ur_device *m1ur, struct device *dev,
 	if (ret)
 		goto fail_device;
 
+#if 0
 	ret = it930x_set_gpio_mode(it930x, 11, IT930X_GPIO_OUT, true);
 	if (ret)
 		goto fail_device;
@@ -1009,6 +1010,7 @@ int m1ur_device_init(struct m1ur_device *m1ur, struct device *dev,
 	ret = it930x_write_gpio(it930x, 11, false);
 	if (ret)
 		goto fail_device;
+#endif
 
 	if (px4_device_params.discard_null_packets) {
 		struct it930x_pid_filter filter;

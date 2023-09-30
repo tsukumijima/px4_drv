@@ -32,7 +32,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 動作確認は Ubuntu 20.04 LTS (x64) で行っています。
 
 - [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み
-- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR / PX-S1UR に対応
+- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR / PX-S1UR に対応 (実験的)
 - [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の内容を取り込み Linux カーネル 6.4 系以降の API 変更に対応
 - Debian パッケージ (.deb) の作成とインストールに対応
 - DKMS でのインストール時にファームウェアを自動でインストールするように変更
@@ -50,8 +50,8 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	- PX-Q3PE5
 	- PX-MLT5PE
 	- PX-MLT8PE
-    - PX-M1UR (Windows 非対応)
-    - PX-S1UR (Windows 非対応)
+    - PX-M1UR (実験的・Windows 非対応)
+    - PX-S1UR (実験的・Windows 非対応)
 
 - e-Better
 
