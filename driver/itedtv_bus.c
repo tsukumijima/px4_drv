@@ -58,6 +58,12 @@ static int itedtv_usb_ctrl_tx(struct itedtv_bus *bus, void *buf, int len)
 			   buf, len,
 			   &rlen, bus->usb.ctrl_timeout);
 
+	if (ret) {
+		dev_err(bus->dev,
+			 "itedtv_usb_ctrl_tx: usb_bulk_msg() failed. (ret: %d)\n",
+			 ret);
+	}
+
 	mdelay(1);
 
 	return ret;
@@ -76,6 +82,12 @@ static int itedtv_usb_ctrl_rx(struct itedtv_bus *bus, void *buf, int *len)
 			   usb_rcvbulkpipe(dev, 0x81),
 			   buf, *len,
 			   &rlen, bus->usb.ctrl_timeout);
+
+	if (ret) {
+		dev_err(bus->dev,
+			 "itedtv_usb_ctrl_rx: usb_bulk_msg() failed. (ret: %d)\n",
+			 ret);
+	}
 
 	*len = rlen;
 
