@@ -21,7 +21,7 @@ typedef uint32_t u32;
 #define ARRAY_SIZE(arr)	(sizeof(arr) / sizeof((arr)[0]))
 
 #define msleep(ms)		Sleep((ms) + (16 - ((ms) % 16)))
-#define mdelay(ms)		/* do nothing*/
+#define usleep_range(min, max)	/* do nothing*/
 
 #define GFP_KERNEL	0
 #define GFP_ATOMIC	0

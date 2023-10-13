@@ -58,7 +58,7 @@ static int itedtv_usb_ctrl_tx(struct itedtv_bus *bus, void *buf, int len)
 			   buf, len,
 			   &rlen, bus->usb.ctrl_timeout);
 
-	mdelay(1);
+	usleep_range(1000, 1100);
 
 	return ret;
 }
@@ -79,7 +79,7 @@ static int itedtv_usb_ctrl_rx(struct itedtv_bus *bus, void *buf, int *len)
 
 	*len = rlen;
 
-	mdelay(1);
+	usleep_range(1000, 1100);
 
 	return ret;
 }
