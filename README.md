@@ -118,16 +118,16 @@ unzip, gcc, make がインストールされている必要があります。
 	
 #### Debian パッケージを使用してインストール (推奨)
 
-	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.4.1/px4-drv-dkms_0.4.1_all.deb
-	$ sudo apt install -y ./px4-drv-dkms_0.4.1_all.deb
+	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.4.2/px4-drv-dkms_0.4.2_all.deb
+	$ sudo apt install -y ./px4-drv-dkms_0.4.2_all.deb
 
 上記コマンドで、px4_drv の Debian パッケージをインストールできます。
 
 手動で Debian パッケージを生成することもできます。  
-`./build_deb.sh` を実行すると、./build_deb.sh の一つ上層のディレクトリに `px4-drv-dkms_0.4.1_all.deb` という名前の Debian パッケージが生成されます。  
+`./build_deb.sh` を実行すると、./build_deb.sh の一つ上層のディレクトリに `px4-drv-dkms_0.4.2_all.deb` という名前の Debian パッケージが生成されます。  
 
 	$ ./build_deb.sh
-	$ sudo apt install -y ../px4-drv-dkms_0.4.1_all.deb
+	$ sudo apt install -y ../px4-drv-dkms_0.4.2_all.deb
 
 上記コマンドで、生成した px4_drv の Debian パッケージをインストールできます。
 
@@ -135,9 +135,9 @@ unzip, gcc, make がインストールされている必要があります。
 
 gcc, make, カーネルソース/ヘッダ, dkms がインストールされている必要があります。
 
-	$ sudo cp -a ./ /usr/src/px4_drv-0.4.1
-	$ sudo dkms add px4_drv/0.4.1
-	$ sudo dkms install px4_drv/0.4.1
+	$ sudo cp -a ./ /usr/src/px4_drv-0.4.2
+	$ sudo dkms add px4_drv/0.4.2
+	$ sudo dkms install px4_drv/0.4.2
 
 #### DKMS を使用せずにインストールする
 
@@ -254,8 +254,8 @@ gcc, make, カーネルソース/ヘッダがインストールされている�
 
 #### DKMS を使用してインストールした場合
 
-	$ sudo dkms remove px4_drv/0.4.1 --all
-	$ sudo rm -rf /usr/src/px4_drv-0.4.1
+	$ sudo dkms remove px4_drv/0.4.2 --all
+	$ sudo rm -rf /usr/src/px4_drv-0.4.2
 
 #### DKMS を使用せずにインストールした場合
 
