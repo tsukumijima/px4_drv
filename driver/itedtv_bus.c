@@ -64,7 +64,7 @@ static int itedtv_usb_ctrl_tx(struct itedtv_bus *bus, void *buf, int len)
 			 ret);
 	}
 
-	usleep_range(1000, 1100);
+	mdelay(1);
 
 	return ret;
 }
@@ -91,7 +91,7 @@ static int itedtv_usb_ctrl_rx(struct itedtv_bus *bus, void *buf, int *len)
 
 	*len = rlen;
 
-	usleep_range(1000, 1100);
+	mdelay(1);
 
 	return ret;
 }

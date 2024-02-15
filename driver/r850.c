@@ -1008,7 +1008,7 @@ static int r850_read_adc_value(struct r850_tuner *t, u8 *value)
 	int ret = 0;
 	u8 tmp;
 
-	usleep_range(2000, 2100);
+	mdelay(2);
 
 	ret = r850_read_regs(t, 0x01, &tmp, 1);
 	if (!ret)
@@ -1561,7 +1561,7 @@ static int r850_calibrate_lpf(struct r850_tuner *t,
 		if (ret)
 			return ret;
 
-		usleep_range(5000, 5100);
+		mdelay(5);
 
 		ret = r850_read_adc_value(t, &val);
 		if (ret)
@@ -1576,7 +1576,7 @@ static int r850_calibrate_lpf(struct r850_tuner *t,
 		if (ret)
 			return ret;
 
-		usleep_range(5000, 5100);
+		mdelay(5);
 
 		ret = r850_read_adc_value(t, &val3);
 		if (ret)
@@ -1604,7 +1604,7 @@ static int r850_calibrate_lpf(struct r850_tuner *t,
 		if (ret)
 			return ret;
 
-		usleep_range(5000, 5100);
+		mdelay(5);
 
 		ret = r850_read_adc_value(t, &val);
 		if (ret)
@@ -1616,7 +1616,7 @@ static int r850_calibrate_lpf(struct r850_tuner *t,
 		if (ret)
 			return ret;
 
-		usleep_range(5000, 5100);
+		mdelay(5);
 
 		ret = r850_read_adc_value(t, &val2);
 		if (ret)
@@ -1636,7 +1636,7 @@ static int r850_calibrate_lpf(struct r850_tuner *t,
 		if (ret)
 			return ret;
 
-		usleep_range(5000, 5100);
+		mdelay(5);
 
 		ret = r850_read_adc_value(t, &val2);
 		if (ret)
@@ -1659,7 +1659,7 @@ static int r850_calibrate_lpf(struct r850_tuner *t,
 			if (ret)
 				return ret;
 
-			usleep_range(5000, 5100);
+			mdelay(5);
 
 			ret = r850_read_adc_value(t, &val2);
 			if (ret)
