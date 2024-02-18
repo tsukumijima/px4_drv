@@ -463,7 +463,7 @@ static int itedtv_usb_start_streaming(struct itedtv_bus *bus,
 #endif
 
 	usb_reset_endpoint(bus->usb.dev, 0x84);
-	atomic_xchg(&ctx->streaming, 1);
+	atomic_set(&ctx->streaming, 1);
 
 	num = ctx->num_urb;
 	works = ctx->works;
@@ -494,7 +494,7 @@ static int itedtv_usb_start_streaming(struct itedtv_bus *bus,
 	return ret;
 
 fail:
-	atomic_xchg(&ctx->streaming, 0);
+	atomic_set(&ctx->streaming, 0);
 
 #ifdef ITEDTV_BUS_USE_WORKQUEUE
 	if (ctx->wq)
@@ -517,7 +517,7 @@ static int itedtv_usb_stop_streaming(struct itedtv_bus *bus)
 
 	mutex_lock(&ctx->lock);
 
-	atomic_xchg(&ctx->streaming, 0);
+	atomic_set(&ctx->streaming, 0);
 
 #ifdef ITEDTV_BUS_USE_WORKQUEUE
 	if (ctx->wq)

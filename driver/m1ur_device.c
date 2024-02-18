@@ -1083,7 +1083,7 @@ void m1ur_device_term(struct m1ur_device *m1ur)
 		"m1ur_device_term: kref count: %u\n",
 		kref_read(&m1ur->kref));
 
-	atomic_xchg(&m1ur->available, 0);
+	atomic_set(&m1ur->available, 0);
 	ptx_chrdev_group_destroy(m1ur->chrdev_group);
 
 	kref_put(&m1ur->kref, m1ur_device_release);

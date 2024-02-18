@@ -1011,7 +1011,7 @@ void ptx_chrdev_group_destroy(struct ptx_chrdev_group *chrdev_group)
 
 	mutex_lock(&chrdev_group->lock);
 
-	atomic_xchg(&chrdev_group->available, 0);
+	atomic_set(&chrdev_group->available, 0);
 
 	for (i = 0; i < chrdev_group->chrdev_num; i++) {
 		wake_up(&chrdev_group->chrdev[i].ringbuf_wait);

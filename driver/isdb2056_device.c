@@ -1083,7 +1083,7 @@ void isdb2056_device_term(struct isdb2056_device *isdb2056)
 		"isdb2056_device_term: kref count: %u\n",
 		kref_read(&isdb2056->kref));
 
-	atomic_xchg(&isdb2056->available, 0);
+	atomic_set(&isdb2056->available, 0);
 	ptx_chrdev_group_destroy(isdb2056->chrdev_group);
 
 	kref_put(&isdb2056->kref, isdb2056_device_release);

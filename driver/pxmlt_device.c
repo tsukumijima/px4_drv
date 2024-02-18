@@ -1131,7 +1131,7 @@ void pxmlt_device_term(struct pxmlt_device *pxmlt)
 {
 	dev_dbg(pxmlt->dev, "pxmlt_device_term\n");
 
-	atomic_xchg(&pxmlt->available, 0);
+	atomic_set(&pxmlt->available, 0);
 	ptx_chrdev_group_destroy(pxmlt->chrdev_group);
 
 	kref_put(&pxmlt->kref, pxmlt_device_release);

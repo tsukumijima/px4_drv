@@ -1405,7 +1405,7 @@ void px4_device_term(struct px4_device *px4)
 	dev_dbg(px4->dev,
 		"px4_device_term: kref count: %u\n", kref_read(&px4->kref));
 
-	atomic_xchg(&px4->available, 0);
+	atomic_set(&px4->available, 0);
 	ptx_chrdev_group_destroy(px4->chrdev_group);
 
 	kref_put(&px4->kref, px4_device_release);

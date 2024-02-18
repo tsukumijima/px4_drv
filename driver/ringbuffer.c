@@ -214,7 +214,7 @@ int ringbuffer_read_user(struct ringbuffer *ringbuf,
 			head = read_size - tmp;
 		}
 
-		atomic_xchg(&ringbuf->head, head);
+		atomic_set(&ringbuf->head, head);
 		atomic_sub_return_release(read_size,
 					  &ringbuf->actual_size);
 	}
@@ -260,7 +260,7 @@ int ringbuffer_write_atomic(struct ringbuffer *ringbuf,
 			tail = write_size - tmp;
 		}
 
-		atomic_xchg(&ringbuf->tail, tail);
+		atomic_set(&ringbuf->tail, tail);
 		atomic_add_return_release(write_size,
 					  &ringbuf->actual_size);
 	}
