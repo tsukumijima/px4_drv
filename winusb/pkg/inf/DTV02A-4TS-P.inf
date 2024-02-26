@@ -24,6 +24,7 @@ CatalogFile=px4_drv_winusb.cat
 [ISDB6014_WinUSB.DeviceInstall]
 Include=winusb.inf
 Needs=WINUSB.NT
+AddProperty=ISDB6014_WinUSB.DeviceSetup.AddProperty
 
 [ISDB6014_WinUSB.DeviceInstall.Services]
 Include=winusb.inf
@@ -34,6 +35,9 @@ AddReg=ISDB6014_WinUSB.DeviceSetup.AddReg
 
 [ISDB6014_WinUSB.DeviceSetup.AddReg]
 HKR,,DeviceInterfaceGUIDs,0x00010000,"{da23f91d-62ad-401e-812e-a7f054d665af}"
+
+[ISDB6014_WinUSB.DeviceSetup.AddProperty]
+{afd97640-86a3-4210-b67c-289c41aabe55},3,0x00000011,,0   ;DEVPKEY_Device_SafeRemovalRequiredOverride=FALSE
 
 [Strings]
 AuthorName="nns779"
