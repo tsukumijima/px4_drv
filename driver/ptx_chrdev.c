@@ -567,7 +567,11 @@ int ptx_chrdev_context_create(const char *name, const char *devname,
 		return -ENOMEM;
 
 	mutex_init(&ctx->lock);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0)
+	strscpy(ctx->devname, devname, sizeof(ctx->devname));
+#else
 	strlcpy(ctx->devname, devname, sizeof(ctx->devname));
+#endif
 
 	INIT_LIST_HEAD(&ctx->group_list);
 
