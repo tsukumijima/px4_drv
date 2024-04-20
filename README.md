@@ -68,7 +68,8 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 Windows (WinUSB) 版のドライバは、OS にチューナーを認識させるための inf ファイルと、専用の BonDriver (BonDriver_PX4 / BonDriver_PX-MLT)、ドライバの実体でチューナー操作を司る DriverHost_PX4 から構成されています。
 
-ビルド済みのアーカイブは [こちら](https://github.com/tsukumijima/DTV-Built) からダウンロードできます。または、winusb フォルダにある build.jse を実行して、ご自分でビルドしたものを使うこともできます（ Visual Studio 2019 が必要です）。
+ビルド済みのアーカイブは [こちら](https://github.com/tsukumijima/DTV-Builds) からダウンロードできます。  
+または、winusb フォルダにある build.jse を実行して、ご自分でビルドしたものを使うこともできます (Visual Studio 2019 が必要です) 。
 
 ### 1. 自己署名証明書のインストール
 
