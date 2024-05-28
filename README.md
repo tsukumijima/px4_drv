@@ -395,16 +395,23 @@ PX-MLT8PE は、同一基板上に PX-MLT5PE 相当のデバイスと、3チャ�
 
 DTV02-1T1S-U/DTV02A-1T1S-U は、ISDB-T 側の TS シリアル出力を ISDB-S 側と共有しています。そのため、同時に受信できるチャンネル数は1チャンネルのみです。
 
-- DTV02-1T1S-U/DTV02A-1T1S-U
+- DTV02-1T1S-U/DTV02A-1T1S-U (Digibest ISDB2056)
 
 	- USB Bridge: ITE IT9303FN
 	- ISDB-T/S Demodulator: Toshiba TC90532XBG
 	- Terrestrial Tuner: RafaelMicro R850
 	- Satellite Tuner: RafaelMicro RT710
 
+- DTV02A-1T1S-U (2023年9月以降ロット: Digibest ISDB2056N)
+
+	- USB Bridge: ITE IT9303FN
+	- ISDB-T/S Demodulator: Toshiba TC90522XBG (TC90532XBG -> TC90522XBG に変更)
+	- Terrestrial Tuner: RafaelMicro R850
+	- Satellite Tuner: RafaelMicro RT710
+
 DTV02A-4TS-P は、PX-MLT5PE から1チャンネル分のチューナーを削減した構造となっています。
 
-- DTV02A-4TS-P
+- DTV02A-4TS-P (Digibest ISDB6014)
 
 	- USB Bridge: ITE IT9305E
 	- ISDB-T/S Demodulator: Sony CXD2856ER (x4)
