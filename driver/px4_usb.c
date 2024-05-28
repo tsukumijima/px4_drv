@@ -192,6 +192,18 @@ static int px4_usb_probe(struct usb_interface *intf,
 						   &ctx->quit_completion);
 			break;
 
+		case USB_PID_DIGIBEST_ISDB2056N:
+			ret = px4_usb_init_bridge(dev, usb_dev,
+						  &ctx->ctx.isdb2056.it930x);
+			if (ret)
+				break;
+
+			ctx->type = ISDB2056_USB_DEVICE;
+			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev,
+						   px4_usb_chrdev_ctx[ISDB2056_USB_DEVICE],
+						   &ctx->quit_completion);
+			break;
+
 		case USB_PID_DIGIBEST_ISDB6014_4TS:
 			ret = px4_usb_init_bridge(dev, usb_dev,
 						  &ctx->ctx.pxmlt.it930x);
@@ -332,6 +344,7 @@ static const struct usb_device_id px4_usb_ids[] = {
 	{ USB_DEVICE(0x0511, USB_PID_PX_MLT8PE3) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_MLT8PE5) },
 	{ USB_DEVICE(0x0511, USB_PID_DIGIBEST_ISDB2056) },
+	{ USB_DEVICE(0x0511, USB_PID_DIGIBEST_ISDB2056N) },
 	{ USB_DEVICE(0x0511, USB_PID_DIGIBEST_ISDB6014_4TS) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_M1UR) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_S1UR) },

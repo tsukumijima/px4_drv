@@ -18,10 +18,11 @@
 #define USB_PID_PX_MLT5PE		0x024e
 #define USB_PID_PX_MLT8PE3		0x0252
 #define USB_PID_PX_MLT8PE5		0x0253
-#define USB_PID_DIGIBEST_ISDB2056	0x004b
+#define USB_PID_DIGIBEST_ISDB2056		0x004b
+#define USB_PID_DIGIBEST_ISDB2056N		0x084b
 #define USB_PID_DIGIBEST_ISDB6014_4TS	0x0254
-#define USB_PID_PX_M1UR                0x0854
-#define USB_PID_PX_S1UR                0x0855
+#define USB_PID_PX_M1UR					0x0854
+#define USB_PID_PX_S1UR					0x0855
 
 
 enum px4_usb_device_type {
