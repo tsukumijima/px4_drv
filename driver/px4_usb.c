@@ -372,6 +372,7 @@ int px4_usb_register()
 	pr_debug("px4_usb_register: ISDB2056_USB_MAX_DEVICE: %d\n", ISDB2056_USB_MAX_DEVICE);
 	pr_debug("px4_usb_register: ISDB6014_4TS_USB_MAX_DEVICE: %d\n", ISDB6014_4TS_USB_MAX_DEVICE);
 	pr_debug("px4_usb_register: PXM1UR_USB_MAX_DEVICE: %d\n", PXM1UR_USB_MAX_DEVICE);
+	pr_debug("px4_usb_register: PXS1UR_USB_MAX_DEVICE: %d\n", PXS1UR_USB_MAX_DEVICE);
 
 	memset(&px4_usb_chrdev_ctx, 0, sizeof(px4_usb_chrdev_ctx));
 
