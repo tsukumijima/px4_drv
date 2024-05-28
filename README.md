@@ -402,10 +402,13 @@ DTV02-1T1S-U/DTV02A-1T1S-U は、ISDB-T 側の TS シリアル出力を ISDB-S �
 	- Terrestrial Tuner: RafaelMicro R850
 	- Satellite Tuner: RafaelMicro RT710
 
+DTV02A-1T1S-U の 2023年9月以降のロットでは、ISDB-T/S Demodulator IC が TC90532XBG (ISDB-T×1TS + ISDB-S×1TS) から TC90522XBG (ISDB-T×2TS + ISDB-S×2TS) に変更されています。（[詳細](https://web.archive.org/web/20130513083035/http://www.semicon.toshiba.co.jp/product/new_products/assp/1275558_37644.html)）  
+この変更に伴い、内部名称が ISDB2056 から ISDB2056N に変更されています。
+
 - DTV02A-1T1S-U (2023年9月以降ロット: Digibest ISDB2056N)
 
 	- USB Bridge: ITE IT9303FN
-	- ISDB-T/S Demodulator: Toshiba TC90522XBG (TC90532XBG -> TC90522XBG に変更)
+	- ISDB-T/S Demodulator: Toshiba TC90522XBG (TC90532XBG -> TC90522XBG)
 	- Terrestrial Tuner: RafaelMicro R850
 	- Satellite Tuner: RafaelMicro RT710
 
