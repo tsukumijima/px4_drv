@@ -887,7 +887,7 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 
 	chrdev2056->tc90522_s.dev = dev;
 	chrdev2056->tc90522_s.i2c = &it930x->i2c_master[2];
-	chrdev2056->tc90522_s.i2c_addr = 0x11;
+	chrdev2056->tc90522_s.i2c_addr = 0x13;
 	chrdev2056->tc90522_s.is_secondary = false;
 
 	chrdev2056->r850.dev = dev;
