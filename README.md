@@ -62,6 +62,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 	- DTV02-1T1S-U (実験的・Windows 非対応)
 	- DTV02A-1T1S-U (Windows 非対応)
+	  - DTV02A-1T1S-U の 2023年9月以降のロット (Digibest ISDB2056N) にも対応しています。
 	- DTV02A-4TS-P
 
 ## インストール (Windows)
@@ -299,7 +300,7 @@ BonDriver は専用のものが必要になるため、公式 (Jacky版) BonDriv
 recpt1 や [BonDriverProxy_Linux](https://github.com/u-n-k-n-o-w-n/BonDriverProxy_Linux) 等の PT シリーズ用 chardev ドライバに対応したソフトウェアを使用することで、TS データを受信することが可能です。  
 recpt1 は、PLEX 社より配布されているものを使用する必要はありません。
 
-BonDriverProxy_Linux と、PLEX PX-MLT5PEやe-Better DTV02A-1T1S-U などのデバイスファイル1つで ISDB-T と ISDB-S のどちらも受信可能なチューナーを組み合わせて使用する場合は、BonDriver として BonDriverProxy_Linux に同梱されている BonDriver_LinuxPT の代わりに、[BonDriver_LinuxPTX](https://github.com/nns779/BonDriver_LinuxPTX) を使用してください。
+BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などのデバイスファイル1つで ISDB-T と ISDB-S のどちらも受信可能なチューナーを組み合わせて使用する場合は、BonDriver として BonDriverProxy_Linux に同梱されている BonDriver_LinuxPT の代わりに、[BonDriver_LinuxPTX](https://github.com/nns779/BonDriver_LinuxPTX) を使用してください。
 
 ## LNB電源の出力
 
