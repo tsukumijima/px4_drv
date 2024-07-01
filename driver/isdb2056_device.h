@@ -26,6 +26,7 @@ struct isdb2056_chrdev {
 	struct ptx_chrdev *chrdev;
 	struct tc90522_demod tc90522_t;
 	struct tc90522_demod tc90522_s;
+	struct tc90522_demod tc90522_s0;
 	struct r850_tuner r850;
 	struct rt710_tuner rt710;
 };

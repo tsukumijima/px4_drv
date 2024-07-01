@@ -514,11 +514,11 @@ static int isdb2056_chrdev_tune(struct ptx_chrdev *chrdev,
 			break;
 		}
 
-		ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x07, 0x77);
+		ret = tc90522_write_reg(&chrdev2056->tc90522_s0, 0x07, 0x77);
 		if (ret)
 			break;
 
-		ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x08, 0x10);
+		ret = tc90522_write_reg(&chrdev2056->tc90522_s0, 0x08, 0x37);
 		if (ret)
 			break;
 
@@ -884,6 +884,11 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 	chrdev2056->tc90522_t.i2c = &it930x->i2c_master[2];
 	chrdev2056->tc90522_t.i2c_addr = 0x10;
 	chrdev2056->tc90522_t.is_secondary = false;
+
+	chrdev2056->tc90522_s0.dev = dev;
+	chrdev2056->tc90522_s0.i2c = &it930x->i2c_master[2];
+	chrdev2056->tc90522_s0.i2c_addr = 0x11;
+	chrdev2056->tc90522_s0.is_secondary = false;
 
 	chrdev2056->tc90522_s.dev = dev;
 	chrdev2056->tc90522_s.i2c = &it930x->i2c_master[2];
