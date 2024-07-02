@@ -54,12 +54,12 @@
 #ifndef PXM1UR_USB_MAX_DEVICE
 #define PXM1UR_USB_MAX_DEVICE	64
 #endif
-#define PXM1UR_USB_MAX_CHRDEV	(PXM1UR_USB_MAX_DEVICE * ISDB2056_CHRDEV_NUM)
+#define PXM1UR_USB_MAX_CHRDEV	(PXM1UR_USB_MAX_DEVICE * M1UR_CHRDEV_NUM)
 
 #ifndef PXS1UR_USB_MAX_DEVICE
 #define PXS1UR_USB_MAX_DEVICE	64
 #endif
-#define PXS1UR_USB_MAX_CHRDEV	(PXS1UR_USB_MAX_DEVICE * ISDB2056_CHRDEV_NUM)
+#define PXS1UR_USB_MAX_CHRDEV	(PXS1UR_USB_MAX_DEVICE * S1UR_CHRDEV_NUM)
 
 
 struct px4_usb_context {
@@ -69,8 +69,8 @@ struct px4_usb_context {
 		struct px4_device px4;
 		struct pxmlt_device pxmlt;
 		struct isdb2056_device isdb2056;
-		struct s1ur_device s1ur;
 		struct m1ur_device m1ur;
+		struct s1ur_device s1ur;
 	} ctx;
 };
 
@@ -187,7 +187,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 				break;
 
 			ctx->type = ISDB2056_USB_DEVICE;
-			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev,
+			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev, ISDB2056_MODEL,
 						   px4_usb_chrdev_ctx[ISDB2056_USB_DEVICE],
 						   &ctx->quit_completion);
 			break;
@@ -199,7 +199,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 				break;
 
 			ctx->type = ISDB2056_USB_DEVICE;
-			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev,
+			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev, ISDB2056N_MODEL,
 						   px4_usb_chrdev_ctx[ISDB2056_USB_DEVICE],
 						   &ctx->quit_completion);
 			break;
@@ -218,7 +218,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 		case USB_PID_PX_M1UR:
 			ret = px4_usb_init_bridge(dev, usb_dev,
-						  &ctx->ctx.isdb2056.it930x);
+						  &ctx->ctx.m1ur.it930x);
 			if (ret)
 				break;
 
@@ -230,7 +230,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 		case USB_PID_PX_S1UR:
 			ret = px4_usb_init_bridge(dev, usb_dev,
-							&ctx->ctx.s1ur.it930x);
+						  &ctx->ctx.s1ur.it930x);
 			if (ret)
 				break;
 
