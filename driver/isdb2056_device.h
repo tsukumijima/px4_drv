@@ -22,6 +22,11 @@
 
 #define ISDB2056_CHRDEV_NUM	1
 
+enum isdb2056_model {
+	ISDB2056_MODEL = 0,
+	ISDB2056N_MODEL,
+};
+
 struct isdb2056_chrdev {
 	struct ptx_chrdev *chrdev;
 	struct tc90522_demod tc90522_t;
@@ -35,6 +40,7 @@ struct isdb2056_device {
 	struct kref kref;
 	atomic_t available;
 	struct device *dev;
+	enum isdb2056_model isdb2056_model;
 	struct completion *quit_completion;
 	struct ptx_chrdev_group *chrdev_group;
 	struct isdb2056_chrdev chrdev2056;
@@ -43,6 +49,7 @@ struct isdb2056_device {
 };
 
 int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
+			 enum isdb2056_model isdb2056_model,
 			 struct ptx_chrdev_context *chrdev_ctx,
 			 struct completion *quit_completion);
 void isdb2056_device_term(struct isdb2056_device *isdb2056);

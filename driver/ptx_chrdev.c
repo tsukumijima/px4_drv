@@ -7,6 +7,7 @@
 
 #include "print_format.h"
 #include "ptx_chrdev.h"
+#include "isdb2056_device.h"
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -894,6 +895,25 @@ int ptx_chrdev_context_add_group(struct ptx_chrdev_context *chrdev_ctx,
 
 	for (i = 0; i < num; i++) {
 		dev_info(dev, "/dev/%s%u\n", chrdev_ctx->devname, base + i);
+		if (strncmp(chrdev_ctx->devname, "isdb2056", 8) == 0) {
+			// If the device is ISDB2056 or ISDB2056N, print the model name
+			struct ptx_chrdev *chrdev = &group->chrdev[i];
+			struct isdb2056_chrdev *chrdev2056 = chrdev->priv;
+			struct isdb2056_device *isdb2056 = container_of(chrdev2056, struct isdb2056_device, chrdev2056);
+			const char *model_name;
+			switch (isdb2056->isdb2056_model) {
+			case ISDB2056_MODEL:
+				model_name = "ISDB2056";
+				break;
+			case ISDB2056N_MODEL:
+				model_name = "ISDB2056N";
+				break;
+			default:
+				model_name = "Unknown";
+				break;
+			}
+			dev_info(dev, "/dev/%s%u: Digibest %s\n", chrdev_ctx->devname, base + i, model_name);
+		}
 		device_create(chrdev_ctx->class, dev,
 			      MKDEV(MAJOR(chrdev_ctx->dev_base),
 				    group->minor_base + i),

@@ -514,11 +514,33 @@ static int isdb2056_chrdev_tune(struct ptx_chrdev *chrdev,
 			break;
 		}
 
-		ret = tc90522_write_reg(&chrdev2056->tc90522_s0, 0x07, 0x77);
+		switch (isdb2056->isdb2056_model) {
+		case ISDB2056_MODEL:
+			ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x07, 0x77);
+			break;
+		case ISDB2056N_MODEL:
+			ret = tc90522_write_reg(&chrdev2056->tc90522_s0, 0x07, 0x77);
+			break;
+		default:
+			dev_err(isdb2056->dev, "isdb2056_chrdev_tune: undefined model (model: %d)\n", isdb2056->isdb2056_model);
+			ret = -EINVAL;
+			break;
+		}
 		if (ret)
 			break;
 
-		ret = tc90522_write_reg(&chrdev2056->tc90522_s0, 0x08, 0x37);
+		switch (isdb2056->isdb2056_model) {
+		case ISDB2056_MODEL:
+			ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x08, 0x10);
+			break;
+		case ISDB2056N_MODEL:
+			ret = tc90522_write_reg(&chrdev2056->tc90522_s0, 0x08, 0x37);
+			break;
+		default:
+			dev_err(isdb2056->dev, "isdb2056_chrdev_tune: undefined model (model: %d)\n", isdb2056->isdb2056_model);
+			ret = -EINVAL;
+			break;
+		}
 		if (ret)
 			break;
 
@@ -885,6 +907,7 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 	chrdev2056->tc90522_t.i2c_addr = 0x10;
 	chrdev2056->tc90522_t.is_secondary = false;
 
+	// This structure (tc90522_s0) is only required by ISDB2056N, but it is initialized in common just to be safe
 	chrdev2056->tc90522_s0.dev = dev;
 	chrdev2056->tc90522_s0.i2c = &it930x->i2c_master[2];
 	chrdev2056->tc90522_s0.i2c_addr = 0x11;
@@ -892,8 +915,21 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 
 	chrdev2056->tc90522_s.dev = dev;
 	chrdev2056->tc90522_s.i2c = &it930x->i2c_master[2];
-	chrdev2056->tc90522_s.i2c_addr = 0x13;
-	chrdev2056->tc90522_s.is_secondary = true;
+	switch (isdb2056->isdb2056_model) {
+	case ISDB2056_MODEL:
+		// ISDB2056 TS demodulator: Toshiba TC90532XBG
+		chrdev2056->tc90522_s.i2c_addr = 0x11;
+		chrdev2056->tc90522_s.is_secondary = false;
+		break;
+	case ISDB2056N_MODEL:
+		// ISDB2056N TS demodulator: Toshiba TC90522XBG
+		chrdev2056->tc90522_s.i2c_addr = 0x13;
+		chrdev2056->tc90522_s.is_secondary = true;
+		break;
+	default:
+		dev_err(dev, "isdb2056_device_load_config: undefined model (model: %d)\n", isdb2056->isdb2056_model);
+		return -EINVAL;
+	}
 
 	chrdev2056->r850.dev = dev;
 	chrdev2056->r850.i2c = &chrdev2056->tc90522_t.i2c_master;
@@ -925,6 +961,7 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 }
 
 int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
+			 enum isdb2056_model isdb2056_model,
 			 struct ptx_chrdev_context *chrdev_ctx,
 			 struct completion *quit_completion)
 {
@@ -945,6 +982,7 @@ int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 
 	kref_init(&isdb2056->kref);
 	isdb2056->dev = dev;
+	isdb2056->isdb2056_model = isdb2056_model;
 	isdb2056->quit_completion = quit_completion;
 
 	stream_ctx = kzalloc(sizeof(*stream_ctx), GFP_KERNEL);
