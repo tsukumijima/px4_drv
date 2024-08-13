@@ -79,6 +79,16 @@ static int isdb2056_backend_init(struct isdb2056_device *isdb2056)
 		return ret;
 	}
 
+	if (isdb2056->isdb2056_model == ISDB2056N_MODEL) {
+		ret = tc90522_init(&chrdev2056->tc90522_s0);
+		if (ret) {
+			dev_err(isdb2056->dev,
+				"isdb2056_backend_init: tc90522_init() (s0) failed. (ret: %d)\n",
+				ret);
+			return ret;
+		}
+	}
+
 	ret = r850_init(&chrdev2056->r850);
 	if (ret) {
 		dev_err(isdb2056->dev,
@@ -107,6 +117,8 @@ static int isdb2056_backend_term(struct isdb2056_device *isdb2056)
 
 	tc90522_term(&chrdev2056->tc90522_t);
 	tc90522_term(&chrdev2056->tc90522_s);
+	if (isdb2056->isdb2056_model == ISDB2056N_MODEL)
+		tc90522_term(&chrdev2056->tc90522_s0);
 
 	return 0;
 }
