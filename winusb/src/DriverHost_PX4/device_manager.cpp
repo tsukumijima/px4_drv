@@ -9,6 +9,7 @@
 
 #include "px4_device.hpp"
 #include "pxmlt_device.hpp"
+#include "isdb2056_device.hpp"
 
 namespace px4 {
 
@@ -47,6 +48,8 @@ DeviceManager::DeviceManager(const px4::DeviceDefinitionSet &device_defs, px4::R
 			type = DeviceType::PX4;
 		else if (it->first == L"PXMLT")
 			type = DeviceType::PXMLT;
+		else if (it->first == L"ISDB2056")
+			type = DeviceType::ISDB2056;
 
 		if (type == DeviceType::UNKNOWN)
 			continue;
@@ -129,6 +132,16 @@ void DeviceManager::Add(const std::wstring &path, const std::pair<DeviceType, px
 	case px4::DeviceType::PXMLT:
 	{
 		auto dev = std::make_unique<PxMltDevice>(path, def.second, ++index_, receiver_manager_);
+
+		if (!dev->Init())
+			devices_.emplace(path, std::move(dev));
+
+		break;
+	}
+
+	case px4::DeviceType::ISDB2056:
+	{
+		auto dev = std::make_unique<Isdb2056Device>(path, def.second, ++index_, receiver_manager_);
 
 		if (!dev->Init())
 			devices_.emplace(path, std::move(dev));
