@@ -22,7 +22,8 @@ namespace px4 {
 enum class DeviceType : std::uint32_t {
 	UNKNOWN = 0,
 	PX4,
-	PXMLT
+	PXMLT,
+	ISDB2056,
 };
 
 class DeviceManager final {
