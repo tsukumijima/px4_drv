@@ -295,7 +295,7 @@ int Isdb2056Device::SetBackendPower(bool state)
 
 int Isdb2056Device::SetLnbVoltage(std::int32_t voltage)
 {
-	dev_dbg(&dev_, "px4::Isdb2056Device::SetBackendPower: voltage: %d\n", voltage);
+	dev_dbg(&dev_, "px4::Isdb2056Device::SetLnbVoltage: voltage: %d\n", voltage);
 
 	return 0;
 }
@@ -751,13 +751,13 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = tc90522_set_agc_t(&tc90522_t_, false);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_set_agc_t(false) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_set_agc_t(false) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
 		ret = tc90522_sleep_s(&tc90522_s_, true);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_sleep_s(true) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_sleep_s(true) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -775,7 +775,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = tc90522_sleep_t(&tc90522_t_, false);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_sleep_t(false) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_sleep_t(false) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -789,13 +789,13 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = r850_wakeup(&r850_);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): r850_wakeup() failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): r850_wakeup() failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
 		ret = r850_set_frequency(&r850_, params_.freq);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): r850_set_frequency(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): r850_set_frequency(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
 			break;
 		}
 
@@ -820,7 +820,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = tc90522_set_agc_t(&tc90522_t_, true);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_set_agc_t(true) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_set_agc_t(true) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -843,7 +843,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 	{
 		ret = tc90522_set_agc_s(&tc90522_s_, false);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_set_agc_s(false) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_set_agc_s(false) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -857,7 +857,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = tc90522_sleep_t(&tc90522_t_, true);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_sleep_t(true) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_sleep_t(true) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -899,7 +899,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = tc90522_sleep_s(&tc90522_s_, false);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_sleep_s(false) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_sleep_s(false) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -917,7 +917,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = rt710_set_params(&rt710_, params_.freq, 28860, 4);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): rt710_set_params(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): rt710_set_params(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
 			break;
 		}
 
@@ -942,7 +942,7 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 		ret = tc90522_set_agc_s(&tc90522_s_, true);
 		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): tc90522_set_agc_s(true) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_set_agc_s(true) failed. (ret: %d)\n", index_, ret);
 			break;
 		}
 
@@ -1006,7 +1006,7 @@ int Isdb2056Device::Isdb2056Receiver::SetStreamId()
 	if (!init_ || !open_)
 		return -EINVAL;
 
-	dev_dbg(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetStreamID(%u): tsid: %d\n", index_, params_.stream_id);
+	dev_dbg(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetStreamId(%u): tsid: %d\n", index_, params_.stream_id);
 
 	int ret = 0;
 	std::uint16_t tsid;
