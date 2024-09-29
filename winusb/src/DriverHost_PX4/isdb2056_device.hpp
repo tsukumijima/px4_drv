@@ -33,6 +33,7 @@ enum class Isdb2056DeviceModel {
 	ISDB2056 = 0,
 	ISDB2056N,
 	PXM1UR,
+	PXS1UR,
 	OTHER,
 };
 

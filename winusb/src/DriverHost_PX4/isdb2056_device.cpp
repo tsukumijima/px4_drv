@@ -35,6 +35,10 @@ Isdb2056Device::Isdb2056Device(const std::wstring &path, const px4::DeviceDefini
 		model_ = Isdb2056DeviceModel::PXM1UR;
 		break;
 
+	case 0x0855:
+		model_ = Isdb2056DeviceModel::PXS1UR;
+		break;
+
 	default:
 		model_ = Isdb2056DeviceModel::OTHER;
 	}
@@ -574,24 +578,36 @@ int Isdb2056Device::Isdb2056Receiver::Init(bool sleep)
 		}
 	}
 
-	ret = rt710_init(&rt710_);
-	if (ret) {
-		dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Init(%u): rt710_init() failed. (ret: %d)\n", index_, ret);
-		return ret;
+	switch (parent_.model_) {
+	case px4::Isdb2056DeviceModel::ISDB2056:
+	case px4::Isdb2056DeviceModel::ISDB2056N:
+	case px4::Isdb2056DeviceModel::PXM1UR:
+	case px4::Isdb2056DeviceModel::OTHER:
+	{
+		ret = rt710_init(&rt710_);
+		if (ret) {
+			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Init(%u): rt710_init() failed. (ret: %d)\n", index_, ret);
+			return ret;
+		}
+
+		if (sleep) {
+			ret = rt710_sleep(&rt710_);
+			if (ret) {
+				dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Init(%u): rt710_sleep() failed. (ret: %d)\n", index_, ret);
+				return ret;
+			}
+
+			ret = tc90522_sleep_s(&tc90522_s_, true);
+			if (ret) {
+				dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Init(%u): tc90522_sleep_s(true) failed. (ret: %d)\n", index_, ret);
+				return ret;
+			}
+		}
+		break;
 	}
 
-	if (sleep) {
-		ret = rt710_sleep(&rt710_);
-		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Init(%u): rt710_sleep() failed. (ret: %d)\n", index_, ret);
-			return ret;
-		}
-
-		ret = tc90522_sleep_s(&tc90522_s_, true);
-		if (ret) {
-			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Init(%u): tc90522_sleep_s(true) failed. (ret: %d)\n", index_, ret);
-			return ret;
-		}
+	default:
+		break;
 	}
 
 	if (!ret)
@@ -841,6 +857,14 @@ int Isdb2056Device::Isdb2056Receiver::SetFrequency()
 
 	case px4::SystemType::ISDB_S:
 	{
+		switch (parent_.model_) {
+		case px4::Isdb2056DeviceModel::PXS1UR:
+			return -EINVAL;
+
+		default:
+			break;
+		}
+
 		ret = tc90522_set_agc_s(&tc90522_s_, false);
 		if (ret) {
 			dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::SetFrequency(%u): tc90522_set_agc_s(false) failed. (ret: %d)\n", index_, ret);
