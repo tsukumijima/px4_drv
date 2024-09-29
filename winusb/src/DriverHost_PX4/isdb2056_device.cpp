@@ -626,7 +626,17 @@ void Isdb2056Device::Isdb2056Receiver::Term()
 		return;
 
 	r850_term(&r850_);
-	rt710_term(&rt710_);
+
+	switch (parent_.model_) {
+	case px4::Isdb2056DeviceModel::ISDB2056:
+	case px4::Isdb2056DeviceModel::ISDB2056N:
+	case px4::Isdb2056DeviceModel::PXM1UR:
+	case px4::Isdb2056DeviceModel::OTHER:
+		rt710_term(&rt710_);
+		break;
+	default:
+		break;
+	}
 
 	tc90522_term(&tc90522_t_);
 	tc90522_term(&tc90522_s0_);
