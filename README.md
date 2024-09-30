@@ -5,10 +5,14 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 ## このフォークについて
 
+本家 [nns779/px4_drv](https://github.com/nns779/px4_drv) は 2021 年以降メンテナンスされておらず、残念ながら [nns779](https://github.com/nns779) 氏自身もネット上から失踪されています。  
+このフォークは、各々のフォークに散逸していた有用な変更を一つにまとめ、継続的にメンテナンスしていくことを目的としています。
+
 ### 変更点 (WinUSB 版)
 
 - エラー発生時の MessageBox を表示しない設定を追加 
   - BonDriver の ini 内の `DisplayErrorMessage` を 1 に設定すると今まで通り MessageBox が表示される
+- [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv/tree/feature/isdb2056) での更新を取り込み、DTV02A-1T1S-U / PX-M1UR / PX-S1UR に対応
 - PX-Q3PE5 の inf ファイルを追加
 - inf ファイルをより分かりやすい名前に変更
 - inf ファイルを ARM 版 Windows でもインストールできるようにする
@@ -35,11 +39,11 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 動作確認は Ubuntu 20.04 LTS (x64) で行っています。
 
 - チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U に対応
-- [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み安定性と互換性を改善
-- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み PX-M1UR / PX-S1UR に対応 (実験的)
-- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の内容を取り込み Linux カーネル 6.4 系以降の API 変更に対応
-- https://github.com/tsukumijima/px4_drv/pull/6 をマージし Linux カーネル 6.8 系以降の API 変更に対応
-- https://github.com/tsukumijima/px4_drv/pull/3 をマージし `ctrl_timeout` をモジュールパラメーターに追加
+- [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み、安定性と互換性を改善
+- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み、PX-M1UR / PX-S1UR に対応
+- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の内容を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
+- https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
+- https://github.com/tsukumijima/px4_drv/pull/3 をマージし、`ctrl_timeout` をモジュールパラメーターに追加
 - Debian パッケージ (.deb) の作成とインストールに対応
 - DKMS でのインストール時にファームウェアを自動でインストールするように変更
 - README (このページ) に Debian パッケージからのインストール方法などを追記
@@ -56,23 +60,31 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	- PX-Q3PE5
 	- PX-MLT5PE
 	- PX-MLT8PE
-    - PX-M1UR (実験的・Windows 非対応)
-    - PX-S1UR (実験的・Windows 非対応)
+    - PX-M1UR
+    - PX-S1UR
 
 - e-Better
 
-	- DTV02-1T1S-U (実験的・Windows 非対応)
-	- DTV02A-1T1S-U (Windows 非対応)
+	- DTV02-1T1S-U (実験的)
+	- DTV02A-1T1S-U
 	  - チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U にも対応しています。  
 	  手元の実機では問題なく動作していますが、長期間の動作テストは行えていないため、未知の不具合があるかもしれません。
 	- DTV02A-4TS-P
 
+> [!NOTE]
+> 2021 年以降メンテナンスされていない [nns779/px4_drv](https://github.com/nns779/px4_drv) と異なり、新規に下記チューナーのサポートを追加しています。
+> 
+> - PLEX PX-M1UR
+> - PLEX PX-S1UR
+> - e-Better DTV02A-1T1S-U / Digibest ISDB2056 (Windows 版ドライバ)
+> - e-Better DTV02A-1T1S-U (ロット番号 2309 以降) / Digibest ISDB2056N
+
 ## インストール (Windows)
 
-Windows (WinUSB) 版のドライバは、OS にチューナーを認識させるための inf ファイルと、専用の BonDriver (BonDriver_PX4 / BonDriver_PX-MLT)、ドライバの実体でチューナー操作を司る DriverHost_PX4 から構成されています。
+Windows (WinUSB) 版のドライバは、OS にチューナーを認識させるための inf ファイルと、px4_drv 専用の BonDriver、ドライバの実体でチューナー操作を司る DriverHost_PX4 から構成されています。
 
 ビルド済みのアーカイブは [こちら](https://github.com/tsukumijima/DTV-Builds) からダウンロードできます。  
-または、winusb フォルダにある build.jse を実行して、ご自分でビルドしたものを使うこともできます (Visual Studio 2019 が必要です) 。
+または、winusb フォルダにある build.ps1 を実行して、ご自分でビルドしたものを使うこともできます (Visual Studio 2019 が必要です) 。
 
 ### 1. 自己署名証明書のインストール
 
@@ -89,7 +101,14 @@ Driver フォルダには、各機種ごとのドライバのインストール�
 
 ### 3. BonDriver の配置
 
-PX4/PX5 シリーズの機種では BonDriver_PX4 、PX-MLT シリーズの機種では BonDriver_PX-MLT を使用します。
+チューナーの機種に応じた BonDriver を配置します。
+
+- PX4/PX5 シリーズの機種: `BonDriver_PX4`
+- PX-MLT シリーズの機種・DTV02A-4TS-P: `BonDriver_PX-MLT`
+- DTV02A-1T1S-U: `BonDriver_ISDB2056`
+- DTV02A-1T1S-U (ロット番号 2309 以降): `BonDriver_ISDB2056N`
+- PX-M1UR: `BonDriver_PX-M1UR`
+- PX-S1UR: `BonDriver_PX-S1UR`
 
 お使いの PC に合うビット数のフォルダの中のファイルを**すべて**選択し、TVTest や EDCB などのソフトウェアが指定する BonDriver の配置フォルダにコピーします。  
 BonDriver と同じフォルダに DriverHost_PX4.exe / DriverHost_PX4.ini / it930x-firmware.bin があることを確認してください。
@@ -297,7 +316,7 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 ### Windows
 
-PX4/PX5 シリーズの機種では BonDriver_PX4 、PX-MLT シリーズの機種では BonDriver_PX-MLT を、TVTest や EDCB などの BonDriver に対応したソフトウェアで使用することで、TS データを受信することが可能です。
+チューナーの機種に応じた BonDriver とその設定ファイルを配置し、TVTest や EDCB などの BonDriver に対応したソフトウェアで使用することで、TS データを受信することが可能です。
 
 BonDriver は専用のものが必要になるため、公式 (Jacky版) BonDriver や radi-sh 氏版 BonDriver_BDA と併用することはできません。
 
@@ -313,8 +332,9 @@ BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などの�
 ### PLEX PX-W3U4/Q3U4/W3PE4/Q3PE4
 
 出力なしと 15V の出力のみに対応しています。デフォルトでは LNB 電源の出力を行いません。  
-LNB 電源の出力を行うには、recpt1 を実行する際のパラメータに `--lnb 15` を追加してください。  
-Windows では、BonDriver_PX4-S.ini の `LNBPower=0` の項目を `LNBPower=1` に変更してください。
+LNB 電源の出力を行うには、recpt1 を実行する際のパラメータに `--lnb 15` を追加してください。
+
+Windows では、BonDriver_PX4-S.ini に記載の `LNBPower=0` を `LNBPower=1` に変更してください。
 
 ### PLEX PX-W3PE5/Q3PE5
 
