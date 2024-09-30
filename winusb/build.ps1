@@ -24,6 +24,14 @@ New-Item -ItemType Directory dist/BonDriver_PX4_32bit
 New-Item -ItemType Directory dist/BonDriver_PX4_64bit
 New-Item -ItemType Directory dist/BonDriver_PX-MLT_32bit
 New-Item -ItemType Directory dist/BonDriver_PX-MLT_64bit
+New-Item -ItemType Directory dist/BonDriver_ISDB2056_32bit
+New-Item -ItemType Directory dist/BonDriver_ISDB2056_64bit
+New-Item -ItemType Directory dist/BonDriver_ISDB2056N_32bit
+New-Item -ItemType Directory dist/BonDriver_ISDB2056N_64bit
+New-Item -ItemType Directory dist/BonDriver_PX-M1UR_32bit
+New-Item -ItemType Directory dist/BonDriver_PX-M1UR_64bit
+New-Item -ItemType Directory dist/BonDriver_PX-S1UR_32bit
+New-Item -ItemType Directory dist/BonDriver_PX-S1UR_64bit
 
 # BonDriver_PX4_32bit のファイルをコピー
 Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_PX4_32bit/BonDriver_PX4-T.dll
@@ -65,12 +73,82 @@ Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-MLT_64bi
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-MLT_64bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-MLT_64bit/it930x-firmware.bin
 
+# BonDriver_ISDB2056_32bit のファイルをコピー
+Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_ISDB2056_32bit/BonDriver_ISDB2056.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_ISDB2056.ini dist/BonDriver_ISDB2056_32bit/BonDriver_ISDB2056.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_ISDB2056_32bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_ISDB2056_32bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_ISDB2056_32bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_ISDB2056_32bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDB2056_32bit/it930x-firmware.bin
+
+# BonDriver_ISDB2056_64bit のファイルをコピー
+Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_ISDB2056_64bit/BonDriver_ISDB2056.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_ISDB2056.ini dist/BonDriver_ISDB2056_64bit/BonDriver_ISDB2056.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_ISDB2056_64bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_ISDB2056_64bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_ISDB2056_64bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_ISDB2056_64bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDB2056_64bit/it930x-firmware.bin
+
+# BonDriver_ISDB2056N_32bit のファイルをコピー
+Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_ISDB2056N_32bit/BonDriver_ISDB2056N.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_ISDB2056N.ini dist/BonDriver_ISDB2056N_32bit/BonDriver_ISDB2056N.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_ISDB2056N_32bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_ISDB2056N_32bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_ISDB2056N_32bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_ISDB2056N_32bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDB2056N_32bit/it930x-firmware.bin
+
+# BonDriver_ISDB2056N_64bit のファイルをコピー
+Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_ISDB2056N_64bit/BonDriver_ISDB2056N.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_ISDB2056N.ini dist/BonDriver_ISDB2056N_64bit/BonDriver_ISDB2056N.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_ISDB2056N_64bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_ISDB2056N_64bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_ISDB2056N_64bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_ISDB2056N_64bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDB2056N_64bit/it930x-firmware.bin
+
+# BonDriver_PX-M1UR_32bit のファイルをコピー
+Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-M1UR_32bit/BonDriver_PX-M1UR.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX-M1UR.ini dist/BonDriver_PX-M1UR_32bit/BonDriver_PX-M1UR.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-M1UR_32bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_PX-M1UR_32bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-M1UR_32bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-M1UR_32bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-M1UR_32bit/it930x-firmware.bin
+
+# BonDriver_PX-M1UR_64bit のファイルをコピー
+Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-M1UR_64bit/BonDriver_PX-M1UR.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX-M1UR.ini dist/BonDriver_PX-M1UR_64bit/BonDriver_PX-M1UR.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-M1UR_64bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_PX-M1UR_64bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-M1UR_64bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-M1UR_64bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-M1UR_64bit/it930x-firmware.bin
+
+# BonDriver_PX-S1UR_32bit のファイルをコピー
+Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-S1UR_32bit/BonDriver_PX-S1UR.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX-S1UR.ini dist/BonDriver_PX-S1UR_32bit/BonDriver_PX-S1UR.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-S1UR_32bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-S1UR_32bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-S1UR_32bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-S1UR_32bit/it930x-firmware.bin
+
+# BonDriver_PX-S1UR_64bit のファイルをコピー
+Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-S1UR_64bit/BonDriver_PX-S1UR.dll
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX-S1UR.ini dist/BonDriver_PX-S1UR_64bit/BonDriver_PX-S1UR.ini
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-S1UR_64bit/BonDriver_PX4-T.ChSet.txt
+Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-S1UR_64bit/DriverHost_PX4.exe
+Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-S1UR_64bit/DriverHost_PX4.ini
+Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-S1UR_64bit/it930x-firmware.bin
+
 # inf ファイルをコピー
 Copy-Item -Recurse pkg/inf/ dist/Driver
 
 Write-Host '    '
 Write-Host '    '
-Write-Host '    BonDriver_PX4・BonDriver_PX-MLT のビルドとパッケージングを完了しました。'
+Write-Host '    BonDriver のビルドとパッケージングを完了しました。'
 Write-Host '    ビルドしたファイルは dist/ フォルダに配置されています。'
 Write-Host '    '
 (Get-Host).UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
