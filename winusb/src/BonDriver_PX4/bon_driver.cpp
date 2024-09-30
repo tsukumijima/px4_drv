@@ -42,7 +42,7 @@ BonDriver::BonDriver() noexcept
 	current_ofs_(0),
 	quit_event_(nullptr)
 {
-	
+
 }
 
 BonDriver::~BonDriver()

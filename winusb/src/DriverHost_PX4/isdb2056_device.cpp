@@ -273,7 +273,7 @@ int Isdb2056Device::SetBackendPower(bool state)
 
 	int ret = 0;
 	std::lock_guard<std::recursive_mutex> lock(lock_);
-	
+
 	if (!state && !available_)
 		return 0;
 

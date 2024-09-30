@@ -330,7 +330,7 @@ int Px4Device::SetBackendPower(bool state)
 
 	int ret = 0;
 	std::lock_guard<std::recursive_mutex> lock(lock_);
-	
+
 	if (!state && !available_)
 		return 0;
 
@@ -592,7 +592,7 @@ int Px4Device::MultiDevice::Add(Px4Device &dev)
 	msg_dbg("px4::Px4Device::MultiDevice::Add\n");
 
 	std::uint8_t dev_id = dev.serial_.dev_id - 1;
-	
+
 	if (dev_id > 1)
 		return -EINVAL;
 
@@ -1000,7 +1000,7 @@ int Px4Device::Px4Receiver::Open()
 		}
 		if (ret)
 			goto fail;
-	}	
+	}
 
 	switch (system_) {
 	case px4::SystemType::ISDB_T:
@@ -1054,7 +1054,7 @@ int Px4Device::Px4Receiver::Open()
 
 	if (ret)
 		goto fail;
-	
+
 	if (!parent_.open_count_) {
 		for (int i = 0; i < 4; i += 2) {
 			ret = parent_.receivers_[i]->InitPrimary();
@@ -1100,7 +1100,7 @@ void Px4Device::Px4Receiver::Close()
 			if (parent_.receivers_[i])
 				parent_.receivers_[i]->Term();
 		}
-		
+
 		if (!parent_.mldev_)
 			parent_.SetBackendPower(false);
 	} else if (parent_.available_) {

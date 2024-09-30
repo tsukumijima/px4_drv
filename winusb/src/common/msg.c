@@ -47,7 +47,7 @@ int msg_printf(const char *format, ...)
 	va_start(args, format);
 	c = vsprintf_s(buf, 1024, format, args);
 	va_end(args);
-	
+
 	if (mode & MSG_MODE_CONSOLE)
 		printf("%s", buf);
 
@@ -56,7 +56,7 @@ int msg_printf(const char *format, ...)
 
 	if ((mode & MSG_MODE_LOG_FILE) && (file_handle != INVALID_HANDLE_VALUE)) {
 		DWORD wb;
-		
+
 		WriteFile(file_handle, buf, c, &wb, NULL);
 	}
 

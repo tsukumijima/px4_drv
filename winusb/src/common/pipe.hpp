@@ -34,7 +34,7 @@ public:
 
 protected:
 	Pipe() noexcept : Pipe(nullptr) {}
-	
+
 	bool IsConnected() const noexcept { return (handle_ && handle_ != INVALID_HANDLE_VALUE); }
 	void SetHandle(HANDLE handle) noexcept { handle_ = handle; }
 

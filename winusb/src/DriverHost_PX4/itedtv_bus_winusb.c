@@ -370,7 +370,7 @@ unsigned __stdcall itedtv_winusb_worker(void *arg)
 
 		if (GetLastError() == ERROR_IO_PENDING)
 			continue;
-		
+
 		dev_err(bus->dev, "itedtv_winusb_worker: WinUsb_ReadPipe() 2 failed. (%u, %u)\n", idx, GetLastError());
 		work->can_submit = true;
 	}

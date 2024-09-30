@@ -40,7 +40,7 @@ bool RingBuffer::Alloc(std::size_t size)
 		buf_ = nullptr;
 		buf_size_ = 0;
 	}
-	
+
 	if (!buf_ && size) {
 		buf_ = reinterpret_cast<std::uint8_t*>(VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
 		if (!buf_)

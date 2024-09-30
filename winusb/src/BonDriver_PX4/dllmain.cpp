@@ -7,7 +7,7 @@
 BOOL WINAPI DllMain(HANDLE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
 	BOOL ret = TRUE;
-	
+
 	switch (fdwReason) {
 	case DLL_PROCESS_ATTACH:
 		if (!px4::util::path::Init(hinstDLL))
@@ -17,6 +17,6 @@ BOOL WINAPI DllMain(HANDLE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 	default:
 		break;
 	}
-	
+
 	return ret;
 }

@@ -43,7 +43,7 @@ DeviceManager::DeviceManager(const px4::DeviceDefinitionSet &device_defs, px4::R
 
 	for (auto it = all_devs.cbegin(); it != all_devs.cend(); ++it) {
 		DeviceType type = DeviceType::UNKNOWN;
-		
+
 		if (it->first == L"PX4")
 			type = DeviceType::PX4;
 		else if (it->first == L"PXMLT")
@@ -122,7 +122,7 @@ void DeviceManager::Add(const std::wstring &path, const std::pair<DeviceType, px
 	case px4::DeviceType::PX4:
 	{
 		auto dev = std::make_unique<Px4Device>(path, def.second, ++index_, receiver_manager_);
-		
+
 		if (!dev->Init())
 			devices_.emplace(path, std::move(dev));
 

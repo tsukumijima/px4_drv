@@ -100,7 +100,7 @@ std::size_t ServerBase::GetActiveConnectionCount() const noexcept
 void ServerBase::RemoveConnection(Connection *conn, bool destruct) noexcept
 {
 	bool empty = false;
-	
+
 	try {
 		std::lock_guard<std::mutex> lock(mtx_);
 

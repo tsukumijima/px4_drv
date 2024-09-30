@@ -55,7 +55,7 @@ template<> struct hash<GUID> {
 
 		for (int i = 0; i < (sizeof(guid) / sizeof(std::size_t)); i++)
 			val ^= hash(p[i]);
-		
+
 		return val;
 	}
 };

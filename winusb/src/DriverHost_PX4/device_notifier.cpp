@@ -62,7 +62,7 @@ LRESULT CALLBACK DeviceNotifier::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 			return -1;
 
 		dn->notify_handle_ = notify_handle;
-		
+
 		return 0;
 	}
 

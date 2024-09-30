@@ -313,7 +313,7 @@ int main(int argc, char *argv[])
 			if (argv[i][1] == 't') {
 				// target parameter
 				char *t = NULL;
-					
+
 				if (argv[i][2] == '\0') {
 					if ((i + 1) < argc)
 						t = argv[++i];

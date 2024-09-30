@@ -732,7 +732,7 @@ void PxMltDevice::PxMltReceiver::Close()
 
 	lock.unlock();
 	close_cond_.notify_all();
-	
+
 	return;
 }
 
