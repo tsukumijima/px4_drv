@@ -5,3 +5,6 @@ KERNEL=="isdb2056video*", GROUP="video", MODE="0664"
 KERNEL=="isdb6014video*", GROUP="video", MODE="0664"
 KERNEL=="pxm1urvideo*", GROUP="video", MODE="0664"
 KERNEL=="pxs1urvideo*", GROUP="video", MODE="0664"
+
+# Digibest 製チューナーに常に USB 電源を供給し、チューナーが不安定にならないようにする
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0511", ACTION=="add", TEST=="power/control", ATTR{power/control}="on"
