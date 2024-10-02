@@ -1,4 +1,4 @@
-﻿
+
 # カレントディレクトリに移動
 if ($MyInvocation.MyCommand.Path -ne $null) {
     $CurrentPath = (Split-Path $MyInvocation.MyCommand.Path -Parent)
