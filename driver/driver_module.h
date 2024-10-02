@@ -3,6 +3,6 @@
 #ifndef __DRIVER_MODULE_H__
 #define __DRIVER_MODULE_H__
 
-#define PX4_DRV_VERSION	"0.5.0"
+#define PX4_DRV_VERSION	"0.5.1"
 
 #endif
