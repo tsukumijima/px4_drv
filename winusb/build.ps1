@@ -12,9 +12,13 @@ $ErrorActionPreference = 'Stop'  # エラーを確実に catch する
 try { (Get-Host).UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(120,25) } catch {}
 try { (Get-Host).UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(120,25) } catch {}
 
-$env:PATH = "$PATH;C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin"
-MSBuild.exe px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x86;PlatformToolset=v142"
-MSBuild.exe px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x64;PlatformToolset=v142"
+# MSBuild のパスを環境変数 PATH に追加
+$msbuild_path = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin'
+$env:PATH = "$env:PATH;$msbuild_path"
+
+# MSBuild を使用してソリューションをビルド
+msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x86;PlatformToolset=v142"
+msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x64;PlatformToolset=v142"
 
 # dist/ フォルダにビルドされたファイルをコピー
 # フォルダの作成
@@ -151,4 +155,4 @@ Write-Host '    '
 Write-Host '    BonDriver のビルドとパッケージングを完了しました。'
 Write-Host '    ビルドしたファイルは dist/ フォルダに配置されています。'
 Write-Host '    '
-(Get-Host).UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
+Start-Sleep -Seconds 5
