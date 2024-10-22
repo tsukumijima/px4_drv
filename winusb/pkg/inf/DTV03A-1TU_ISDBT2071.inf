@@ -1,0 +1,44 @@
+;
+; Digibest ISDBT2071 (MAXWIN DTV03A-1TU)
+;
+[Version]
+Signature="$Windows NT$"
+Class=Media
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%AuthorName%
+DriverVer=05/01/2021,21.05.01.00
+;CatalogFile=px4_drv_winusb.cat
+
+[Manufacturer]
+%AuthorName%=ISDBT2071_WinUSB,ntx86,ntamd64,ntarm64
+
+[ISDBT2071_WinUSB.ntx86]
+%ISDBT2071_WinUSB.DeviceDesc%=ISDBT2071_WinUSB.DeviceInstall,USB\VID_0511&PID_0052
+
+[ISDBT2071_WinUSB.ntamd64]
+%ISDBT2071_WinUSB.DeviceDesc%=ISDBT2071_WinUSB.DeviceInstall,USB\VID_0511&PID_0052
+
+[ISDBT2071_WinUSB.ntarm64]
+%ISDBT2071_WinUSB.DeviceDesc%=ISDBT2071_WinUSB.DeviceInstall,USB\VID_0511&PID_0052
+
+[ISDBT2071_WinUSB.DeviceInstall]
+Include=winusb.inf
+Needs=WINUSB.NT
+AddProperty=ISDBT2071_WinUSB.DeviceSetup.AddProperty
+
+[ISDBT2071_WinUSB.DeviceInstall.Services]
+Include=winusb.inf
+Needs=WINUSB.NT.Services
+
+[ISDBT2071_WinUSB.DeviceInstall.HW]
+AddReg=ISDBT2071_WinUSB.DeviceSetup.AddReg
+
+[ISDBT2071_WinUSB.DeviceSetup.AddReg]
+HKR,,DeviceInterfaceGUIDs,0x00010000,"{ac1e5fa2-e265-4819-9b29-2be8a44ce4c9}"
+
+[ISDBT2071_WinUSB.DeviceSetup.AddProperty]
+{afd97640-86a3-4210-b67c-289c41aabe55},3,0x00000011,,0   ;DEVPKEY_Device_SafeRemovalRequiredOverride=FALSE
+
+[Strings]
+AuthorName="nns779"
+ISDBT2071_WinUSB.DeviceDesc="Digibest ISDBT2071 (DTV03A-1TU) ISDB-T Receiver Device (WinUSB)"

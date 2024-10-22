@@ -24,6 +24,7 @@ enum class DeviceType : std::uint32_t {
 	PX4,
 	PXMLT,
 	ISDB2056,
+	ISDBT2071,
 };
 
 class DeviceManager final {
