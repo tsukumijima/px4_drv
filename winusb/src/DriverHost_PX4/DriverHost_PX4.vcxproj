@@ -260,6 +260,7 @@
     <ClCompile Include="device_notifier.cpp" />
     <ClCompile Include="driver_host.cpp" />
     <ClCompile Include="isdb2056_device.cpp" />
+    <ClCompile Include="isdbt2071_device.cpp" />
     <ClCompile Include="itedtv_bus_winusb.c" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="misc_win.c" />
@@ -296,6 +297,7 @@
     <ClInclude Include="device_notifier.hpp" />
     <ClInclude Include="driver_host.hpp" />
     <ClInclude Include="isdb2056_device.hpp" />
+    <ClInclude Include="isdbt2071_device.hpp" />
     <ClInclude Include="misc_win.h" />
     <ClInclude Include="notify_icon.hpp" />
     <ClInclude Include="pipe_server.hpp" />
