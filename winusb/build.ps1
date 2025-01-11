@@ -137,7 +137,6 @@ Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-M1UR_64bit/it
 Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_ISDBT2071_32bit/BonDriver_ISDBT2071.dll
 Copy-Item pkg/BonDriver_PX4/BonDriver_ISDBT2071.ini dist/BonDriver_ISDBT2071_32bit/BonDriver_ISDBT2071.ini
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_ISDBT2071_32bit/BonDriver_PX4-T.ChSet.txt
-Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_ISDBT2071_32bit/BonDriver_PX4-S.ChSet.txt
 Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_ISDBT2071_32bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_ISDBT2071_32bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDBT2071_32bit/it930x-firmware.bin
@@ -146,7 +145,6 @@ Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDBT2071_32bit/
 Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_ISDBT2071_64bit/BonDriver_ISDBT2071.dll
 Copy-Item pkg/BonDriver_PX4/BonDriver_ISDBT2071.ini dist/BonDriver_ISDBT2071_64bit/BonDriver_ISDBT2071.ini
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_ISDBT2071_64bit/BonDriver_PX4-T.ChSet.txt
-Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_ISDBT2071_64bit/BonDriver_PX4-S.ChSet.txt
 Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_ISDBT2071_64bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_ISDBT2071_64bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_ISDBT2071_64bit/it930x-firmware.bin
