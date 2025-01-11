@@ -13,7 +13,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - エラー発生時の MessageBox を表示しない設定を追加 
   - BonDriver の ini 内の `DisplayErrorMessage` を 1 に設定すると今まで通り MessageBox が表示される
 - BS/CS の ChSet に2024年10月～2025年1月に行われた BS トランスポンダ再編後の物理チャンネル情報を反映
-- [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV02A-1T1S-U / DTV03A-1T-U / PX-M1UR / PX-S1UR に対応
+- [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV02A-1T1S-U / DTV03A-1TU / PX-M1UR / PX-S1UR に対応
 - PX-Q3PE5 の inf ファイルを追加
 - inf ファイルをより分かりやすい名前に変更
 - inf ファイルを ARM 版 Windows でもインストールできるようにする
@@ -71,7 +71,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	  - チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U にも対応しています。  
 	  手元の実機では問題なく動作していますが、長期間の動作テストは行えていないため、未知の不具合があるかもしれません。
 	- DTV02A-4TS-P
-	- DTV03A-1T-U (実験的・Windows 版ドライバのみ)
+	- DTV03A-1TU (実験的・Windows 版ドライバのみ)
 
 > [!NOTE]
 > 2021 年以降メンテナンスされていない [nns779/px4_drv](https://github.com/nns779/px4_drv) と異なり、新規に下記チューナーのサポートを追加しています。
@@ -80,7 +80,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 > - PLEX PX-S1UR
 > - e-Better DTV02A-1T1S-U / Digibest ISDB2056 (Windows 版ドライバを新規追加)
 > - e-Better DTV02A-1T1S-U (ロット番号 2309 以降) / Digibest ISDB2056N
-> - e-Better DTV03A-1T-U / Digibest ISDBT2071 (Windows 版ドライバのみ)
+> - e-Better DTV03A-1TU / Digibest ISDBT2071 (Windows 版ドライバのみ)
 
 ## インストール (Windows)
 
@@ -110,7 +110,7 @@ Driver フォルダには、各機種ごとのドライバのインストール�
 - PX-MLT シリーズの機種・DTV02A-4TS-P: `BonDriver_PX-MLT`
 - DTV02A-1T1S-U: `BonDriver_ISDB2056`
 - DTV02A-1T1S-U (ロット番号 2309 以降): `BonDriver_ISDB2056N`
-- DTV03A-1T-U: `BonDriver_ISDBT2071`
+- DTV03A-1TU: `BonDriver_ISDBT2071`
 - PX-M1UR: `BonDriver_PX-M1UR`
 - PX-S1UR: `BonDriver_PX-S1UR`
 
