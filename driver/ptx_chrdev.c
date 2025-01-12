@@ -807,7 +807,7 @@ int ptx_chrdev_context_add_group(struct ptx_chrdev_context *chrdev_ctx,
 					    base, num,
 					    PTX_CHRDEV_MINOR_IN_USE);
 
-	group = kzalloc(sizeof(*group) + (sizeof(group->chrdev[0]) * (num - 1)),
+	group = kzalloc(sizeof(*group) + (sizeof(group->chrdev[0]) * num),
 			GFP_KERNEL);
 	if (!group) {
 		ret = -ENOMEM;

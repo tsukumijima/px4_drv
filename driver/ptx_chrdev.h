@@ -100,7 +100,7 @@ struct ptx_chrdev_group {
 	void (*owner_kref_release)(struct kref *);
 	unsigned int minor_base;
 	unsigned int chrdev_num;
-	struct ptx_chrdev chrdev[1];
+	struct ptx_chrdev chrdev[];
 };
 
 #define PTX_CHRDEV_MINOR_FREE		0
