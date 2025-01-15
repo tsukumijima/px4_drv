@@ -1,0 +1,7 @@
+[tagpr]
+    vPrefix = true
+    releaseBranch = develop
+    versionFile = .tagpr
+    command = ./update-versions.sh 0.5.2
+    release = false
+    changelog = true
