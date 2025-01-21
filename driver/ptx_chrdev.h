@@ -124,6 +124,8 @@ int ptx_chrdev_context_create(const char *name, const char *devname,
 			      unsigned int total_num,
 			      struct ptx_chrdev_context **chrdev_ctx);
 void ptx_chrdev_context_destroy(struct ptx_chrdev_context *chrdev_ctx);
+int ptx_chrdev_context_reserve(struct ptx_chrdev_context *chrdev_ctx,
+				 unsigned int num, unsigned int *minor_base);
 int ptx_chrdev_context_add_group(struct ptx_chrdev_context *chrdev_ctx,
 				 struct device *dev,
 				 const struct ptx_chrdev_group_config *config,
