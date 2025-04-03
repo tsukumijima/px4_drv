@@ -62,6 +62,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	- PX-MLT5PE
 	- PX-MLT8PE
     - PX-M1UR
+	  - CATVの周波数変換パススルー環境の場合、[recisdb](https://github.com/kazuki0824/recisdb-rs)や[stz版recpt1](https://github.com/stz2012/recpt1)は動作しません。[hendecarows氏](https://github.com/hendecarows)が作成された[recpt1のフォーク](https://github.com/hendecarows/recpt1)をご利用ください。
     - PX-S1UR
 
 - e-Better
