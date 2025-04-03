@@ -82,6 +82,10 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 > - e-Better DTV02A-1T1S-U (ロット番号 2309 以降) / Digibest ISDB2056N
 > - e-Better DTV03A-1TU / Digibest ISDBT2071 (Windows 版ドライバのみ)
 
+> [!WARNING]
+> PX-M1UR / DTV02(A)-1T1S-U で CATV (周波数変換パススルー) の ISDB-T C13ch - C24ch を受信するには、別途 [専用の recpt1 フォーク (hendecarows/recpt1)](https://github.com/hendecarows/recpt1) が必要です。  
+> [stz2012/recpt1](https://github.com/stz2012/recpt1) や [recisdb](https://github.com/kazuki0824/recisdb-rs) は対応していないものと思われます（[参考](https://github.com/tsukumijima/px4_drv/issues/16)）。
+
 ## インストール (Windows)
 
 Windows (WinUSB) 版のドライバは、OS にチューナーを認識させるための inf ファイルと、px4_drv 専用の BonDriver、ドライバの実体でチューナー操作を司る DriverHost_PX4 から構成されています。
