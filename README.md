@@ -83,8 +83,9 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 > - e-Better DTV03A-1TU / Digibest ISDBT2071 (Windows 版ドライバのみ)
 
 > [!WARNING]
-> PX-M1UR / DTV02(A)-1T1S-U で CATV (周波数変換パススルー) の ISDB-T C13ch - C24ch を受信するには、別途 [専用の recpt1 フォーク (hendecarows/recpt1)](https://github.com/hendecarows/recpt1) が必要です。  
-> [stz2012/recpt1](https://github.com/stz2012/recpt1) や [recisdb](https://github.com/kazuki0824/recisdb-rs) は対応していないものと思われます（[参考](https://github.com/tsukumijima/px4_drv/issues/16)）。
+> PX-M1UR または DTV02(A)-1T1S-U で CATV（周波数変換パススルー）の ISDB-T C13ch ~ C24ch を受信するには、[専用の recpt1 フォーク (hendecarows/recpt1)](https://github.com/hendecarows/recpt1) が必要となります。  
+> [stz2012/recpt1](https://github.com/stz2012/recpt1) や [recisdb](https://github.com/kazuki0824/recisdb-rs) では、当該機種にて C13ch ~ C62ch を正常に選局できないことが報告されています（[詳細はこちら](https://github.com/tsukumijima/px4_drv/issues/16)）。  
+> ただし、C13ch ~ C24ch 以外のチャンネルであれば、stz2012/recpt1 や recisdb でも問題なく選局・受信が可能です。
 
 ## インストール (Windows)
 
