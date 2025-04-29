@@ -1,13 +1,13 @@
-name: Build and Release Debian Package
+name: Build and Check Debian Package
 
 on:
-  push:
-    tags:
-      - "*"
+  pull_request:
+    branches:
+      - develop
 
 jobs:
-  build_and_release:
-    name: Build and Release Debian Package
+  build:
+    name: Build and Check Debian Package
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:20.04
@@ -42,10 +42,3 @@ jobs:
       - name: Check dkms result
         run: ls -l /lib/modules/*/updates/dkms/px4_drv.ko*
         shell: bash
-
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            ../*.deb
