@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * PTX driver definitions for PLEX PX-S1UR device (s1ur_device.h)
+ * PTX driver definitions for PLEX PX-S1UR and DIGIBEST ISDBT2071 (DTV03A-1TU) devices (s1ur_device.h)
  *
  * Copyright (c) 2023 techma.
  */
@@ -20,19 +20,25 @@
 #include "r850.h"
 
 #define S1UR_CHRDEV_NUM	1
+#define ISDBT2071_CHRDEV_NUM	1
+
+enum s1ur_model {
+	PXS1UR_MODEL = 0,
+	ISDBT2071_MODEL,
+};
 
 struct s1ur_chrdev {
 	struct ptx_chrdev *chrdev;
 	struct tc90522_demod tc90522_t;
 	struct tc90522_demod tc90522_s;
 	struct r850_tuner r850;
-	/*struct rt710_tuner rt710;*/
 };
 
 struct s1ur_device {
 	struct kref kref;
 	atomic_t available;
 	struct device *dev;
+	enum s1ur_model s1ur_model;
 	struct completion *quit_completion;
 	struct ptx_chrdev_group *chrdev_group;
 	struct s1ur_chrdev chrdevs1ur;
@@ -41,8 +47,9 @@ struct s1ur_device {
 };
 
 int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
-			 struct ptx_chrdev_context *chrdev_ctx,
-			 struct completion *quit_completion);
+			enum s1ur_model s1ur_model,
+			struct ptx_chrdev_context *chrdev_ctx,
+			struct completion *quit_completion);
 void s1ur_device_term(struct s1ur_device *s1ur);
 
 #endif
