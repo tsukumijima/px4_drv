@@ -41,8 +41,9 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 - チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U に対応
 - [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み、安定性と互換性を改善
-- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の内容を取り込み、PX-M1UR / PX-S1UR に対応
-- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の内容を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
+- [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の更新を取り込み、PX-M1UR / PX-S1UR に対応
+- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の更新を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
+- [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV03A-1TU に対応
 - https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
 - https://github.com/tsukumijima/px4_drv/pull/3 をマージし、`ctrl_timeout` をモジュールパラメーターに追加
 - Debian パッケージ (.deb) の作成とインストールに対応
@@ -71,7 +72,8 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	  - チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U にも対応しています。  
 	  手元の実機では問題なく動作していますが、長期間の動作テストは行えていないため、未知の不具合があるかもしれません。
 	- DTV02A-4TS-P
-	- DTV03A-1TU (実験的・Windows 版ドライバのみ)
+	- DTV03A-1TU (実験的)
+	  - チップ構成が大幅に変更された、ロット番号 2021-11 以降の個体のみ対応しています。
 
 > [!NOTE]
 > 2021 年以降メンテナンスされていない [nns779/px4_drv](https://github.com/nns779/px4_drv) と異なり、新規に下記チューナーのサポートを追加しています。
@@ -80,7 +82,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 > - PLEX PX-S1UR
 > - e-Better DTV02A-1T1S-U / Digibest ISDB2056 (Windows 版ドライバを新規追加)
 > - e-Better DTV02A-1T1S-U (ロット番号 2309 以降) / Digibest ISDB2056N
-> - e-Better DTV03A-1TU / Digibest ISDBT2071 (Windows 版ドライバのみ)
+> - e-Better DTV03A-1TU / Digibest ISDBT2071 (ロット番号 2021-11 以降)
 
 > [!WARNING]
 > PX-M1UR または DTV02(A)-1T1S-U で CATV（周波数変換パススルー）の ISDB-T C13ch ~ C24ch を受信するには、[専用の recpt1 フォーク (hendecarows/recpt1)](https://github.com/hendecarows/recpt1) が必要となります。  
@@ -263,6 +265,13 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 すべてのチューナーにおいて、ISDB-T のみ受信可能です。
 
+##### e-Better DTV03A-1TU を接続した場合
+
+	$ ls /dev/isdbt2071video*
+	/dev/isdbt2071video0
+
+すべてのチューナーにおいて、ISDB-T のみ受信可能です。
+
 ##### e-Better DTV02-1T1S-U/DTV02A-1T1S-U を接続した場合
 
 	$ ls /dev/isdb2056video*
@@ -271,7 +280,7 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 すべてのチューナーにおいて、ISDB-T と ISDB-S のどちらも受信可能です。
 
 > [!NOTE]  
-> ロット番号 2309 以降の DTV02A-1T1S-U を接続した場合も、デバイスファイル名は `/dev/isdb2056video*` となります。  
+> ロット番号 2309 以降の DTV02A-1T1S-U を接続した場合でも、デバイスファイル名は `/dev/isdb2056video*` となります。  
 > `/dev/isdb2056nvideo*` ではないので注意してください。
 
 ##### e-Better DTV02A-4TS-P を接続した場合
@@ -353,7 +362,7 @@ Windows では、BonDriver_PX4-S.ini に記載の `LNBPower=0` を `LNBPower=1` 
 
 対応していないものとされていましたが、5ch の有志により、正しく LNB 電源を出力できることが確認されています ([参考](https://mevius.5ch.net/test/read.cgi/avi/1648542476/267-288))。
 
-### e-Better DTV02-1T1S-U/DTV02A-1T1S-U
+### PLEX PX-M1UR / e-Better DTV02-1T1S-U/DTV02A-1T1S-U
 
 対応しておりません。
 
