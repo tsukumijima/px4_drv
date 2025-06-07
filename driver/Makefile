@@ -61,7 +61,7 @@ uninstall:
 	modprobe -r px4_drv; \
 	fi
 	$(cmd_prefix)rm -fv $(INSTALL_DIR)/px4_drv.ko
-	$(cmd_prefix)if [ `find /lib/modules/ -name px4_drv.ko | wc -l` -eq 0 ]; then \
+	$(cmd_prefix)if [ `find /lib/modules/ -name 'px4_drv.ko*' | wc -l` -eq 0 ]; then \
 	rm -fv /etc/udev/rules.d/90-px4.rules /etc/udev/rules.d/99-px4video.rules; \
 	fi
 	$(cmd_prefix)depmod -a $(KVER)
