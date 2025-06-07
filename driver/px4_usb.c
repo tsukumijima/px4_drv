@@ -139,7 +139,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 			dev_info(dev, "Multi-device power control: %s\n",
 				 (px4_use_mldev) ? "enabled" : "disabled");
-			/* fall through */
+			fallthrough;
 		case USB_PID_PX_W3U4:
 		case USB_PID_PX_W3PE4:
 		case USB_PID_PX_W3PE5:
@@ -157,7 +157,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 		case USB_PID_PX_MLT5U:
 			pxmlt5_model = PXMLT5U_MODEL;
-			/* fall through */
+			fallthrough;
 		case USB_PID_PX_MLT5PE:
 			ret = px4_usb_init_bridge(dev, usb_dev,
 						  &ctx->ctx.pxmlt.it930x);
@@ -172,7 +172,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 		case USB_PID_PX_MLT8PE3:
 			pxmlt8_model = PXMLT8PE3_MODEL;
-			/* fall through */
+			fallthrough;
 		case USB_PID_PX_MLT8PE5:
 			ret = px4_usb_init_bridge(dev, usb_dev,
 						  &ctx->ctx.pxmlt.it930x);
