@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * PTX driver for Digibest PLEX PX-S1UR device (s1ur_device.c)
+ *  and Digibest ISDBT2071 (DTV03A-1TU) device
  *
  * Copyright (c) 2023 techma.
+ *               2025 hendecarows
  */
 
 #include "print_format.h"
@@ -71,12 +73,21 @@ static int s1ur_backend_init(struct s1ur_device *s1ur)
 		return ret;
 	}
 
-	ret = tc90522_init(&chrdevs1ur->tc90522_s);
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_backend_init: tc90522_init() (s) failed. (ret: %d)\n",
-			ret);
-		return ret;
+	switch (s1ur->s1ur_model) {
+	case PXS1UR_MODEL:
+	default:
+		ret = tc90522_init(&chrdevs1ur->tc90522_s);
+		if (ret) {
+			dev_err(s1ur->dev,
+				"s1ur_backend_init: tc90522_init() (s) failed. (ret: %d)\n",
+				ret);
+			return ret;
+		}
+		break;
+
+	case ISDBT2071_MODEL:
+		tc90522_term(&chrdevs1ur->tc90522_s);
+		break;
 	}
 
 	ret = r850_init(&chrdevs1ur->r850);
@@ -87,15 +98,6 @@ static int s1ur_backend_init(struct s1ur_device *s1ur)
 		return ret;
 	}
 
-#if 0
-	ret = rt710_init(&chrdevs1ur->rt710);
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_backend_init: rt710_init() failed. (ret: %d)\n",
-			ret);
-		return ret;
-	}
-#endif
 	return 0;
 }
 
@@ -104,9 +106,6 @@ static int s1ur_backend_term(struct s1ur_device *s1ur)
 	struct s1ur_chrdev *chrdevs1ur = &s1ur->chrdevs1ur;
 
 	r850_term(&chrdevs1ur->r850);
-#if 0
-	rt710_term(&chrdevs1ur->rt710);
-#endif
 	tc90522_term(&chrdevs1ur->tc90522_t);
 	tc90522_term(&chrdevs1ur->tc90522_s);
 
@@ -201,7 +200,7 @@ static int s1ur_chrdev_init(struct ptx_chrdev *chrdev)
 {
 	dev_dbg(chrdev->parent->dev, "s1ur_chrdev_init\n");
 
-	chrdev->params.system = PTX_UNSPECIFIED_SYSTEM;
+	chrdev->params.system = PTX_ISDB_T_SYSTEM;
 	return 0;
 }
 
@@ -211,7 +210,7 @@ static int s1ur_chrdev_term(struct ptx_chrdev *chrdev)
 	return 0;
 }
 
-static struct tc90522_regbuf tc_init_t[] = {
+static struct tc90522_regbuf tc_init_s1ur[] = {
 	{ 0xb0, NULL, { 0xa0 } },
 	{ 0xb2, NULL, { 0x3d } },
 	{ 0xb3, NULL, { 0x25 } },
@@ -222,12 +221,25 @@ static struct tc90522_regbuf tc_init_t[] = {
 	{ 0xb8, NULL, { 0xc0 } },
 };
 
-#if 0
-static struct tc90522_regbuf tc_init_s[] = {
+static struct tc90522_regbuf tc_init_isdbt2071t[] = {
+	{ 0x04, NULL, { 0x00 } },
+	{ 0x10, NULL, { 0x00 } },
+	{ 0x11, NULL, { 0x2d } },
+	{ 0x12, NULL, { 0x02 } },
+	{ 0x13, NULL, { 0x62 } },
+	{ 0x14, NULL, { 0x60 } },
 	{ 0x15, NULL, { 0x00 } },
-	{ 0x1d, NULL, { 0x00 } },
+	{ 0x16, NULL, { 0x00 } },
+	{ 0x1d, NULL, { 0x05 } },
+	{ 0x1e, NULL, { 0x15 } },
+	{ 0x1f, NULL, { 0x40 } },
+	{ 0x30, NULL, { 0x20 } },
+	{ 0x31, NULL, { 0x0b } },
+	{ 0x32, NULL, { 0x8f } },
+	{ 0x34, NULL, { 0x0f } },
+	{ 0x38, NULL, { 0x01 } },
+	{ 0x39, NULL, { 0x1c } },
 };
-#endif
 
 static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 {
@@ -259,9 +271,18 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 	}
 
 	/* Initialization for ISDB-T */
+	switch (s1ur->s1ur_model) {
+	case PXS1UR_MODEL:
+	default:
+		ret = tc90522_write_multiple_regs(&chrdevs1ur->tc90522_t,
+			tc_init_s1ur, ARRAY_SIZE(tc_init_s1ur));
+		break;
 
-	ret = tc90522_write_multiple_regs(&chrdevs1ur->tc90522_t,
-					  tc_init_t, ARRAY_SIZE(tc_init_t));
+	case ISDBT2071_MODEL:
+		ret = tc90522_write_multiple_regs(&chrdevs1ur->tc90522_t,
+			tc_init_isdbt2071t, ARRAY_SIZE(tc_init_isdbt2071t));
+		break;
+	}
 	if (ret) {
 		dev_err(s1ur->dev,
 			"s1ur_chrdev_open %u: tc90522_write_multiple_regs(tc_init_t) failed. (ret: %d)\n",
@@ -278,11 +299,19 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		return ret;
 	}
 
-	/* sleep */
-	ret = tc90522_sleep_t(&chrdevs1ur->tc90522_t, true);
+	/* wake up */
+	ret = tc90522_sleep_t(&chrdevs1ur->tc90522_t, false);
 	if (ret) {
 		dev_err(s1ur->dev,
 			"s1ur_chrdev_open %u: tc90522_sleep_t(true) failed. (ret: %d)\n",
+			chrdev_group->id, ret);
+		return ret;
+	}
+
+	ret = r850_wakeup(&chrdevs1ur->r850);
+	if (ret) {
+		dev_err(s1ur->dev,
+			"s1ur_chrdev_tune %u: r850_wakeup() failed. (ret: %d)\n",
 			chrdev_group->id, ret);
 		return ret;
 	}
@@ -299,36 +328,32 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		return ret;
 	}
 
-#if 0
-	/* Initialization for ISDB-S */
+	switch (s1ur->s1ur_model) {
+	case PXS1UR_MODEL:
+	default:
+		/* disable ts pins */
+		ret = tc90522_enable_ts_pins_s(&chrdevs1ur->tc90522_s, false);
+		if (ret) {
+			dev_err(s1ur->dev,
+				"s1ur_chrdev_open %u: tc90522_enable_ts_pins_s(false) failed. (ret: %d)\n",
+				chrdev_group->id, ret);
+			return ret;
+		}
 
-	ret = tc90522_write_multiple_regs(&chrdevs1ur->tc90522_s,
-					  tc_init_s, ARRAY_SIZE(tc_init_s));
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_chrdev_open %u: tc90522_write_multiple_regs(tc_init_s) failed. (ret: %d)\n",
-			chrdev_group->id, ret);
-		return ret;
+		/* sleep */
+		ret = tc90522_sleep_s(&chrdevs1ur->tc90522_s, true);
+		if (ret) {
+			dev_err(s1ur->dev,
+				"s1ur_chrdev_open %u: tc90522_sleep_s(true) failed. (ret: %d)\n",
+				chrdev_group->id, ret);
+			return ret;
+		}
+		break;
+
+	case ISDBT2071_MODEL:
+		break;
 	}
 
-	/* disable ts pins */
-	ret = tc90522_enable_ts_pins_s(&chrdevs1ur->tc90522_s, false);
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_chrdev_open %u: tc90522_enable_ts_pins_s(false) failed. (ret: %d)\n",
-			chrdev_group->id, ret);
-		return ret;
-	}
-
-	/* sleep */
-	ret = tc90522_sleep_s(&chrdevs1ur->tc90522_s, true);
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_chrdev_open %u: tc90522_sleep_s(true) failed. (ret: %d)\n",
-			chrdev_group->id, ret);
-		return ret;
-	}
-#endif
 	kref_get(&s1ur->kref);
 	return 0;
 
@@ -371,7 +396,6 @@ static int s1ur_chrdev_tune(struct ptx_chrdev *chrdev,
 							struct s1ur_device,
 							chrdevs1ur);
 	bool tuner_locked;
-	/* s32 ss; */
 
 	dev_dbg(s1ur->dev,
 		"s1ur_chrdev_tune %u\n", chrdev_group->id);
@@ -390,49 +414,57 @@ static int s1ur_chrdev_tune(struct ptx_chrdev *chrdev,
 			break;
 		}
 
-		ret = tc90522_sleep_s(&chrdevs1ur->tc90522_s, true);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: tc90522_sleep_s(true) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
+		switch (s1ur->s1ur_model) {
+		case PXS1UR_MODEL:
+		default:
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x0e, 0x77);
+			if (ret)
+				break;
+
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x0f, 0x10);
+			if (ret)
+				break;
+
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x71, 0x20);
+			if (ret)
+				break;
+
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x76, 0x0c);
+			if (ret)
+				break;
+
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x1f, 0x30);
+			if (ret)
+				break;
+
+			break;
+
+		case ISDBT2071_MODEL:
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x76, 0x03);
+			if (ret)
+				break;
+	
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x77, 0x01);
+			if (ret)
+				break;
+	
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x3b, 0x10);
+			if (ret)
+				break;
+	
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x3c, 0x10);
+			if (ret)
+				break;
+	
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x3d, 0x24);
+			if (ret)
+				break;
+
 			break;
 		}
 
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x0e, 0x77);
 		if (ret)
 			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x0f, 0x10);
-		if (ret)
-			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x71, 0x20);
-		if (ret)
-			break;
-
-		ret = tc90522_sleep_t(&chrdevs1ur->tc90522_t, false);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: tc90522_sleep_t(false) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		}
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x76, 0x0c);
-		if (ret)
-			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x1f, 0x30);
-		if (ret)
-			break;
-
-		ret = r850_wakeup(&chrdevs1ur->r850);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: r850_wakeup() failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		}
 
 		ret = r850_set_frequency(&chrdevs1ur->r850, params->freq);
 		if (ret) {
@@ -478,124 +510,31 @@ static int s1ur_chrdev_tune(struct ptx_chrdev *chrdev,
 			break;
 		}
 
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x71, 0x01);
-		if (ret)
+		switch (s1ur->s1ur_model) {
+		case PXS1UR_MODEL:
+		default:
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x71, 0x01);
+			if (ret)
+				break;
+	
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x72, 0x25);
+			if (ret)
+				break;
+	
+			ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x75, 0x00);
+			if (ret)
+				break;
+			
 			break;
 
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x72, 0x25);
-		if (ret)
+		case ISDBT2071_MODEL:
 			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x75, 0x00);
-		if (ret)
-			break;
+		}
 
 		msleep(100);
 
 		break;
 
-#if 0
-	case PTX_ISDB_S_SYSTEM:
-		ret = tc90522_set_agc_s(&chrdevs1ur->tc90522_s, false);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: tc90522_set_agc_s(false) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		}
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x0e, 0x11);
-		if (ret)
-			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x0f, 0x70);
-		if (ret)
-			break;
-
-		ret = tc90522_sleep_t(&chrdevs1ur->tc90522_t, true);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: tc90522_sleep_t(true) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		}
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_s, 0x07, 0x77);
-		if (ret)
-			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_s, 0x08, 0x10);
-		if (ret)
-			break;
-
-		ret = tc90522_sleep_s(&chrdevs1ur->tc90522_s, false);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: tc90522_sleep_s(false) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		}
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_s, 0x04, 0x02);
-		if (ret)
-			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_s, 0x8e, 0x02);
-		if (ret)
-			break;
-
-		ret = tc90522_write_reg(&chrdevs1ur->tc90522_t, 0x1f, 0x20);
-		if (ret)
-			break;
-
-		ret = rt710_set_params(&chrdevs1ur->rt710,
-				       params->freq, 28860, 4);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: rt710_set_params(%u, 28860, 4) failed. (ret: %d)\n",
-				chrdev_group->id, params->freq, ret);
-			break;
-		}
-
-		i = 50;
-		while (i--) {
-			ret = rt710_is_pll_locked(&chrdevs1ur->rt710,
-						  &tuner_locked);
-			if (!ret && tuner_locked)
-				break;
-
-			msleep(10);
-		}
-
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: rt710_is_pll_locked() failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		} else if (!tuner_locked) {
-			/* PLL error */
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: PLL is NOT locked.\n",
-				chrdev_group->id);
-			ret = -EAGAIN;
-			break;
-		}
-
-		rt710_get_rf_signal_strength(&chrdevs1ur->rt710, &ss);
-		dev_dbg(s1ur->dev,
-			"s1ur_chrdev_tune %u: PLL is locked. count: %d, signal strength: %d.%03ddBm\n",
-			chrdev_group->id, i, ss / 1000, -ss % 1000);
-
-		ret = tc90522_set_agc_s(&chrdevs1ur->tc90522_s, true);
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_tune %u: tc90522_set_agc_s(true) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			break;
-		}
-
-		break;
-#endif
 	default:
 		ret = -EINVAL;
 		break;
@@ -614,85 +553,11 @@ static int s1ur_chrdev_check_lock(struct ptx_chrdev *chrdev, bool *locked)
 		ret = tc90522_is_signal_locked_t(&chrdevs1ur->tc90522_t,
 						locked);
 		break;
-#if 0
-	case PTX_ISDB_S_SYSTEM:
-		ret = tc90522_is_signal_locked_s(&chrdevs1ur->tc90522_s,
-						locked);
-		break;
-#endif
+
 	default:
 		ret = -EINVAL;
 		break;
 	}
-
-	return ret;
-}
-
-static int s1ur_chrdev_set_stream_id(struct ptx_chrdev *chrdev,
-					 u16 stream_id)
-{
-	int ret = 0, i;
-	struct ptx_chrdev_group *chrdev_group = chrdev->parent;
-	struct s1ur_chrdev *chrdevs1ur = chrdev->priv;
-	struct s1ur_device *s1ur = container_of(chrdevs1ur,
-							struct s1ur_device,
-							chrdevs1ur);
-	struct tc90522_demod *tc90522_s = &chrdevs1ur->tc90522_s;
-	u16 tsid, tsid2;
-
-	dev_dbg(s1ur->dev,
-		"s1ur_chrdev_set_stream_id %u\n", chrdev_group->id);
-
-	if (chrdev->current_system != PTX_ISDB_S_SYSTEM)
-		return -EINVAL;
-
-	if (stream_id < 12) {
-		i = 100;
-		while (i--) {
-			ret = tc90522_tmcc_get_tsid_s(tc90522_s,
-						      stream_id, &tsid);
-			if ((!ret && tsid) || ret == -EINVAL)
-				break;
-
-			msleep(10);
-		}
-
-		if (ret) {
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_set_stream_id_s %u: tc90522_tmcc_get_tsid_s() failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			return ret;
-		}
-
-		if (!tsid) {
-			ret = -EAGAIN;
-			return ret;
-		}
-	} else {
-		tsid = stream_id;
-	}
-
-	ret = tc90522_set_tsid_s(tc90522_s, tsid);
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_chrdev_set_stream_id_s %u: tc90522_set_tsid_s(0x%x) failed. (ret: %d)\n",
-			chrdev_group->id, tsid, ret);
-		return ret;
-	}
-
-	/* check slot */
-
-	i = 100;
-	while(i--) {
-		ret = tc90522_get_tsid_s(tc90522_s, &tsid2);
-		if (!ret && tsid2 == tsid)
-			break;
-
-		msleep(10);
-	}
-
-	if (tsid2 != tsid)
-		ret = -EAGAIN;
 
 	return ret;
 }
@@ -730,18 +595,8 @@ static int s1ur_chrdev_start_capture(struct ptx_chrdev *chrdev)
 
 		break;
 
-#if 0
-	case PTX_ISDB_S_SYSTEM:
-		ret = tc90522_enable_ts_pins_s(&chrdevs1ur->tc90522_s, true);
-		if (ret)
-			dev_err(s1ur->dev,
-				"s1ur_chrdev_start_capture %u: tc90522_enable_ts_pins_s(true) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-
-		break;
-#endif
-
 	default:
+		ret = -EINVAL;
 		break;
 	}
 
@@ -770,13 +625,8 @@ fail_tc:
 		tc90522_enable_ts_pins_t(&chrdevs1ur->tc90522_t, false);
 		break;
 
-#if 0
-	case PTX_ISDB_S_SYSTEM:
-		tc90522_enable_ts_pins_s(&chrdevs1ur->tc90522_s, false);
-		break;
-#endif
-
 	default:
+		ret = -EINVAL;
 		break;
 	}
 
@@ -805,11 +655,6 @@ static int s1ur_chrdev_stop_capture(struct ptx_chrdev *chrdev)
 		tc90522_enable_ts_pins_t(&chrdevs1ur->tc90522_t, false);
 		break;
 
-#if 0
-	case PTX_ISDB_S_SYSTEM:
-		tc90522_enable_ts_pins_s(&chrdevs1ur->tc90522_s, false);
-		break;
-#endif
 	default:
 		break;
 	}
@@ -833,11 +678,6 @@ static int s1ur_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 		ret = tc90522_get_cndat_t(&chrdevs1ur->tc90522_t, value);
 		break;
 
-#if 0
-	case PTX_ISDB_S_SYSTEM:
-		ret = tc90522_get_cn_s(&chrdevs1ur->tc90522_s, (u16 *)value);
-		break;
-#endif
 	default:
 		ret = -EINVAL;
 		break;
@@ -853,7 +693,7 @@ static struct ptx_chrdev_operations s1ur_chrdev_ops = {
 	.release = s1ur_chrdev_release,
 	.tune = s1ur_chrdev_tune,
 	.check_lock = s1ur_chrdev_check_lock,
-	.set_stream_id = s1ur_chrdev_set_stream_id,
+	.set_stream_id = NULL,
 	.set_lnb_voltage = NULL,
 	.set_capture = s1ur_chrdev_set_capture,
 	.read_signal_strength = NULL,
@@ -881,7 +721,7 @@ static int s1ur_device_load_config(struct s1ur_device *s1ur,
 		return ret;
 	}
 
-	chrdev_config->system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM;
+	chrdev_config->system_cap = PTX_ISDB_T_SYSTEM;
 
 	input->enable = true;
 	input->is_parallel = false;
@@ -911,31 +751,34 @@ static int s1ur_device_load_config(struct s1ur_device *s1ur,
 	chrdevs1ur->r850.config.no_imr_calibration = true;
 	chrdevs1ur->r850.config.no_lpf_calibration = true;
 
-#if 0
-	chrdevs1ur->rt710.dev = dev;
-	chrdevs1ur->rt710.i2c = &chrdevs1ur->tc90522_s.i2c_master;
-	chrdevs1ur->rt710.i2c_addr = 0x7a;
-	chrdevs1ur->rt710.config.xtal = 24000;
-	chrdevs1ur->rt710.config.loop_through = false;
-	chrdevs1ur->rt710.config.clock_out = false;
-	chrdevs1ur->rt710.config.signal_output_mode = RT710_SIGNAL_OUTPUT_DIFFERENTIAL;
-	chrdevs1ur->rt710.config.agc_mode = RT710_AGC_POSITIVE;
-	chrdevs1ur->rt710.config.vga_atten_mode = RT710_VGA_ATTEN_OFF;
-	chrdevs1ur->rt710.config.fine_gain = RT710_FINE_GAIN_3DB;
-	chrdevs1ur->rt710.config.scan_mode = RT710_SCAN_MANUAL;
-#endif
+	switch(s1ur->s1ur_model) {
+	case PXS1UR_MODEL:
+	default:
+		for (i = 1; i < 5; i++) {
+			it930x->config.input[i].enable = false;
+			it930x->config.input[i].port_number = i;
+		}
+		break;
 
-	for (i = 1; i < 5; i++) {
-		it930x->config.input[i].enable = false;
-		it930x->config.input[i].port_number = i;
+	case ISDBT2071_MODEL:
+		input->port_number = 4;
+		input->i2c_addr = 0x18;
+		chrdevs1ur->tc90522_t.i2c_addr = 0x18;
+
+		for (i = 1; i < 5; i++) {
+			it930x->config.input[i].enable = false;
+			it930x->config.input[i].port_number = i - 1;
+		}
+		break;
 	}
 
 	return 0;
 }
 
 int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
-			 struct ptx_chrdev_context *chrdev_ctx,
-			 struct completion *quit_completion)
+			enum s1ur_model s1ur_model,
+			struct ptx_chrdev_context *chrdev_ctx,
+			struct completion *quit_completion)
 {
 	int ret = 0;
 	struct it930x_bridge *it930x;
@@ -954,6 +797,7 @@ int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
 
 	kref_init(&s1ur->kref);
 	s1ur->dev = dev;
+	s1ur->s1ur_model = s1ur_model;
 	s1ur->quit_completion = quit_completion;
 
 	stream_ctx = kzalloc(sizeof(*stream_ctx), GFP_KERNEL);
@@ -1014,17 +858,6 @@ int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
 	ret = it930x_write_gpio(it930x, 2, false);
 	if (ret)
 		goto fail_device;
-
-#if 0
-	ret = it930x_set_gpio_mode(it930x, 11, IT930X_GPIO_OUT, true);
-	if (ret)
-		goto fail_device;
-
-	/* LNB power supply: off */
-	ret = it930x_write_gpio(it930x, 11, false);
-	if (ret)
-		goto fail_device;
-#endif
 
 	if (px4_device_params.discard_null_packets) {
 		struct it930x_pid_filter filter;
