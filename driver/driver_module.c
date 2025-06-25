@@ -15,7 +15,7 @@
 #include "px4_usb.h"
 #include "firmware.h"
 
-int init_module(void)
+static int m_init(void)
 {
 	int ret = 0;
 
@@ -47,10 +47,14 @@ int init_module(void)
 	return 0;
 }
 
-void cleanup_module(void)
+static void m_cleanup(void)
 {
 	px4_usb_unregister();
 }
+
+
+module_init(m_init);
+module_exit(m_cleanup);
 
 MODULE_VERSION(PX4_DRV_VERSION);
 MODULE_AUTHOR("nns779");
