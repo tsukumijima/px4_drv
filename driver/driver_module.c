@@ -10,12 +10,17 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/version.h>
 
 #include "revision.h"
 #include "px4_usb.h"
 #include "firmware.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
+static int m_init(void)
+#else
 int init_module(void)
+#endif
 {
 	int ret = 0;
 
@@ -47,10 +52,19 @@ int init_module(void)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
+static void m_cleanup(void)
+#else
 void cleanup_module(void)
+#endif
 {
 	px4_usb_unregister();
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
+module_init(m_init);
+module_exit(m_cleanup);
+#endif
 
 MODULE_VERSION(PX4_DRV_VERSION);
 MODULE_AUTHOR("nns779");
