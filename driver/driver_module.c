@@ -17,7 +17,7 @@
 #include "firmware.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
-static int m_init(void)
+static int __init m_init(void)
 #else
 int init_module(void)
 #endif
@@ -53,7 +53,7 @@ int init_module(void)
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
-static void m_cleanup(void)
+static void __exit m_cleanup(void)
 #else
 void cleanup_module(void)
 #endif
