@@ -44,6 +44,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の更新を取り込み、PX-M1UR / PX-S1UR に対応
 - [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の更新を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
 - [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV03A-1TU に対応
+- https://github.com/tsukumijima/px4_drv/pull/33 をマージし、Linux カーネル 6.15 系以降の API 変更に対応
 - https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
 - https://github.com/tsukumijima/px4_drv/pull/3 をマージし、`ctrl_timeout` をモジュールパラメーターに追加
 - Debian パッケージ (.deb) の作成とインストールに対応
