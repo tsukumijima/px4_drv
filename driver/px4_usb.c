@@ -382,7 +382,7 @@ static struct usb_driver px4_usb_driver = {
 	.id_table = px4_usb_ids
 };
 
-int px4_usb_register()
+int px4_usb_register(void)
 {
 	int ret = 0;
 
@@ -497,7 +497,7 @@ fail:
 	return ret;
 }
 
-void px4_usb_unregister()
+void px4_usb_unregister(void)
 {
 	usb_deregister(&px4_usb_driver);
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[ISDBT2071_USB_DEVICE]);
