@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/usb.h>
+#include <linux/version.h>
 
 #include "px4_usb_params.h"
 #include "px4_device_params.h"
@@ -382,7 +383,11 @@ static struct usb_driver px4_usb_driver = {
 	.id_table = px4_usb_ids
 };
 
-int px4_usb_register()
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0)
+	int px4_usb_register(void)
+#else
+	int px4_usb_register()
+#endif
 {
 	int ret = 0;
 
@@ -497,7 +502,11 @@ fail:
 	return ret;
 }
 
-void px4_usb_unregister()
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0)
+	void px4_usb_unregister(void)
+#else
+	void px4_usb_unregister()
+#endif
 {
 	usb_deregister(&px4_usb_driver);
 	ptx_chrdev_context_destroy(px4_usb_chrdev_ctx[ISDBT2071_USB_DEVICE]);
