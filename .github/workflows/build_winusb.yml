@@ -1,0 +1,264 @@
+name: Build and Check WinUSB Package
+
+on:
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - '.github/workflows/build_winusb.yml'
+      - 'driver/**'
+      - 'winusb/**'
+  push:
+    branches:
+      - develop
+    paths:
+      - '.github/workflows/build_winusb.yml'
+      - 'driver/**'
+      - 'winusb/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Check WinUSB Package
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Sign driver catalog
+        working-directory: winusb/pkg/signing-tools
+        run: ./sign.ps1
+
+      - name: Build WinUSB package
+        working-directory: winusb
+        run: ./build.ps1
+
+      - name: Trust self-signed certificate
+        working-directory: winusb
+        run: |
+          $certificate_path = Join-Path $PWD 'pkg/signing-tools/root.cer'
+
+          & certutil.exe -user -f -addstore Root $certificate_path
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Failed to trust root certificate.'
+          }
+
+          & certutil.exe -user -f -addstore TrustedPublisher $certificate_path
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Failed to trust publisher certificate.'
+          }
+
+      - name: Verify signatures
+        working-directory: winusb
+        run: |
+          $sign_tool_path = Join-Path $PWD 'pkg/signing-tools/signtool.exe'
+          $signed_file_paths = @(
+              'pkg/inf/px4_drv_winusb.cat',
+              'dist/Driver/px4_drv_winusb.cat'
+          )
+
+          $signed_file_paths += Get-ChildItem -Path 'dist' -Recurse -File |
+              Where-Object { $_.Extension -in '.dll', '.exe' } |
+              Select-Object -ExpandProperty FullName
+
+          foreach ($signed_file_path in $signed_file_paths) {
+              Write-Host "Verifying signature: $signed_file_path"
+              & $sign_tool_path verify /pa /all $signed_file_path
+
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Signature verification failed: $signed_file_path"
+              }
+          }
+
+      - name: Check artifacts
+        working-directory: winusb
+        run: |
+          $distribution_checks = @(
+              @{
+                  Directory = 'dist/BonDriver_PX4_32bit'
+                  Files = @(
+                      'BonDriver_PX4-T.dll',
+                      'BonDriver_PX4-T.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.dll',
+                      'BonDriver_PX4-S.ini',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX4_64bit'
+                  Files = @(
+                      'BonDriver_PX4-T.dll',
+                      'BonDriver_PX4-T.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.dll',
+                      'BonDriver_PX4-S.ini',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX-MLT_32bit'
+                  Files = @(
+                      'BonDriver_PX-MLT.dll',
+                      'BonDriver_PX-MLT.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX-MLT_64bit'
+                  Files = @(
+                      'BonDriver_PX-MLT.dll',
+                      'BonDriver_PX-MLT.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_ISDB2056_32bit'
+                  Files = @(
+                      'BonDriver_ISDB2056.dll',
+                      'BonDriver_ISDB2056.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_ISDB2056_64bit'
+                  Files = @(
+                      'BonDriver_ISDB2056.dll',
+                      'BonDriver_ISDB2056.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_ISDB2056N_32bit'
+                  Files = @(
+                      'BonDriver_ISDB2056N.dll',
+                      'BonDriver_ISDB2056N.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_ISDB2056N_64bit'
+                  Files = @(
+                      'BonDriver_ISDB2056N.dll',
+                      'BonDriver_ISDB2056N.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_ISDBT2071_32bit'
+                  Files = @(
+                      'BonDriver_ISDBT2071.dll',
+                      'BonDriver_ISDBT2071.ini',
+                      'BonDriver_PX4-T.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_ISDBT2071_64bit'
+                  Files = @(
+                      'BonDriver_ISDBT2071.dll',
+                      'BonDriver_ISDBT2071.ini',
+                      'BonDriver_PX4-T.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX-M1UR_32bit'
+                  Files = @(
+                      'BonDriver_PX-M1UR.dll',
+                      'BonDriver_PX-M1UR.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX-M1UR_64bit'
+                  Files = @(
+                      'BonDriver_PX-M1UR.dll',
+                      'BonDriver_PX-M1UR.ini',
+                      'BonDriver_PX4-T.ChSet.txt',
+                      'BonDriver_PX4-S.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX-S1UR_32bit'
+                  Files = @(
+                      'BonDriver_PX-S1UR.dll',
+                      'BonDriver_PX-S1UR.ini',
+                      'BonDriver_PX4-T.ChSet.txt'
+                  )
+              },
+              @{
+                  Directory = 'dist/BonDriver_PX-S1UR_64bit'
+                  Files = @(
+                      'BonDriver_PX-S1UR.dll',
+                      'BonDriver_PX-S1UR.ini',
+                      'BonDriver_PX4-T.ChSet.txt'
+                  )
+              }
+          )
+
+          $common_distribution_file_names = @(
+              'DriverHost_PX4.exe',
+              'DriverHost_PX4.ini',
+              'it930x-firmware.bin'
+          )
+
+          foreach ($distribution_check in $distribution_checks) {
+              $distribution_directory = $distribution_check.Directory
+
+              if ((Test-Path $distribution_directory -PathType Container) -eq $False) {
+                  throw "Distribution directory was not found: $distribution_directory"
+              }
+
+              $artifact_file_names = $distribution_check.Files + $common_distribution_file_names
+              foreach ($artifact_file_name in $artifact_file_names) {
+                  $artifact_file_path = Join-Path $distribution_directory $artifact_file_name
+
+                  if ((Test-Path $artifact_file_path -PathType Leaf) -eq $False) {
+                      throw "Artifact was not found: $artifact_file_path"
+                  }
+
+                  Write-Host "Artifact exists: $artifact_file_path"
+              }
+          }
+
+          $driver_artifact_file_paths = @(
+              'dist/Driver/px4_drv_winusb.cat',
+              'dist/Driver/px4_drv_winusb.cer',
+              'dist/Driver/cert-install.jse',
+              'dist/Driver/cert-uninstall.jse'
+          )
+
+          foreach ($driver_artifact_file_path in $driver_artifact_file_paths) {
+              if ((Test-Path $driver_artifact_file_path -PathType Leaf) -eq $False) {
+                  throw "Driver artifact was not found: $driver_artifact_file_path"
+              }
+
+              Write-Host "Driver artifact exists: $driver_artifact_file_path"
+          }
+
+          $driver_inf_file_count = (Get-ChildItem -Path 'dist/Driver' -Filter '*.inf' -File).Count
+          if ($driver_inf_file_count -le 0) {
+              throw 'Driver INF files were not found.'
+          }
+
+          Write-Host "Driver INF file count: $driver_inf_file_count"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: px4_drv_winusb
+          path: winusb/dist/
