@@ -13,12 +13,18 @@ try { (Get-Host).UI.RawUI.BufferSize = New-Object System.Management.Automation.H
 try { (Get-Host).UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(120,25) } catch {}
 
 # MSBuild のパスを環境変数 PATH に追加
-$msbuild_path = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin'
+$msbuild_path = 'C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin'
 $env:PATH = "$env:PATH;$msbuild_path"
 
 # MSBuild を使用してソリューションをビルド
-msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x86;PlatformToolset=v142"
-msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x64;PlatformToolset=v142"
+msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x86;PlatformToolset=v143"
+msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x64;PlatformToolset=v143"
+
+# ビルドされたファイルに署名(Smart App Control 対応)
+pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x86/Release-static/BonDriver_PX4.dll
+pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x86/Release-static/DriverHost_PX4.exe
+pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x64/Release-static/BonDriver_PX4.dll
+pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x64/Release-static/DriverHost_PX4.exe
 
 # dist/ フォルダにビルドされたファイルをコピー
 # フォルダの作成
