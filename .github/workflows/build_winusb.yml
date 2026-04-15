@@ -41,25 +41,17 @@ jobs:
         working-directory: winusb
         run: ./build.ps1
 
-      - name: Trust self-signed certificate
-        working-directory: winusb
-        run: |
-          $certificate_path = Join-Path $PWD 'pkg/signing-tools/root.cer'
-
-          & certutil.exe -user -f -addstore Root $certificate_path
-          if ($LASTEXITCODE -ne 0) {
-              throw 'Failed to trust root certificate.'
-          }
-
-          & certutil.exe -user -f -addstore TrustedPublisher $certificate_path
-          if ($LASTEXITCODE -ne 0) {
-              throw 'Failed to trust publisher certificate.'
-          }
-
       - name: Verify signatures
         working-directory: winusb
         run: |
-          $sign_tool_path = Join-Path $PWD 'pkg/signing-tools/signtool.exe'
+          $expected_signer_certificate_path = Join-Path $PWD 'pkg/signing-tools/trustedpub.cer'
+          $expected_signer_certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($expected_signer_certificate_path)
+          $expected_signer_thumbprint = $expected_signer_certificate.Thumbprint
+          $acceptable_signature_statuses = @(
+              'Valid',
+              'NotTrusted',
+              'UnknownError'
+          )
           $signed_file_paths = @(
               'pkg/inf/px4_drv_winusb.cat',
               'dist/Driver/px4_drv_winusb.cat'
@@ -71,11 +63,29 @@ jobs:
 
           foreach ($signed_file_path in $signed_file_paths) {
               Write-Host "Verifying signature: $signed_file_path"
-              & $sign_tool_path verify /pa /all $signed_file_path
+              $signature = Get-AuthenticodeSignature -FilePath $signed_file_path
 
-              if ($LASTEXITCODE -ne 0) {
-                  throw "Signature verification failed: $signed_file_path"
+              if ($signature.Status -eq 'NotSigned') {
+                  throw "File is not signed: $signed_file_path"
               }
+
+              if ($signature.Status -eq 'HashMismatch') {
+                  throw "Signature hash mismatch: $signed_file_path"
+              }
+
+              if ($signature.SignerCertificate -eq $null) {
+                  throw "Signer certificate was not found: $signed_file_path"
+              }
+
+              if ($signature.SignerCertificate.Thumbprint -ne $expected_signer_thumbprint) {
+                  throw "Unexpected signer certificate: $signed_file_path"
+              }
+
+              if ($signature.Status -notin $acceptable_signature_statuses) {
+                  throw "Unexpected signature status: $($signature.Status), path: $signed_file_path"
+              }
+
+              Write-Host "Signature status: $($signature.Status), thumbprint: $($signature.SignerCertificate.Thumbprint), path: $signed_file_path"
           }
 
       - name: Check artifacts
