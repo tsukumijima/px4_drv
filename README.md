@@ -26,13 +26,13 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
   - ref: https://mevius.5ch.net/test/read.cgi/avi/1577466040/104-108
 - 自己署名証明書のインストール・アンインストールスクリプトを追加
   - 拡張子が .jse となっているが、これは PowerShell スクリプトにダブルクリックで実行させるための JScript コードを先頭の行に加えたもの
-  - 実際に表示されないかは今のところ未確認
+  - Smart App Control が有効な環境でブロックされにくくするため、BonDriver と DriverHost_PX4 にも自己署名を行うようにした
 - 地上波の ChSet に物理 53ch ～ 62ch の定義を追加
   - 物理 53ch ～ 62ch は地上波の割り当て周波数から削除されているが、現在も ”イッツコムch10” など、一部ケーブルテレビの自主放送の割り当て周波数として使われている
 - BS/CS の ChSet に2022年3月開局の BS 新チャンネル（BS松竹東急・BSJapanext・BSよしもと）の定義を追加
 - バージョン情報が DLL のプロパティに表示されないのを修正
 - ビルドとパッケージングを全自動で行うスクリプトを追加
-  - Visual Studio 2019 が入っていれば、build.ps1 を実行するだけで全自動でビルドからパッケージングまで行える
+  - Visual Studio 2022 が入っていれば、build.ps1 を実行するだけで全自動でビルドからパッケージングまで行える
 - README（このページ）に WinUSB 版のインストール方法などを追記
 
 ### 変更点 (Linux 版)
@@ -95,7 +95,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 Windows (WinUSB) 版のドライバは、OS にチューナーを認識させるための inf ファイルと、px4_drv 専用の BonDriver、ドライバの実体でチューナー操作を司る DriverHost_PX4 から構成されています。
 
 ビルド済みのアーカイブは [こちら](https://github.com/tsukumijima/DTV-Builds) からダウンロードできます。  
-または、winusb フォルダにある build.ps1 を実行して、ご自分でビルドしたものを使うこともできます (Visual Studio 2019 が必要です) 。
+または、winusb フォルダにある build.ps1 を実行して、ご自分でビルドしたものを使うこともできます (Visual Studio 2022 が必要です) 。
 
 ### 1. 自己署名証明書のインストール
 
@@ -103,6 +103,13 @@ Driver フォルダには、各機種ごとのドライバのインストール�
 ドライバをインストールする前に cert-install.jse を実行し、自己署名証明書をインストールしてください。
 
 自己署名証明書をインストールして信頼することで、自己署名証明書を使用して署名されたドライバも、（自己署名証明書をアンインストールするまでは）通常の署名付きドライバと同様に信頼されるようになります。
+
+cert-install.jse が Smart App Control や関連付けの変更などにより実行できない場合は、管理者権限の Windows Terminal または PowerShell を開き、ビルド済みアーカイブ内の Driver フォルダに移動した上で、下記コマンドを実行してください。
+
+```powershell
+certutil.exe -addstore Root ".\px4_drv_winusb.cer"
+certutil.exe -addstore TrustedPublisher ".\px4_drv_winusb.cer"
+```
 
 ### 2. ドライバのインストール
 

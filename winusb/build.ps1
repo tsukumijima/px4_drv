@@ -13,18 +13,52 @@ try { (Get-Host).UI.RawUI.BufferSize = New-Object System.Management.Automation.H
 try { (Get-Host).UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(120,25) } catch {}
 
 # MSBuild のパスを環境変数 PATH に追加
-$msbuild_path = 'C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin'
-$env:PATH = "$env:PATH;$msbuild_path"
+# GitHub Actions では microsoft/setup-msbuild が PATH を設定するため、その設定を優先する
+# ローカル環境では Visual Studio 2022 のエディション差を吸収するため、vswhere で MSBuild を探索する
+if ((Get-Command msbuild -ErrorAction SilentlyContinue) -eq $null) {
+    $vswhere_path = Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath 'Microsoft Visual Studio\Installer\vswhere.exe'
+
+    if ((Test-Path $vswhere_path) -eq $True) {
+        $msbuild_file_path = & $vswhere_path -latest -version '[17.0,18.0)' -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin\MSBuild.exe' | Select-Object -First 1
+
+        if ($msbuild_file_path -ne $null) {
+            $msbuild_dir_path = Split-Path $msbuild_file_path -Parent
+            $env:PATH = "$env:PATH;$msbuild_dir_path"
+        }
+    }
+}
+
+if ((Get-Command msbuild -ErrorAction SilentlyContinue) -eq $null) {
+    throw 'MSBuild was not found. Install Visual Studio 2022 with MSBuild.'
+}
 
 # MSBuild を使用してソリューションをビルド
-msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x86;PlatformToolset=v143"
-msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=x64;PlatformToolset=v143"
+$build_platforms = @('x86', 'x64')
+foreach ($build_platform in $build_platforms) {
+    msbuild px4_winusb.sln /t:"Rebuild" /p:"Configuration=Release-static;Platform=$build_platform;PlatformToolset=v143"
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "MSBuild failed. platform: $build_platform"
+    }
+}
 
 # ビルドされたファイルに署名(Smart App Control 対応)
-pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x86/Release-static/BonDriver_PX4.dll
-pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x86/Release-static/DriverHost_PX4.exe
-pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x64/Release-static/BonDriver_PX4.dll
-pkg/signing-tools/signtool sign /f pkg/signing-tools/trustedpub.pfx /p 123 /t http://timestamp.digicert.com build/x64/Release-static/DriverHost_PX4.exe
+$sign_tool_path = 'pkg/signing-tools/signtool'
+$trusted_publisher_pfx_path = 'pkg/signing-tools/trustedpub.pfx'
+$signing_target_paths = @(
+    'build/x86/Release-static/BonDriver_PX4.dll',
+    'build/x86/Release-static/DriverHost_PX4.exe',
+    'build/x64/Release-static/BonDriver_PX4.dll',
+    'build/x64/Release-static/DriverHost_PX4.exe'
+)
+
+foreach ($signing_target_path in $signing_target_paths) {
+    & $sign_tool_path sign /f $trusted_publisher_pfx_path /p 123 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $signing_target_path
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Code signing failed. target: $signing_target_path"
+    }
+}
 
 # dist/ フォルダにビルドされたファイルをコピー
 # フォルダの作成
