@@ -55,7 +55,7 @@ static int get_multi_device_power_control_mode(char *buffer,
 {
 	enum px4_mldev_mode mode = px4_device_params.multi_device_power_control_mode;
 
-	if (mode < PX4_MLDEV_ALL_MODE && mode > PX4_MLDEV_S1_ONLY_MODE)
+	if (mode < PX4_MLDEV_ALL_MODE || mode > PX4_MLDEV_S1_ONLY_MODE)
 		return -EINVAL;
 
 	return scnprintf(buffer, 4096, "%s\n", mldev_mode_table[mode].str);
