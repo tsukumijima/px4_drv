@@ -40,6 +40,19 @@ foreach ($build_platform in $build_platforms) {
     if ($LASTEXITCODE -ne 0) {
         throw "MSBuild failed. platform: $build_platform"
     }
+
+    # Linux 版と WinUSB 版が共有する TS 同期判定を実際の入力値で検証
+    msbuild tests/ts_sync_condition_test.vcxproj /t:"Rebuild" /p:"Configuration=Release-static;Platform=$build_platform;PlatformToolset=v143"
+    if ($LASTEXITCODE -ne 0) {
+        throw "TS sync condition test build failed. platform: $build_platform"
+    }
+    & 'tests/ts_sync_condition_test.ps1' -Platform $build_platform
+
+    # 実機に依存しないカード抜去・再挿入・接触不良の状態遷移を毎回検証
+    & "build/$build_platform/Release-static/smart_card_state_test.exe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Smart card state test failed. platform: $build_platform"
+    }
 }
 
 # ビルドされたファイルに署名(Smart App Control 対応)
@@ -48,8 +61,10 @@ $trusted_publisher_pfx_path = 'pkg/signing-tools/trustedpub.pfx'
 $signing_target_paths = @(
     'build/x86/Release-static/BonDriver_PX4.dll',
     'build/x86/Release-static/DriverHost_PX4.exe',
+    'build/x86/Release-static/WinSCard.dll',
     'build/x64/Release-static/BonDriver_PX4.dll',
-    'build/x64/Release-static/DriverHost_PX4.exe'
+    'build/x64/Release-static/DriverHost_PX4.exe',
+    'build/x64/Release-static/WinSCard.dll'
 )
 
 foreach ($signing_target_path in $signing_target_paths) {
@@ -204,6 +219,13 @@ Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-S1UR_64b
 Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-S1UR_64bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-S1UR_64bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-S1UR_64bit/it930x-firmware.bin
+
+# 各 BonDriver と同じビット数の WinSCard.dll を配置
+# WinUSB 版の全対応機種で内蔵カードリーダーを利用できる
+Get-ChildItem dist/ -Directory -Filter 'BonDriver_*' | ForEach-Object {
+    $win_scard_platform = if ($_.Name.EndsWith('_32bit')) { 'x86' } else { 'x64' }
+    Copy-Item "build/$win_scard_platform/Release-static/WinSCard.dll" $_.FullName
+}
 
 # inf ファイルをコピー
 Copy-Item -Recurse pkg/inf/ dist/Driver

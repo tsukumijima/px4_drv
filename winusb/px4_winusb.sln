@@ -9,6 +9,10 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DriverHost_PX4", "src\Drive
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "fwtool", "src\fwtool\fwtool.vcxproj", "{BDBD265F-5914-426F-89F7-16478BE1AFCC}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WinSCard_PX4", "src\WinSCard_PX4\WinSCard_PX4.vcxproj", "{17AA489F-91D4-44CF-BB8F-FB432A409599}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "smart_card_state_test", "tests\smart_card_state_test.vcxproj", "{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -55,6 +59,30 @@ Global
 		{BDBD265F-5914-426F-89F7-16478BE1AFCC}.Release-static|x64.Build.0 = Release-static|x64
 		{BDBD265F-5914-426F-89F7-16478BE1AFCC}.Release-static|x86.ActiveCfg = Release-static|Win32
 		{BDBD265F-5914-426F-89F7-16478BE1AFCC}.Release-static|x86.Build.0 = Release-static|Win32
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Debug|x64.ActiveCfg = Debug|x64
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Debug|x64.Build.0 = Debug|x64
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Debug|x86.ActiveCfg = Debug|Win32
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Debug|x86.Build.0 = Debug|Win32
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release|x64.ActiveCfg = Release|x64
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release|x64.Build.0 = Release|x64
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release|x86.ActiveCfg = Release|Win32
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release|x86.Build.0 = Release|Win32
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release-static|x64.ActiveCfg = Release-static|x64
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release-static|x64.Build.0 = Release-static|x64
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release-static|x86.ActiveCfg = Release-static|Win32
+		{17AA489F-91D4-44CF-BB8F-FB432A409599}.Release-static|x86.Build.0 = Release-static|Win32
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Debug|x64.ActiveCfg = Debug|x64
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Debug|x64.Build.0 = Debug|x64
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Debug|x86.ActiveCfg = Debug|Win32
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Debug|x86.Build.0 = Debug|Win32
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release|x64.ActiveCfg = Release|x64
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release|x64.Build.0 = Release|x64
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release|x86.ActiveCfg = Release|Win32
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release|x86.Build.0 = Release|Win32
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x64.ActiveCfg = Release-static|x64
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x64.Build.0 = Release-static|x64
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x86.ActiveCfg = Release-static|Win32
+		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x86.Build.0 = Release-static|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
