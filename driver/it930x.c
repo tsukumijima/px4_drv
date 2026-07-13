@@ -1162,3 +1162,188 @@ int it930x_purge_psb(struct it930x_bridge *it930x, int timeout)
 
 	return ret;
 }
+
+#define IT930X_REG_UART_REALSEND	0x4965
+#define IT930X_REG_UART_RX_READY	0x496a
+#define IT930X_REG_UART_RX_LENGTH	0x496b
+
+static int it930x_set_uart_baudrate(struct it930x_bridge *it930x,
+				    enum it930x_uart_baudrate baudrate)
+{
+	u8 value;
+	struct it930x_ctrl_buf write_buf;
+
+	if (baudrate == IT930X_UART_BAUDRATE_9600)
+		value = 0;
+	else if (baudrate == IT930X_UART_BAUDRATE_19200)
+		value = 1;
+	else
+		return -EINVAL;
+
+	write_buf.buf = &value;
+	write_buf.len = 1;
+	return it930x_ctrl_msg(it930x, IT930X_CMD_UART_SET_BAUDRATE,
+				&write_buf, NULL, NULL, false);
+}
+
+int it930x_bcas_init(struct it930x_bridge *it930x)
+{
+	u8 mode = 1;
+	struct it930x_ctrl_buf write_buf;
+	int ret;
+
+	write_buf.buf = &mode;
+	write_buf.len = 1;
+	ret = it930x_ctrl_msg(it930x, IT930X_CMD_UART_SET_MODE,
+			     &write_buf, NULL, NULL, false);
+	if (ret)
+		return ret;
+
+	/* カード検出は頻繁に呼ばれるため GPIO H6 の入力設定は初期化時に済ませる */
+	return it930x_set_gpio_mode(it930x, 6, IT930X_GPIO_IN, true);
+}
+
+int it930x_bcas_reset_card(struct it930x_bridge *it930x)
+{
+	int ret;
+
+	/* B-CAS のリセット線は GPIO H14 に接続されている */
+	ret = it930x_set_gpio_mode(it930x, 14, IT930X_GPIO_OUT, true);
+	if (ret)
+		return ret;
+
+	ret = it930x_write_gpio(it930x, 14, false);
+	if (ret)
+		return ret;
+
+	/* UART の受信状態を初期化して ATR の初期速度へ戻す */
+	ret = it930x_write_reg(it930x, 0x7904, 2);
+	if (ret)
+		return ret;
+
+	ret = it930x_set_uart_baudrate(it930x, IT930X_UART_BAUDRATE_9600);
+	if (ret)
+		return ret;
+
+	msleep(5);
+	return it930x_write_gpio(it930x, 14, true);
+}
+
+int it930x_bcas_check_ready(struct it930x_bridge *it930x, bool *ready)
+{
+	u8 value;
+	int ret;
+
+	if (!ready)
+		return -EINVAL;
+
+	ret = it930x_read_reg(it930x, IT930X_REG_UART_RX_READY, &value);
+	if (ret)
+		return ret;
+
+	*ready = value != 0;
+	return 0;
+}
+
+int it930x_bcas_get_data(struct it930x_bridge *it930x, u8 *buf, u8 *len)
+{
+	u8 capacity;
+	u8 total = 0;
+	int ret;
+
+	if (!buf || !len || !*len)
+		return -EINVAL;
+
+	capacity = *len;
+	while (total < capacity) {
+		u8 available;
+		u8 read_len;
+		struct it930x_ctrl_buf write_buf;
+		struct it930x_ctrl_buf read_buf;
+
+		ret = it930x_read_reg(it930x, IT930X_REG_UART_RX_LENGTH,
+				      &available);
+		if (ret)
+			return ret;
+		if (!available)
+			break;
+
+		/* 1回の UART_READ 応答は32バイトまでに制限される */
+		read_len = (available < 32) ? available : 32;
+		if (read_len > capacity - total)
+			read_len = capacity - total;
+		write_buf.buf = &read_len;
+		write_buf.len = 1;
+		read_buf.buf = buf + total;
+		read_buf.len = read_len;
+
+		ret = it930x_ctrl_msg(it930x, IT930X_CMD_UART_READ,
+				      &write_buf, &read_buf, NULL, false);
+		if (ret)
+			return ret;
+		if (read_buf.len != read_len)
+			return -EBADMSG;
+
+		total += read_len;
+	}
+
+	*len = total;
+	return 0;
+}
+
+int it930x_bcas_send_data(struct it930x_bridge *it930x, const u8 *buf, u8 len)
+{
+	u8 offset = 0;
+
+	if (!buf || !len)
+		return -EINVAL;
+
+	while (offset < len) {
+		u8 write_len = (len - offset < 48) ? len - offset : 48;
+		u8 data[49];
+		struct it930x_ctrl_buf write_buf;
+		int ret;
+
+		/* 最終チャンクを送る直前にファームウェアへ送信確定を通知する */
+		if (offset + write_len == len) {
+			ret = it930x_write_reg(it930x, IT930X_REG_UART_REALSEND, 1);
+			if (ret)
+				return ret;
+		}
+
+		data[0] = write_len;
+		memcpy(&data[1], &buf[offset], write_len);
+		write_buf.buf = data;
+		write_buf.len = write_len + 1;
+		ret = it930x_ctrl_msg(it930x, IT930X_CMD_UART_WRITE,
+				      &write_buf, NULL, NULL, false);
+		if (ret)
+			return ret;
+
+		offset += write_len;
+	}
+
+	return 0;
+}
+
+int it930x_bcas_detect_card(struct it930x_bridge *it930x, bool *detected)
+{
+	int ret;
+
+	if (!detected)
+		return -EINVAL;
+
+	/* カード検出スイッチは GPIO H6 の Low Active 入力 */
+	ret = it930x_read_gpio(it930x, 6, detected);
+	if (ret)
+		return ret;
+
+	*detected = !*detected;
+	return 0;
+}
+
+int it930x_bcas_set_baudrate(struct it930x_bridge *it930x,
+			     enum it930x_uart_baudrate baudrate)
+{
+	return it930x_set_uart_baudrate(it930x, baudrate);
+}

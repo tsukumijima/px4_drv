@@ -25,6 +25,15 @@
 #define IT930X_CMD_FW_SCATTER_WRITE	0x29
 #define IT930X_CMD_I2C_READ		0x2a
 #define IT930X_CMD_I2C_WRITE		0x2b
+#define IT930X_CMD_UART_READ		0x33
+#define IT930X_CMD_UART_WRITE		0x34
+#define IT930X_CMD_UART_SET_BAUDRATE	0x35
+#define IT930X_CMD_UART_SET_MODE	0x37
+
+enum it930x_uart_baudrate {
+	IT930X_UART_BAUDRATE_9600 = 0,
+	IT930X_UART_BAUDRATE_19200 = 1,
+};
 
 enum it930x_gpio_mode {
 	IT930X_GPIO_UNDEFINED = 0,
@@ -94,6 +103,14 @@ int it930x_write_gpio(struct it930x_bridge *it930x, int gpio, bool high);
 int it930x_set_pid_filter(struct it930x_bridge *it930x, int input_idx,
 			  struct it930x_pid_filter *filter);
 int it930x_purge_psb(struct it930x_bridge *it930x, int timeout);
+int it930x_bcas_init(struct it930x_bridge *it930x);
+int it930x_bcas_reset_card(struct it930x_bridge *it930x);
+int it930x_bcas_check_ready(struct it930x_bridge *it930x, bool *ready);
+int it930x_bcas_get_data(struct it930x_bridge *it930x, u8 *buf, u8 *len);
+int it930x_bcas_send_data(struct it930x_bridge *it930x, const u8 *buf, u8 len);
+int it930x_bcas_detect_card(struct it930x_bridge *it930x, bool *detected);
+int it930x_bcas_set_baudrate(struct it930x_bridge *it930x,
+			     enum it930x_uart_baudrate baudrate);
 #ifdef __cplusplus
 }
 #endif
