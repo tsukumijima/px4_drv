@@ -697,7 +697,7 @@ fail_tuner_init:
 
 fail_demod_init:
 	if (!parent_.open_count_)
-		parent_.SetBackendPower(true);
+		parent_.SetBackendPower(false);
 
 fail_power:
 	return ret;

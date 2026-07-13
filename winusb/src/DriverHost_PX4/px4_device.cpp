@@ -627,7 +627,7 @@ int Px4Device::MultiDevice::Remove(Px4Device &dev)
 	msg_dbg("px4::Px4Device::MultiDevice::Remove\n");
 
 	std::uint8_t dev_id = dev.serial_.dev_id - 1;
-	std::uint8_t other_dev_id = (dev_id) ? 1 : 0;
+	std::uint8_t other_dev_id = dev_id ? 0 : 1;
 
 	if (dev_id > 1)
 		return -EINVAL;
