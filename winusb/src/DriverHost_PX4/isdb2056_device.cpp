@@ -8,6 +8,7 @@
 #include "type.hpp"
 #include "command.hpp"
 #include "misc_win.h"
+#include "ts_sync.h"
 
 namespace px4 {
 
@@ -375,7 +376,8 @@ void Isdb2056Device::StreamProcess(std::shared_ptr<px4::ReceiverBase::StreamBuff
 
 		while (true) {
 			if (((i + 1) * 188) <= remain) {
-				if (p[i * 188] == 0x47)
+				/* 連続する同期バイトを数え、崩れた位置の直前までを出力する */
+				if (!px4_ts_has_plain_sync(p[i * 188]))
 					break;
 			} else {
 				sync_remain = true;

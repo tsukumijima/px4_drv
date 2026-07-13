@@ -83,8 +83,9 @@ private:
 	};
 	struct StreamContext final {
 		std::shared_ptr<px4::ReceiverBase::StreamBuffer> stream_buf[4];
-		std::uint8_t remain_buf[PX4_DEVICE_TS_SYNC_SIZE];
-		std::size_t remain_len;
+		/* 最初のコールバック前も未処理データなしの状態として初期化 */
+		std::uint8_t remain_buf[PX4_DEVICE_TS_SYNC_SIZE] = {};
+		std::size_t remain_len = 0;
 	};
 
 	class MultiDevice final {

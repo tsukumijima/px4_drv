@@ -8,6 +8,7 @@
 #include "type.hpp"
 #include "command.hpp"
 #include "misc_win.h"
+#include "ts_sync.h"
 
 namespace px4 {
 
@@ -453,7 +454,7 @@ void Px4Device::StreamProcess(std::shared_ptr<px4::ReceiverBase::StreamBuffer> s
 
 		for (i = 0; i < PX4_DEVICE_TS_SYNC_COUNT; i++) {
 			if (((i + 1) * 188) <= remain) {
-				if ((p[i * 188] & 0x8f) != 0x07)
+				if (!px4_ts_has_tagged_sync(p[i * 188]))
 					break;
 			} else {
 				sync_remain = true;
@@ -470,7 +471,7 @@ void Px4Device::StreamProcess(std::shared_ptr<px4::ReceiverBase::StreamBuffer> s
 			continue;
 		}
 
-		while (remain >= 188 && ((p[0] & 0x8f) == 0x07)) {
+		while (remain >= 188 && px4_ts_has_tagged_sync(p[0])) {
 			u8 id = (p[0] & 0x70) >> 4;
 
 			if (id && id < 5) {

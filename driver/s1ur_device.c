@@ -16,6 +16,7 @@
 
 #include "px4_device_params.h"
 #include "firmware.h"
+#include "ts_sync.h"
 
 #define S1UR_DEVICE_TS_SYNC_COUNT	4
 #define S1UR_DEVICE_TS_SYNC_SIZE	(188 * S1UR_DEVICE_TS_SYNC_COUNT)
@@ -124,7 +125,7 @@ static void s1ur_device_stream_process(struct ptx_chrdev *chrdev,
 
 		while (true) {
 			if (likely(((i + 1) * 188) <= remain)) {
-				if (unlikely(p[i * 188] != 0x47))
+				if (unlikely(!px4_ts_has_plain_sync(p[i * 188])))
 					break;
 			} else {
 				sync_remain = true;

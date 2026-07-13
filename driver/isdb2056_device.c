@@ -14,6 +14,7 @@
 
 #include "px4_device_params.h"
 #include "firmware.h"
+#include "ts_sync.h"
 
 #define ISDB2056_DEVICE_TS_SYNC_COUNT	4
 #define ISDB2056_DEVICE_TS_SYNC_SIZE	(188 * ISDB2056_DEVICE_TS_SYNC_COUNT)
@@ -135,7 +136,7 @@ static void isdb2056_device_stream_process(struct ptx_chrdev *chrdev,
 
 		while (true) {
 			if (likely(((i + 1) * 188) <= remain)) {
-				if (unlikely(p[i * 188] != 0x47))
+				if (unlikely(!px4_ts_has_plain_sync(p[i * 188])))
 					break;
 			} else {
 				sync_remain = true;

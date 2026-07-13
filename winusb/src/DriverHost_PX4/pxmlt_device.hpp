@@ -76,8 +76,9 @@ public:
 private:
 	struct StreamContext final {
 		std::shared_ptr<px4::ReceiverBase::StreamBuffer> stream_buf[5];
-		std::uint8_t remain_buf[PXMLT_DEVICE_TS_SYNC_SIZE];
-		std::size_t remain_len;
+		/* 最初のコールバック前も未処理データなしの状態として初期化 */
+		std::uint8_t remain_buf[PXMLT_DEVICE_TS_SYNC_SIZE] = {};
+		std::size_t remain_len = 0;
 	};
 
 	class PxMltReceiver final : public px4::ReceiverBase {
