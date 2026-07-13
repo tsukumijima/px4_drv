@@ -146,6 +146,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -160,6 +161,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -176,6 +178,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;_DEBUG_MSG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -195,6 +198,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -213,6 +217,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;_DEBUG_MSG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -232,6 +237,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -254,6 +260,7 @@
     <ClCompile Include="..\common\security_attributes.cpp" />
     <ClCompile Include="..\common\util.cpp" />
     <ClCompile Include="ctrl_server.cpp" />
+	<ClCompile Include="card_server.cpp" />
     <ClCompile Include="device_base.cpp" />
     <ClCompile Include="device_definition_set.cpp" />
     <ClCompile Include="device_manager.cpp" />
@@ -272,6 +279,7 @@
     <ClCompile Include="ringbuffer.cpp" />
     <ClCompile Include="server_base.cpp" />
     <ClCompile Include="stream_server.cpp" />
+	<ClCompile Include="smart_card.cpp" />
     <ClCompile Include="notify_icon.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -284,6 +292,7 @@
     <ClInclude Include="..\..\..\driver\rt710.h" />
     <ClInclude Include="..\..\..\driver\tc90522.h" />
     <ClInclude Include="..\common\command.hpp" />
+	<ClInclude Include="..\common\card_command.hpp" />
     <ClInclude Include="..\common\config.hpp" />
     <ClInclude Include="..\common\msg.h" />
     <ClInclude Include="..\common\pipe.hpp" />
@@ -291,6 +300,8 @@
     <ClInclude Include="..\common\type.hpp" />
     <ClInclude Include="..\common\util.hpp" />
     <ClInclude Include="ctrl_server.hpp" />
+	<ClInclude Include="card_server.hpp" />
+	<ClInclude Include="card_device.hpp" />
     <ClInclude Include="device_base.hpp" />
     <ClInclude Include="device_definition_set.hpp" />
     <ClInclude Include="device_manager.hpp" />
@@ -309,6 +320,7 @@
     <ClInclude Include="ringbuffer.hpp" />
     <ClInclude Include="server_base.hpp" />
     <ClInclude Include="stream_server.hpp" />
+	<ClInclude Include="smart_card.hpp" />
     <ClInclude Include="winusb_compat.h" />
   </ItemGroup>
   <ItemGroup>

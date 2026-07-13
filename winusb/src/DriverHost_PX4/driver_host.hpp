@@ -14,6 +14,7 @@
 #include "receiver_manager.hpp"
 #include "ctrl_server.hpp"
 #include "stream_server.hpp"
+#include "card_server.hpp"
 #include "util.hpp"
 
 namespace px4 {
@@ -43,6 +44,7 @@ private:
 	std::unique_ptr<px4::DeviceManager> device_manager_;
 	std::unique_ptr<px4::CtrlServer> ctrl_server_;
 	std::unique_ptr<px4::StreamServer> stream_server_;
+	std::unique_ptr<px4::CardServer> card_server_;
 };
 
 class DriverHostError : public std::runtime_error {

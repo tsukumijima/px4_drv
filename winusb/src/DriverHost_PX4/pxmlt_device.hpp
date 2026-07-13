@@ -72,6 +72,15 @@ public:
 	void Term() override;
 	void SetAvailability(bool available) override;
 	px4::ReceiverBase* GetReceiver(int id) const override;
+	bool HasCardReader() const noexcept override { return model_ != PxMltDeviceModel::PXMLT8PE3; }
+	int OpenCard() override;
+	void CloseCard() override;
+	int DetectCard(bool &detected) override;
+	int ResetCard() override;
+	int SetCardBaudrate(::it930x_uart_baudrate baudrate) override;
+	int IsCardDataReady(bool &ready) override;
+	int ReadCardData(std::uint8_t *buf, std::uint8_t &len) override;
+	int WriteCardData(const std::uint8_t *buf, std::uint8_t len) override;
 
 private:
 	struct StreamContext final {
@@ -151,6 +160,7 @@ private:
 	std::atomic_bool available_;
 	std::atomic_bool init_;
 	unsigned int open_count_;
+	bool card_open_;
 	unsigned int lnb_power_count_;
 	unsigned int streaming_count_;
 	std::mutex tuner_lock_[2];

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <mutex>
@@ -52,6 +53,10 @@ public:
 	DeviceManager(DeviceManager &&) = delete;
 	DeviceManager& operator=(DeviceManager &&) = delete;
 
+	std::vector<std::wstring> ListCardReaders() const;
+	std::shared_ptr<DeviceBase> FindCardReader(const std::wstring &name) const;
+	std::uint64_t GetCardReaderGeneration() const noexcept;
+
 private:
 	void Search(const GUID &guid, const std::pair<DeviceType, px4::DeviceDefinition> &def);
 	void Add(const std::wstring &path, const std::pair<DeviceType, px4::DeviceDefinition> &def);
@@ -61,9 +66,10 @@ private:
 	std::unordered_map<GUID, std::pair<DeviceType, px4::DeviceDefinition>> device_map_;
 	px4::ReceiverManager &receiver_manager_;
 
-	std::mutex mtx_;
-	std::unordered_map<std::wstring, std::unique_ptr<DeviceBase>> devices_;
+	mutable std::mutex mtx_;
+	std::unordered_map<std::wstring, std::shared_ptr<DeviceBase>> devices_;
 	std::uintptr_t index_;
+	std::atomic<std::uint64_t> card_reader_generation_;
 	NotifyHandler handler_;
 	std::unique_ptr<px4::DeviceNotifier> notifier_;
 };

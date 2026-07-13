@@ -18,7 +18,9 @@ Isdb2056Device::Isdb2056Device(const std::wstring &path, const px4::DeviceDefini
 	lock_(),
 	available_(true),
 	init_(false),
-	streaming_count_(0)
+	streaming_count_(0),
+	card_open_(false),
+	receiver_open_(false)
 {
 	if (usb_dev_.descriptor.idVendor != 0x0511)
 		throw DeviceError("px4::Isdb2056Device::Isdb2056Device: unsupported device. (unknown vendor id)");
@@ -249,6 +251,10 @@ void Isdb2056Device::Term()
 
 void Isdb2056Device::SetAvailability(bool available)
 {
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	/* 切断後の古いカードセッションから USB 制御転送を発行しない */
+	if (available_ && !available)
+		card_open_ = false;
 	available_ = available;
 }
 
@@ -258,6 +264,81 @@ ReceiverBase* Isdb2056Device::GetReceiver(int id) const
 		throw std::out_of_range("receiver id out of range");
 
 	return receiver_.get();
+}
+
+int Isdb2056Device::OpenCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+
+	if (!available_)
+		return -ENODEV;
+	if (card_open_)
+		return -EBUSY;
+
+	/* 受信中の電源再投入は TS を途切れさせるため、未使用時だけ投入する */
+	if (!receiver_open_) {
+		int ret = SetBackendPower(true);
+		if (ret)
+			return ret;
+	}
+
+	int ret = it930x_bcas_init(&it930x_);
+	if (ret) {
+		if (!receiver_open_)
+			SetBackendPower(false);
+		return ret;
+	}
+
+	card_open_ = true;
+	return 0;
+}
+
+void Isdb2056Device::CloseCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+
+	if (!card_open_)
+		return;
+
+	card_open_ = false;
+	if (!receiver_open_)
+		SetBackendPower(false);
+}
+
+int Isdb2056Device::DetectCard(bool &detected)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return available_ ? it930x_bcas_detect_card(&it930x_, &detected) : -ENODEV;
+}
+
+int Isdb2056Device::ResetCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_reset_card(&it930x_) : -ENODEV;
+}
+
+int Isdb2056Device::SetCardBaudrate(::it930x_uart_baudrate baudrate)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_set_baudrate(&it930x_, baudrate) : -ENODEV;
+}
+
+int Isdb2056Device::IsCardDataReady(bool &ready)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_check_ready(&it930x_, &ready) : -ENODEV;
+}
+
+int Isdb2056Device::ReadCardData(std::uint8_t *buf, std::uint8_t &len)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_get_data(&it930x_, buf, &len) : -ENODEV;
+}
+
+int Isdb2056Device::WriteCardData(const std::uint8_t *buf, std::uint8_t len)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_send_data(&it930x_, buf, len) : -ENODEV;
 }
 
 const i2c_comm_master& Isdb2056Device::GetI2cMaster(int bus) const
@@ -660,7 +741,8 @@ int Isdb2056Device::Isdb2056Receiver::Open()
 	if (open_)
 		return (!init_) ? -EINVAL : -EALREADY;
 
-	ret = parent_.SetBackendPower(true);
+	if (!parent_.card_open_)
+		ret = parent_.SetBackendPower(true);
 	if (ret) {
 		dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): parent_.SetBackendPower(true) failed. (ret: %d)\n", index_, ret);
 		return ret;
@@ -669,7 +751,8 @@ int Isdb2056Device::Isdb2056Receiver::Open()
 	ret = parent_.receiver_->Init(true);
 	if (ret) {
 		dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): parent_.reciver_->Init(true) failed. (ret: %d)\n", index_, ret);
-		parent_.SetBackendPower(false);
+		if (!parent_.card_open_)
+			parent_.SetBackendPower(false);
 		return ret;
 	}
 
@@ -727,12 +810,15 @@ int Isdb2056Device::Isdb2056Receiver::Open()
 		goto fail;
 	}
 
+	parent_.receiver_open_ = true;
 	open_ = true;
 	return ret;
 
 fail:
-	parent_.Term();
-	parent_.SetBackendPower(false);
+	/* カード接続を維持したまま、途中まで初期化した受信回路だけを戻す */
+	parent_.receiver_->Term();
+	if (!parent_.card_open_)
+		parent_.SetBackendPower(false);
 	return ret;
 }
 
@@ -750,7 +836,9 @@ void Isdb2056Device::Isdb2056Receiver::Close()
 	std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
 
 	parent_.receiver_->Term();
-	parent_.SetBackendPower(false);
+	parent_.receiver_open_ = false;
+	if (!parent_.card_open_)
+		parent_.SetBackendPower(false);
 
 	open_ = false;
 

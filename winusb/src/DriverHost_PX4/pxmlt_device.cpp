@@ -32,6 +32,7 @@ PxMltDevice::PxMltDevice(const std::wstring &path, const px4::DeviceDefinition &
 	available_(true),
 	init_(false),
 	open_count_(0),
+	card_open_(false),
 	lnb_power_count_(0),
 	streaming_count_(0),
 	tuner_lock_{}
@@ -283,6 +284,10 @@ void PxMltDevice::Term()
 
 void PxMltDevice::SetAvailability(bool available)
 {
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	/* 切断後の古いカードセッションから USB 制御転送を発行しない */
+	if (available_ && !available)
+		card_open_ = false;
 	available_ = available;
 }
 
@@ -292,6 +297,82 @@ ReceiverBase* PxMltDevice::GetReceiver(int id) const
 		throw std::out_of_range("receiver id out of range");
 
 	return receivers_[id].get();
+}
+
+int PxMltDevice::OpenCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+
+	if (!available_ || !HasCardReader())
+		return -ENODEV;
+	if (card_open_)
+		return -EBUSY;
+
+	/* チューナー未使用時だけ基板の電源を投入し、視聴中の電源状態には触れない */
+	if (!open_count_) {
+		int ret = SetBackendPower(true);
+		if (ret)
+			return ret;
+	}
+
+	int ret = it930x_bcas_init(&it930x_);
+	if (ret) {
+		if (!open_count_)
+			SetBackendPower(false);
+		return ret;
+	}
+
+	card_open_ = true;
+	return 0;
+}
+
+void PxMltDevice::CloseCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+
+	if (!card_open_)
+		return;
+
+	card_open_ = false;
+	if (!open_count_)
+		SetBackendPower(false);
+}
+
+int PxMltDevice::DetectCard(bool &detected)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return available_ && HasCardReader() ?
+		it930x_bcas_detect_card(&it930x_, &detected) : -ENODEV;
+}
+
+int PxMltDevice::ResetCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_reset_card(&it930x_) : -ENODEV;
+}
+
+int PxMltDevice::SetCardBaudrate(::it930x_uart_baudrate baudrate)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_set_baudrate(&it930x_, baudrate) : -ENODEV;
+}
+
+int PxMltDevice::IsCardDataReady(bool &ready)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_check_ready(&it930x_, &ready) : -ENODEV;
+}
+
+int PxMltDevice::ReadCardData(std::uint8_t *buf, std::uint8_t &len)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_get_data(&it930x_, buf, &len) : -ENODEV;
+}
+
+int PxMltDevice::WriteCardData(const std::uint8_t *buf, std::uint8_t len)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_send_data(&it930x_, buf, len) : -ENODEV;
 }
 
 const i2c_comm_master& PxMltDevice::GetI2cMaster(int bus) const
@@ -611,7 +692,7 @@ int PxMltDevice::PxMltReceiver::Open()
 	if (open_)
 		return -EALREADY;
 
-	if (!parent_.open_count_) {
+	if (!parent_.open_count_ && !parent_.card_open_) {
 		ret = parent_.SetBackendPower(true);
 		if (ret) {
 			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::Open(%u): SetBackendPower(true) failed. (ret: %d)\n", index_, ret);
@@ -696,7 +777,8 @@ fail_tuner_init:
 	cxd2856er_term(&cxd2856er_);
 
 fail_demod_init:
-	if (!parent_.open_count_)
+	/* カードもチューナーも未使用なら、初期化前に入れた電源を切る */
+	if (!parent_.open_count_ && !parent_.card_open_)
 		parent_.SetBackendPower(false);
 
 fail_power:
@@ -726,7 +808,7 @@ void PxMltDevice::PxMltReceiver::Close()
 	cxd2856er_term(&cxd2856er_);
 
 	parent_.open_count_--;
-	if (!parent_.open_count_)
+	if (!parent_.open_count_ && !parent_.card_open_)
 		parent_.SetBackendPower(false);
 
 	open_ = false;

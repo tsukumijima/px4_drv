@@ -74,6 +74,15 @@ public:
 	void Term() override;
 	void SetAvailability(bool available) override;
 	px4::ReceiverBase * GetReceiver(int id) const override;
+	bool HasCardReader() const noexcept override;
+	int OpenCard() override;
+	void CloseCard() override;
+	int DetectCard(bool &detected) override;
+	int ResetCard() override;
+	int SetCardBaudrate(::it930x_uart_baudrate baudrate) override;
+	int IsCardDataReady(bool &ready) override;
+	int ReadCardData(std::uint8_t *buf, std::uint8_t &len) override;
+	int WriteCardData(const std::uint8_t *buf, std::uint8_t len) override;
 
 private:
 	struct SerialNumber final {
@@ -106,12 +115,15 @@ private:
 		int Add(Px4Device &dev);
 		int Remove(Px4Device &dev);
 		int SetPower(Px4Device &dev, std::uintptr_t index, bool state, bool *first);
+		int SetCardPower(Px4Device &dev, bool state);
+		int ReleaseCardPower(Px4Device &dev);
 
 	private:
 		MultiDevice(Px4MultiDeviceMode mode, std::uint64_t serial_number);
 
 		std::uint8_t GetDeviceCount() const noexcept;
 		bool GetReceiverStatus(std::uint8_t dev_id) const noexcept;
+		bool HasPowerUser(std::uint8_t dev_id) const noexcept;
 		bool IsPowerIntelockingRequried(std::uint8_t dev_id) const noexcept;
 
 		static std::mutex mldev_list_lock_;
@@ -122,6 +134,7 @@ private:
 		Px4MultiDeviceMode mode_;
 		Px4Device *dev_[2];
 		bool power_state_[2];
+		bool card_state_[2];
 		bool receiver_state_[2][4];
 	};
 
@@ -195,11 +208,13 @@ private:
 
 	Px4DeviceConfig config_;
 	std::recursive_mutex lock_;
+	std::mutex backend_power_lock_;
 	std::atomic_bool available_;
 	SerialNumber serial_;
 	std::shared_ptr<MultiDevice> mldev_;
 	std::atomic_bool init_;
 	unsigned int open_count_;
+	bool card_open_;
 	unsigned int lnb_power_count_;
 	unsigned int streaming_count_;
 	std::unique_ptr<Px4Receiver> receivers_[4];

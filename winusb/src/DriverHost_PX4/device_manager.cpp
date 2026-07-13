@@ -38,6 +38,7 @@ DeviceManager::DeviceManager(const px4::DeviceDefinitionSet &device_defs, px4::R
 	receiver_manager_(receiver_manager),
 	mtx_(),
 	index_(0),
+	card_reader_generation_(1),
 	handler_(*this)
 {
 	auto &all_devs = device_defs.GetAll();
@@ -121,43 +122,56 @@ void DeviceManager::Add(const std::wstring &path, const std::pair<DeviceType, px
 	if (Exists(path))
 		return;
 
+	/* 機種追加時に型と DeviceType の対応をこの場で確認できるよう生成分岐を明示する */
 	switch (def.first) {
 	case px4::DeviceType::PX4:
 	{
-		auto dev = std::make_unique<Px4Device>(path, def.second, ++index_, receiver_manager_);
+		auto dev = std::make_shared<Px4Device>(path, def.second, ++index_, receiver_manager_);
 
-		if (!dev->Init())
+		if (!dev->Init()) {
+			if (dev->HasCardReader())
+				card_reader_generation_.fetch_add(1);
 			devices_.emplace(path, std::move(dev));
+		}
 
 		break;
 	}
 
 	case px4::DeviceType::PXMLT:
 	{
-		auto dev = std::make_unique<PxMltDevice>(path, def.second, ++index_, receiver_manager_);
+		auto dev = std::make_shared<PxMltDevice>(path, def.second, ++index_, receiver_manager_);
 
-		if (!dev->Init())
+		if (!dev->Init()) {
+			if (dev->HasCardReader())
+				card_reader_generation_.fetch_add(1);
 			devices_.emplace(path, std::move(dev));
+		}
 
 		break;
 	}
 
 	case px4::DeviceType::ISDB2056:
 	{
-		auto dev = std::make_unique<Isdb2056Device>(path, def.second, ++index_, receiver_manager_);
+		auto dev = std::make_shared<Isdb2056Device>(path, def.second, ++index_, receiver_manager_);
 
-		if (!dev->Init())
+		if (!dev->Init()) {
+			if (dev->HasCardReader())
+				card_reader_generation_.fetch_add(1);
 			devices_.emplace(path, std::move(dev));
+		}
 
 		break;
 	}
 
 	case px4::DeviceType::ISDBT2071:
 	{
-		auto dev = std::make_unique<Isdbt2071Device>(path, def.second, ++index_, receiver_manager_);
+		auto dev = std::make_shared<Isdbt2071Device>(path, def.second, ++index_, receiver_manager_);
 
-		if (!dev->Init())
+		if (!dev->Init()) {
+			if (dev->HasCardReader())
+				card_reader_generation_.fetch_add(1);
 			devices_.emplace(path, std::move(dev));
+		}
 
 		break;
 	}
@@ -176,13 +190,48 @@ void DeviceManager::Remove(const std::wstring &path)
 	if (!Exists(path))
 		return;
 
-	devices_.at(path)->SetAvailability(false);
+	auto device = devices_.at(path);
+	device->SetAvailability(false);
+	if (device->HasCardReader())
+		card_reader_generation_.fetch_add(1);
 	devices_.erase(path);
 }
 
 bool DeviceManager::Exists(const std::wstring &path) const
 {
 	return !!devices_.count(path);
+}
+
+std::vector<std::wstring> DeviceManager::ListCardReaders() const
+{
+	std::vector<std::wstring> readers;
+	std::lock_guard<std::mutex> lock(mtx_);
+
+	/* ホットプラグ中に消えるデバイス名を呼び出し元へ公開しない */
+	for (const auto &entry : devices_) {
+		if (entry.second->HasCardReader())
+			readers.emplace_back(entry.second->GetCardReaderName());
+	}
+
+	std::sort(readers.begin(), readers.end());
+	return readers;
+}
+
+std::shared_ptr<DeviceBase> DeviceManager::FindCardReader(const std::wstring &name) const
+{
+	std::lock_guard<std::mutex> lock(mtx_);
+
+	for (const auto &entry : devices_) {
+		if (entry.second->HasCardReader() && entry.second->GetCardReaderName() == name)
+			return entry.second;
+	}
+
+	return nullptr;
+}
+
+std::uint64_t DeviceManager::GetCardReaderGeneration() const noexcept
+{
+	return card_reader_generation_.load();
 }
 
 } // namespace px4

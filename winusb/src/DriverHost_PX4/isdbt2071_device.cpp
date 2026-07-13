@@ -19,7 +19,9 @@ Isdbt2071Device::Isdbt2071Device(const std::wstring &path, const px4::DeviceDefi
 	lock_(),
 	available_(true),
 	init_(false),
-	streaming_count_(0)
+	streaming_count_(0),
+	card_open_(false),
+	receiver_open_(false)
 {
 	if (usb_dev_.descriptor.idVendor != 0x0511 || usb_dev_.descriptor.idProduct != 0x0052)
 		throw DeviceError("px4::Isdbt2071Device::Isdbt2071Device: unsupported device. (unknown vendor id or product id)");
@@ -218,6 +220,10 @@ void Isdbt2071Device::Term()
 
 void Isdbt2071Device::SetAvailability(bool available)
 {
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	/* 切断後の古いカードセッションから USB 制御転送を発行しない */
+	if (available_ && !available)
+		card_open_ = false;
 	available_ = available;
 }
 
@@ -227,6 +233,81 @@ ReceiverBase* Isdbt2071Device::GetReceiver(int id) const
 		throw std::out_of_range("receiver id out of range");
 
 	return receiver_.get();
+}
+
+int Isdbt2071Device::OpenCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+
+	if (!available_)
+		return -ENODEV;
+	if (card_open_)
+		return -EBUSY;
+
+	/* 受信中は基板電源を維持し、カードを開くための再投入で TS を途切れさせない */
+	if (!receiver_open_) {
+		int ret = SetBackendPower(true);
+		if (ret)
+			return ret;
+	}
+
+	int ret = it930x_bcas_init(&it930x_);
+	if (ret) {
+		if (!receiver_open_)
+			SetBackendPower(false);
+		return ret;
+	}
+
+	card_open_ = true;
+	return 0;
+}
+
+void Isdbt2071Device::CloseCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+
+	if (!card_open_)
+		return;
+
+	card_open_ = false;
+	if (!receiver_open_)
+		SetBackendPower(false);
+}
+
+int Isdbt2071Device::DetectCard(bool &detected)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return available_ ? it930x_bcas_detect_card(&it930x_, &detected) : -ENODEV;
+}
+
+int Isdbt2071Device::ResetCard()
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_reset_card(&it930x_) : -ENODEV;
+}
+
+int Isdbt2071Device::SetCardBaudrate(::it930x_uart_baudrate baudrate)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_set_baudrate(&it930x_, baudrate) : -ENODEV;
+}
+
+int Isdbt2071Device::IsCardDataReady(bool &ready)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_check_ready(&it930x_, &ready) : -ENODEV;
+}
+
+int Isdbt2071Device::ReadCardData(std::uint8_t *buf, std::uint8_t &len)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_get_data(&it930x_, buf, &len) : -ENODEV;
+}
+
+int Isdbt2071Device::WriteCardData(const std::uint8_t *buf, std::uint8_t len)
+{
+	std::lock_guard<std::recursive_mutex> lock(lock_);
+	return card_open_ ? it930x_bcas_send_data(&it930x_, buf, len) : -ENODEV;
 }
 
 const i2c_comm_master& Isdbt2071Device::GetI2cMaster(int bus) const
@@ -551,16 +632,19 @@ int Isdbt2071Device::Isdbt2071Receiver::Open()
 	if (open_)
 		return (!init_) ? -EINVAL : -EALREADY;
 
-	ret = parent_.SetBackendPower(true);
-	if (ret) {
-		dev_err(&parent_.dev_, "px4::Isdbt2071Device::Isdbt2071Receiver::Open(%u): parent_.SetBackendPower(true) failed. (ret: %d)\n", index_, ret);
-		return ret;
+	if (!parent_.card_open_) {
+		ret = parent_.SetBackendPower(true);
+		if (ret) {
+			dev_err(&parent_.dev_, "px4::Isdbt2071Device::Isdbt2071Receiver::Open(%u): parent_.SetBackendPower(true) failed. (ret: %d)\n", index_, ret);
+			return ret;
+		}
 	}
 
 	ret = parent_.receiver_->Init(true);
 	if (ret) {
 		dev_err(&parent_.dev_, "px4::Isdbt2071Device::Isdbt2071Receiver::Open(%u): parent_.reciver_->Init(true) failed. (ret: %d)\n", index_, ret);
-		parent_.SetBackendPower(false);
+		if (!parent_.card_open_)
+			parent_.SetBackendPower(false);
 		return ret;
 	}
 
@@ -600,12 +684,15 @@ int Isdbt2071Device::Isdbt2071Receiver::Open()
 		goto fail;
 	}
 
+	parent_.receiver_open_ = true;
 	open_ = true;
 	return ret;
 
 fail:
-	parent_.Term();
-	parent_.SetBackendPower(false);
+	/* カード接続を残したまま、途中まで初期化した受信回路だけを戻す */
+	parent_.receiver_->Term();
+	if (!parent_.card_open_)
+		parent_.SetBackendPower(false);
 	return ret;
 }
 
@@ -623,7 +710,9 @@ void Isdbt2071Device::Isdbt2071Receiver::Close()
 	std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
 
 	parent_.receiver_->Term();
-	parent_.SetBackendPower(false);
+	parent_.receiver_open_ = false;
+	if (!parent_.card_open_)
+		parent_.SetBackendPower(false);
 
 	open_ = false;
 

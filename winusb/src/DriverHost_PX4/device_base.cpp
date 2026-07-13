@@ -3,11 +3,27 @@
 #include "device_base.hpp"
 
 #include <cinttypes>
+#include <cwchar>
 
 #include "msg.h"
 #include "command.hpp"
 
 namespace px4 {
+
+namespace {
+
+std::uint64_t HashDevicePath(const std::wstring &path) noexcept
+{
+	/* デバイス列挙順に左右されない識別子をリーダー名へ埋め込む */
+	std::uint64_t hash = 14695981039346656037ULL;
+	for (wchar_t character : path) {
+		hash ^= static_cast<std::uint16_t>(character);
+		hash *= 1099511628211ULL;
+	}
+	return hash;
+}
+
+} // namespace
 
 DeviceBase::DeviceBase(const std::wstring &path, const px4::DeviceDefinition &device_def, std::uintptr_t index, px4::ReceiverManager &receiver_manager)
 	: device_def_(device_def),
@@ -15,6 +31,9 @@ DeviceBase::DeviceBase(const std::wstring &path, const px4::DeviceDefinition &de
 {
 	strncpy_s(dev_.driver_name, "px4_winusb", sizeof("px4_winusb"));
 	sprintf_s(dev_.device_name, "%" PRIuPTR, index);
+	wchar_t reader_id[17] = {};
+	swprintf_s(reader_id, L"%016llX", static_cast<unsigned long long>(HashDevicePath(path)));
+	card_reader_name_ = device_def_.name + L" Smart Card Reader #" + reader_id;
 
 	usb_dev_.winusb = nullptr;
 	usb_dev_.serial = nullptr;

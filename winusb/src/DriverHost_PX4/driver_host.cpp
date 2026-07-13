@@ -20,6 +20,8 @@ DriverHost::DriverHost()
 
 DriverHost::~DriverHost()
 {
+	card_server_.reset();
+	stream_server_.reset();
 	ctrl_server_.reset();
 	device_manager_.reset();
 
@@ -62,9 +64,14 @@ void DriverHost::Run()
 
 	ctrl_server_.reset(new px4::CtrlServer(receiver_manager_));
 	stream_server_.reset(new px4::StreamServer(receiver_manager_));
+	card_server_.reset(new px4::CardServer(*device_manager_, receiver_manager_));
 
-	ctrl_server_->Start();
-	stream_server_->Start();
+	if (!ctrl_server_->Start())
+		throw DriverHostError("px4::DriverHost::Run: CtrlServer::Start() failed.");
+	if (!stream_server_->Start())
+		throw DriverHostError("px4::DriverHost::Run: StreamServer::Start() failed.");
+	/* カード用パイプだけの障害で既存の TS 受信を停止させない */
+	card_server_->Start();
 
 	SetEvent(startup_event_);
 
@@ -74,13 +81,16 @@ void DriverHost::Run()
 
 		while (n < 3) {
 			Sleep(5000);
-			if (!ctrl_server_->GetActiveConnectionCount() && !stream_server_->GetActiveConnectionCount())
+			if (!ctrl_server_->GetActiveConnectionCount() &&
+				!stream_server_->GetActiveConnectionCount() &&
+				!card_server_->GetActiveConnectionCount())
 				n++;
 			else
 				n = 0;
 		}
 	}
 
+	card_server_.reset();
 	stream_server_.reset();
 	ctrl_server_.reset();
 	device_manager_.reset();
