@@ -126,14 +126,21 @@ int SmartCard::Reset(std::vector<std::uint8_t> &atr)
 	if (!detected)
 		return SMART_CARD_NO_MEDIUM;
 
-	ret = device_->ResetCard();
-	if (ret)
-		return ret;
-
 	AtrParameters parameters;
-	ret = ReadAtr(atr, parameters);
-	if (ret)
-		return ret;
+	for (unsigned int attempt = 0; attempt < 2; attempt++) {
+		/* 前回の不正 ATR を途中まで解析していても T=1 パラメータを次の試行へ残さない */
+		parameters = AtrParameters{};
+		ret = device_->ResetCard();
+		if (ret)
+			return ret;
+
+		ret = ReadAtr(atr, parameters);
+		if (!ret)
+			break;
+		/* 一部機種は連続リセット時に UART の残留バイトを ATR より先に返すため、形式不正だけ再初期化する */
+		if (ret != -EBADMSG || attempt != 0)
+			return ret;
+	}
 
 	/* B-CAS は ATR 後の実通信を19200bpsで行う */
 	ret = device_->SetCardBaudrate(IT930X_UART_BAUDRATE_19200);

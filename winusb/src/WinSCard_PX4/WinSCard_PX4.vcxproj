@@ -71,7 +71,7 @@
     <ClCompile Include="..\BonDriver_PX4\pipe_client.cpp" />
     <ClCompile Include="card_client.cpp" />
     <ClCompile Include="native_winscard.cpp" />
-    <ClCompile Include="unsupported.cpp" />
+    <ClCompile Include="management.cpp" />
     <ClCompile Include="winscard.cpp" />
   </ItemGroup>
   <ItemGroup>

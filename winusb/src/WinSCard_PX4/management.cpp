@@ -8,12 +8,17 @@
 #include <vector>
 
 #include <windows.h>
+#include <setupapi.h>
 #include <winscard.h>
 
 #include "native_winscard.hpp"
 #include "proxy_support.hpp"
 
 namespace {
+
+using px4::winscard::CopyMultiString;
+using px4::winscard::CopyString;
+using px4::winscard::ToWide;
 
 #define PX4_SCARD_CATCH \
 	catch (const std::bad_alloc &) { return SCARD_E_NO_MEMORY; } \
@@ -35,101 +40,45 @@ LONG CallNative(SCARDCONTEXT context, const char *name, Args... args)
 }
 
 template <typename Char>
-std::wstring ReaderToWide(const Char *reader)
-{
-	if (!reader)
-		return {};
-	if constexpr (std::is_same_v<Char, wchar_t>) {
-		return reader;
-	} else {
-		int length = MultiByteToWideChar(CP_ACP, 0, reader, -1, nullptr, 0);
-		if (length <= 0)
-			return {};
-		std::wstring result(static_cast<std::size_t>(length), L'\0');
-		MultiByteToWideChar(CP_ACP, 0, reader, -1, result.data(), length);
-		result.pop_back();
-		return result;
-	}
-}
-
-template <typename Char>
 bool IsPx4Reader(const Char *reader)
 {
-	return reader && px4::winscard::IsPx4ReaderName(ReaderToWide(reader));
+	return reader && px4::winscard::IsPx4ReaderName(ToWide(reader));
 }
 
-template <typename Char>
-LONG CopyMultiString(const std::vector<std::basic_string<Char>> &values,
-	Char *buffer, LPDWORD length)
+template <typename ReaderState>
+bool ContainsPx4Reader(ReaderState *states, DWORD count) try
 {
-	if (!length)
-		return SCARD_E_INVALID_PARAMETER;
+	if (!states || !count)
+		return false;
 
-	DWORD required = 1;
-	for (const auto &value : values)
-		required += static_cast<DWORD>(value.size() + 1);
-	DWORD supplied = *length;
-	*length = required;
-	Char *destination = buffer;
-
-	/* SCARD_AUTOALLOCATE は winscard.cpp と同じ LocalAlloc() で確保する */
-	if (supplied == SCARD_AUTOALLOCATE) {
-		if (!buffer)
-			return SCARD_E_INVALID_PARAMETER;
-		destination = static_cast<Char *>(LocalAlloc(LMEM_FIXED,
-			required * sizeof(Char)));
-		if (!destination)
-			return SCARD_E_NO_MEMORY;
-		if (!px4::winscard::RegisterProxyAllocation(destination)) {
-			LocalFree(destination);
-			return SCARD_E_NO_MEMORY;
-		}
-		*reinterpret_cast<Char **>(buffer) = destination;
-	} else if (!buffer) {
-		return SCARD_S_SUCCESS;
-	} else if (supplied < required) {
-		return SCARD_E_INSUFFICIENT_BUFFER;
+	/* PnP 通知はリーダー一覧を必要としないため DriverHost_PX4 を起動せず判定する */
+	for (DWORD index = 0; index < count; index++) {
+		if (!states[index].szReader ||
+			(states[index].dwCurrentState & SCARD_STATE_IGNORE))
+			continue;
+		if (ToWide(states[index].szReader) == px4::winscard::PNP_NOTIFICATION)
+			return true;
 	}
 
-	for (const auto &value : values) {
-		memcpy(destination, value.c_str(), (value.size() + 1) * sizeof(Char));
-		destination += value.size() + 1;
+	std::vector<std::wstring> px4_readers;
+	const bool has_px4_readers =
+		px4::winscard::GetPx4ReaderNames(px4_readers) == SCARD_S_SUCCESS;
+
+	/* Windows 標準だけで処理できる呼び出しを統合状態監視へ持ち込まない */
+	for (DWORD index = 0; index < count; index++) {
+		if (!states[index].szReader ||
+			(states[index].dwCurrentState & SCARD_STATE_IGNORE))
+			continue;
+		const std::wstring reader = ToWide(states[index].szReader);
+		if (has_px4_readers &&
+			std::find(px4_readers.begin(), px4_readers.end(), reader) !=
+			px4_readers.end())
+			return true;
 	}
-	*destination = 0;
-	return SCARD_S_SUCCESS;
+	return false;
 }
-
-template <typename Char>
-LONG CopyString(const std::basic_string<Char> &value, Char *buffer, LPDWORD length)
-{
-	if (!length)
-		return SCARD_E_INVALID_PARAMETER;
-	DWORD required = static_cast<DWORD>(value.size() + 1);
-	DWORD supplied = *length;
-	*length = required;
-
-	/* SCARD_AUTOALLOCATE はポインタの格納先を受け取り、解放可能な領域を返す */
-	if (supplied == SCARD_AUTOALLOCATE) {
-		if (!buffer)
-			return SCARD_E_INVALID_PARAMETER;
-		auto allocation = static_cast<Char *>(LocalAlloc(LMEM_FIXED,
-			required * sizeof(Char)));
-		if (!allocation)
-			return SCARD_E_NO_MEMORY;
-		memcpy(allocation, value.c_str(), required * sizeof(Char));
-		if (!px4::winscard::RegisterProxyAllocation(allocation)) {
-			LocalFree(allocation);
-			return SCARD_E_NO_MEMORY;
-		}
-		*reinterpret_cast<Char **>(buffer) = allocation;
-		return SCARD_S_SUCCESS;
-	}
-	if (!buffer)
-		return SCARD_S_SUCCESS;
-	if (supplied < required)
-		return SCARD_E_INSUFFICIENT_BUFFER;
-	memcpy(buffer, value.c_str(), required * sizeof(Char));
-	return SCARD_S_SUCCESS;
+catch (...) {
+	return false;
 }
 
 template <typename Char>
@@ -200,12 +149,13 @@ template <typename Char>
 LONG ListCards(SCARDCONTEXT context, LPCBYTE atr, LPCGUID interfaces,
 	DWORD interface_count, Char *cards, LPDWORD length) try
 {
-	std::vector<std::basic_string<Char>> names;
-	LONG result = QueryNativeCards(context, atr, interfaces, interface_count,
-		names);
-	if (result != SCARD_S_SUCCESS)
-		return result;
-	return CopyMultiString(names, cards, length);
+	/* カード種別は Windows のデータベースを変更せず、標準 API の所有権規則ごと転送する */
+	if constexpr (std::is_same_v<Char, char>)
+		return CallNative<decltype(&SCardListCardsA)>(context,
+			"SCardListCardsA", atr, interfaces, interface_count, cards, length);
+	else
+		return CallNative<decltype(&SCardListCardsW)>(context,
+			"SCardListCardsW", atr, interfaces, interface_count, cards, length);
 }
 PX4_SCARD_CATCH
 
@@ -218,6 +168,14 @@ LONG LocateCards(SCARDCONTEXT context, const Char *card_names,
 		return result;
 	if (!card_names || (count && !states))
 		return SCARD_E_INVALID_PARAMETER;
+	if (!ContainsPx4Reader(states, count)) {
+		if constexpr (std::is_same_v<ReaderState, SCARD_READERSTATEA>)
+			return CallNative<decltype(&SCardLocateCardsA)>(context,
+				"SCardLocateCardsA", card_names, states, count);
+		else
+			return CallNative<decltype(&SCardLocateCardsW)>(context,
+				"SCardLocateCardsW", card_names, states, count);
+	}
 
 	std::vector<std::basic_string<Char>> requested_names;
 	for (const Char *name = card_names; *name;
@@ -241,7 +199,8 @@ LONG LocateCards(SCARDCONTEXT context, const Char *card_names,
 		result = SCardGetStatusChangeA(context, 0, states, count);
 	else
 		result = SCardGetStatusChangeW(context, 0, states, count);
-	if (result != SCARD_S_SUCCESS)
+	/* 状態変化がなくても現在の ATR は取得済みなので、そのままカード名を照合する */
+	if (result != SCARD_S_SUCCESS && result != SCARD_E_TIMEOUT)
 		return result;
 
 	for (DWORD index = 0; index < count; index++) {
@@ -273,16 +232,27 @@ LONG LocateCardsByAtr(SCARDCONTEXT context, LPSCARD_ATRMASK masks,
 {
 	if ((mask_count && !masks) || (state_count && !states))
 		return SCARD_E_INVALID_PARAMETER;
+	LONG result = SCardIsValidContext(context);
+	if (result != SCARD_S_SUCCESS)
+		return result;
+	if (!ContainsPx4Reader(states, state_count)) {
+		if constexpr (std::is_same_v<ReaderState, SCARD_READERSTATEA>)
+			return CallNative<decltype(&SCardLocateCardsByATRA)>(context,
+				"SCardLocateCardsByATRA", masks, mask_count, states, state_count);
+		else
+			return CallNative<decltype(&SCardLocateCardsByATRW)>(context,
+				"SCardLocateCardsByATRW", masks, mask_count, states, state_count);
+	}
 	for (DWORD mask_index = 0; mask_index < mask_count; mask_index++) {
 		if (masks[mask_index].cbAtr > SCARD_ATR_LENGTH)
 			return SCARD_E_INVALID_PARAMETER;
 	}
-	LONG result;
 	if constexpr (std::is_same_v<ReaderState, SCARD_READERSTATEA>)
 		result = SCardGetStatusChangeA(context, 0, states, state_count);
 	else
 		result = SCardGetStatusChangeW(context, 0, states, state_count);
-	if (result != SCARD_S_SUCCESS)
+	/* 前回と同じ状態でも ATR マスク検索自体は実行する */
+	if (result != SCARD_S_SUCCESS && result != SCARD_E_TIMEOUT)
 		return result;
 
 	/* ATR とマスクの全バイトが一致したリーダーだけ ATRMATCH にする */
@@ -318,6 +288,9 @@ LONG GetDeviceType(SCARDCONTEXT context, const Char *reader, LPDWORD type) try
 {
 	if (!reader || !type)
 		return SCARD_E_INVALID_PARAMETER;
+	LONG result = SCardIsValidContext(context);
+	if (result != SCARD_S_SUCCESS)
+		return result;
 	if (!IsPx4Reader(reader)) {
 		if constexpr (std::is_same_v<Char, char>)
 			return CallNative<decltype(&SCardGetDeviceTypeIdA)>(context,
@@ -326,12 +299,6 @@ LONG GetDeviceType(SCARDCONTEXT context, const Char *reader, LPDWORD type) try
 			return CallNative<decltype(&SCardGetDeviceTypeIdW)>(context,
 				"SCardGetDeviceTypeIdW", reader, type);
 	}
-	std::vector<std::basic_string<Char>> readers;
-	LONG result = ListReaders(context, readers);
-	if (result != SCARD_S_SUCCESS)
-		return result;
-	if (std::find(readers.begin(), readers.end(), reader) == readers.end())
-		return SCARD_E_UNKNOWN_READER;
 	*type = SCARD_READER_TYPE_USB;
 	return SCARD_S_SUCCESS;
 }
@@ -343,6 +310,9 @@ LONG CopyDeviceInstance(SCARDCONTEXT context, const Char *reader,
 {
 	if (!reader)
 		return SCARD_E_INVALID_PARAMETER;
+	LONG result = SCardIsValidContext(context);
+	if (result != SCARD_S_SUCCESS)
+		return result;
 	if (!IsPx4Reader(reader)) {
 		if constexpr (std::is_same_v<Char, char>)
 			return CallNative<decltype(&SCardGetReaderDeviceInstanceIdA)>(context,
@@ -351,20 +321,13 @@ LONG CopyDeviceInstance(SCARDCONTEXT context, const Char *reader,
 			return CallNative<decltype(&SCardGetReaderDeviceInstanceIdW)>(context,
 				"SCardGetReaderDeviceInstanceIdW", reader, instance, length);
 	}
-	std::vector<std::basic_string<Char>> readers;
-	LONG result = ListReaders(context, readers);
-	if (result != SCARD_S_SUCCESS)
-		return result;
-	auto entry = std::find(readers.begin(), readers.end(), reader);
-	if (entry == readers.end())
-		return SCARD_E_UNKNOWN_READER;
-
 	/* リーダー名末尾のデバイスパス由来ハッシュを使い、他機器の増減で ID を変えない */
-	const auto separator = entry->rfind(static_cast<Char>('#'));
+	const std::basic_string<Char> reader_name(reader);
+	const auto separator = reader_name.rfind(static_cast<Char>('#'));
 	if (separator == std::basic_string<Char>::npos ||
-		entry->size() - separator - 1 != 16)
+		reader_name.size() - separator - 1 != 16)
 		return SCARD_F_INTERNAL_ERROR;
-	const auto reader_id = entry->substr(separator + 1);
+	const auto reader_id = reader_name.substr(separator + 1);
 	std::basic_string<Char> value;
 	if constexpr (std::is_same_v<Char, char>)
 		value = "PX4_WINUSB\\CARD_READER_" + reader_id;
@@ -626,6 +589,9 @@ LONG WINAPI SCardWriteCacheW(SCARDCONTEXT context, UUID *card_id,
 LONG WINAPI SCardGetReaderIconA(SCARDCONTEXT context, LPCSTR reader,
 	LPBYTE icon, LPDWORD length) try
 {
+	LONG result = SCardIsValidContext(context);
+	if (result != SCARD_S_SUCCESS)
+		return result;
 	if (IsPx4Reader(reader)) {
 		if (length)
 			*length = 0;
@@ -638,6 +604,9 @@ PX4_SCARD_CATCH
 LONG WINAPI SCardGetReaderIconW(SCARDCONTEXT context, LPCWSTR reader,
 	LPBYTE icon, LPDWORD length) try
 {
+	LONG result = SCardIsValidContext(context);
+	if (result != SCARD_S_SUCCESS)
+		return result;
 	if (IsPx4Reader(reader)) {
 		if (length)
 			*length = 0;
@@ -670,11 +639,13 @@ LONG WINAPI SCardAudit(SCARDCONTEXT context, DWORD event)
 	return CallNative<decltype(&SCardAudit)>(context, "SCardAudit", event);
 }
 
-DWORD CALLBACK ClassInstall32(DWORD function, DWORD flags, LPVOID data)
+DWORD CALLBACK ClassInstall32(DI_FUNCTION function, HDEVINFO device_info_set,
+	PSP_DEVINFO_DATA device_info_data)
 {
 	auto install = px4::winscard::GetNativeFunction<decltype(&ClassInstall32)>(
 		"ClassInstall32");
-	return install ? install(function, flags, data) : ERROR_CALL_NOT_IMPLEMENTED;
+	return install ? install(function, device_info_set, device_info_data) :
+		ERROR_CALL_NOT_IMPLEMENTED;
 }
 HANDLE WINAPI SCardAccessNewReaderEvent(void)
 {

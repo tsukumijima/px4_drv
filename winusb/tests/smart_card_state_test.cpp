@@ -40,7 +40,13 @@ public:
 			return -ENODEV;
 		reset_count++;
 		read_queue.clear();
-		read_queue.insert(read_queue.end(), atr_bytes.begin(), atr_bytes.end());
+		if (malformed_atr_resets) {
+			malformed_atr_resets--;
+			read_queue.insert(read_queue.end(), malformed_atr_bytes.begin(),
+				malformed_atr_bytes.end());
+		} else {
+			read_queue.insert(read_queue.end(), atr_bytes.begin(), atr_bytes.end());
+		}
 		return 0;
 	}
 
@@ -180,6 +186,8 @@ public:
 	unsigned int ready_delay_checks = 0;
 	int detect_error = 0;
 	unsigned int reset_count = 0;
+	unsigned int malformed_atr_resets = 0;
+	std::vector<std::uint8_t> malformed_atr_bytes = { 0xfc, 0xff };
 	/* TA2 / TC2 は T=1 パラメータではないため既定の LRC と IFSC を使う */
 	std::vector<std::uint8_t> atr_bytes = { 0x3b, 0x80, 0xd1, 0x40, 0x01, 0x01, 0x11 };
 	bool expected_crc = false;
@@ -276,6 +284,19 @@ int main()
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
 		response_length) == 0 && device->reset_count == 5,
 		"WTX timeout did not invalidate the session.") && succeeded;
+
+	/* UART の残留バイトで ATR が壊れた場合だけ、カード全体を1回再初期化する */
+	auto retry_device = std::make_shared<MockCardDevice>();
+	retry_device->is_present = true;
+	retry_device->malformed_atr_resets = 1;
+	/* CRC 指定まで解析してから TCK で失敗し、次の LRC 用 ATR へ設定を残さないことも確認する */
+	retry_device->malformed_atr_bytes = {
+		0x3b, 0x80, 0x91, 0x01, 0x51, 0x40, 0x01, 0x01,
+	};
+	px4::SmartCard retry_card(retry_device);
+	succeeded = Check(retry_card.Open() == 0 && retry_device->reset_count == 2,
+		"Malformed ATR did not recover after one card reset.") && succeeded;
+	retry_card.Close();
 
 	/* TD2 が T=1 を示した後の TA3 / TC3 だけから IFSC と CRC を取得する */
 	auto crc_device = std::make_shared<MockCardDevice>();

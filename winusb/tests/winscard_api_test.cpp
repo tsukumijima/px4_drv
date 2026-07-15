@@ -106,6 +106,36 @@ bool TestCancel(SCARDCONTEXT context)
 	return succeeded;
 }
 
+bool TestNativeCancel(SCARDCONTEXT context, const std::wstring &reader)
+{
+	/* 外付けリーダーだけの待機は System32 側でブロックし、同じコンテキストから解除する */
+	SCARD_READERSTATEW initial_state = {};
+	initial_state.szReader = reader.c_str();
+	initial_state.dwCurrentState = SCARD_STATE_UNAWARE;
+	if (!CheckResult("SCardGetStatusChangeW(native initial)",
+		SCardGetStatusChangeW(context, 0, &initial_state, 1)))
+		return false;
+
+	SCARD_READERSTATEW waiting_state = {};
+	waiting_state.szReader = reader.c_str();
+	waiting_state.dwCurrentState =
+		initial_state.dwEventState & ~SCARD_STATE_CHANGED;
+	std::atomic<bool> is_ready{ false };
+	LONG wait_result = SCARD_S_SUCCESS;
+	std::thread waiter([context, &waiting_state, &is_ready, &wait_result]() {
+		is_ready.store(true);
+		wait_result = SCardGetStatusChangeW(context, INFINITE, &waiting_state, 1);
+	});
+	while (!is_ready.load())
+		std::this_thread::yield();
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	bool succeeded = CheckResult("SCardCancel(native)", SCardCancel(context));
+	waiter.join();
+	succeeded = CheckResult("SCardGetStatusChangeW(native cancelled)",
+		wait_result, SCARD_E_CANCELLED) && succeeded;
+	return succeeded;
+}
+
 bool TestAttribute(SCARDCONTEXT context, SCARDHANDLE card, DWORD attribute)
 {
 	DWORD required = 0;
@@ -308,6 +338,12 @@ bool TestPx4Reader(SCARDCONTEXT context, const std::wstring &reader)
 			std::fprintf(stderr, "SCardState returned invalid state data.\n");
 		succeeded = valid_state && succeeded;
 	}
+	succeeded = CheckResult("SCardState(required output)",
+		SCardState(card, nullptr, &legacy_protocol, state_atr, &state_atr_length),
+		SCARD_E_INVALID_PARAMETER) && succeeded;
+	succeeded = CheckResult("SCardControl(required byte count)",
+		SCardControl(card, 0, nullptr, 0, nullptr, 0, nullptr),
+		SCARD_E_INVALID_PARAMETER) && succeeded;
 
 	const DWORD attributes[] = {
 		SCARD_ATTR_ATR_STRING,
@@ -508,6 +544,14 @@ bool TestAnsiReader(SCARDCONTEXT context, const std::wstring &reader)
 
 int wmain()
 {
+	/* サービス開始イベントも System32 の待機可能ハンドルとして利用できることを確認する */
+	HANDLE started_event = SCardAccessStartedEvent();
+	if (!started_event || WaitForSingleObject(started_event, 0) != WAIT_OBJECT_0) {
+		std::fprintf(stderr, "SCardAccessStartedEvent did not return a signaled event.\n");
+		return 1;
+	}
+	SCardReleaseStartedEvent();
+
 	SCARDCONTEXT context = 0;
 	if (!CheckResult("SCardEstablishContext", SCardEstablishContext(
 		SCARD_SCOPE_SYSTEM, nullptr, nullptr, &context)))
@@ -535,6 +579,13 @@ int wmain()
 	succeeded = CheckResult("SCardLocateCardsW(invalid context)",
 		SCardLocateCardsW(0, nullptr, nullptr, 0), SCARD_E_INVALID_HANDLE) &&
 		succeeded;
+	DWORD invalid_icon_length = 0;
+	succeeded = CheckResult("SCardGetReaderIconW(invalid context)",
+		SCardGetReaderIconW(0, L"PX4 unknown reader", nullptr,
+			&invalid_icon_length), SCARD_E_INVALID_HANDLE) && succeeded;
+	succeeded = CheckResult("SCardGetReaderIconA(invalid context)",
+		SCardGetReaderIconA(0, "PX4 unknown reader", nullptr,
+			&invalid_icon_length), SCARD_E_INVALID_HANDLE) && succeeded;
 	SCARD_ATRMASK invalid_mask = {};
 	invalid_mask.cbAtr = SCARD_ATR_LENGTH + 1;
 	succeeded = CheckResult("SCardLocateCardsByATRW(invalid ATR length)",
@@ -631,11 +682,36 @@ int wmain()
 				locate_states.data(), static_cast<DWORD>(locate_states.size()));
 			succeeded = CheckResult("SCardLocateCardsW(registered card)", result) &&
 				succeeded;
+			if (result == SCARD_S_SUCCESS) {
+				/* 状態に変化がない再検索もタイムアウト扱いせず、同じ ATR を照合する */
+				for (auto &state : locate_states)
+					state.dwCurrentState = state.dwEventState & ~SCARD_STATE_CHANGED;
+				result = SCardLocateCardsW(context, locate_names.data(),
+					locate_states.data(), static_cast<DWORD>(locate_states.size()));
+				succeeded = CheckResult("SCardLocateCardsW(unchanged)", result) &&
+					succeeded;
+
+				auto present = std::find_if(locate_states.begin(), locate_states.end(),
+					[](const auto &state) {
+						return (state.dwEventState & SCARD_STATE_PRESENT) && state.cbAtr;
+					});
+				if (present != locate_states.end()) {
+					SCARD_ATRMASK mask = {};
+					mask.cbAtr = present->cbAtr;
+					std::memcpy(mask.rgbAtr, present->rgbAtr, mask.cbAtr);
+					std::memset(mask.rgbMask, 0xff, mask.cbAtr);
+					result = SCardLocateCardsByATRW(context, &mask, 1,
+						locate_states.data(), static_cast<DWORD>(locate_states.size()));
+					succeeded = CheckResult("SCardLocateCardsByATRW(unchanged)", result) &&
+						succeeded;
+				}
+			}
 		}
 	}
 
 	succeeded = TestCancel(context) && succeeded;
 	bool native_reader_seen = false;
+	bool native_cancel_tested = false;
 	for (const auto &reader : readers) {
 		bool is_px4_reader = false;
 		bool is_card_present = false;
@@ -662,6 +738,10 @@ int wmain()
 				std::printf("reader=%ls result=skipped (no card)\n", reader.c_str());
 			}
 		} else {
+			if (!native_cancel_tested) {
+				succeeded = TestNativeCancel(context, reader) && succeeded;
+				native_cancel_tested = true;
+			}
 			succeeded = TestNativeReader(context, reader, is_card_present) && succeeded;
 			if (is_card_present)
 				succeeded = TestAnsiReader(context, reader) && succeeded;

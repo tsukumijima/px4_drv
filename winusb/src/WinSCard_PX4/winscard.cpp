@@ -24,15 +24,19 @@
 
 namespace {
 
+using px4::winscard::CopyMultiString;
+using px4::winscard::ToAnsi;
+using px4::winscard::ToWide;
+
 #define PX4_SCARD_CATCH \
 	catch (const std::bad_alloc &) { return SCARD_E_NO_MEMORY; } \
 	catch (...) { return SCARD_F_INTERNAL_ERROR; }
 
-constexpr wchar_t PNP_NOTIFICATION[] = L"\\\\?PnP?\\Notification";
-
 struct Context final {
 	/* 同じコンテキストで待機中の全スレッドが1回の SCardCancel() を観測する */
 	std::atomic<std::uint64_t> cancel_generation{ 0 };
+	/* System32 へ直接転送中の待機だけをネイティブ SCardCancel() の対象にする */
+	std::atomic<unsigned int> native_wait_count{ 0 };
 	SCARDCONTEXT native_context = 0;
 };
 
@@ -156,110 +160,10 @@ LONG Call(px4::CardClient &client, px4::card_command::Command &command)
 	return SCARD_S_SUCCESS;
 }
 
-std::wstring ToWide(LPCSTR value)
+LONG QueryPx4Readers(px4::CardClient &client,
+	std::vector<std::wstring> &readers,
+	std::uint64_t *reader_generation = nullptr) try
 {
-	if (!value)
-		return {};
-
-	int length = MultiByteToWideChar(CP_ACP, 0, value, -1, nullptr, 0);
-	if (length <= 0)
-		return {};
-	std::wstring result(static_cast<std::size_t>(length), L'\0');
-	MultiByteToWideChar(CP_ACP, 0, value, -1, result.data(), length);
-	result.pop_back();
-	return result;
-}
-
-std::string ToAnsi(const std::wstring &value)
-{
-	int length = WideCharToMultiByte(CP_ACP, 0, value.c_str(), -1,
-		nullptr, 0, nullptr, nullptr);
-	if (length <= 0)
-		return {};
-	std::string result(static_cast<std::size_t>(length), '\0');
-	WideCharToMultiByte(CP_ACP, 0, value.c_str(), -1,
-		result.data(), length, nullptr, nullptr);
-	result.pop_back();
-	return result;
-}
-
-template <typename Char>
-LONG CopyString(const std::basic_string<Char> &value, Char *buffer, LPDWORD length)
-{
-	if (!length)
-		return SCARD_E_INVALID_PARAMETER;
-	DWORD required = static_cast<DWORD>(value.size() + 1);
-	DWORD supplied = *length;
-	*length = required;
-
-	if (supplied == SCARD_AUTOALLOCATE) {
-		if (!buffer)
-			return SCARD_E_INVALID_PARAMETER;
-		auto allocation = static_cast<Char *>(LocalAlloc(LMEM_FIXED,
-			required * sizeof(Char)));
-		if (!allocation)
-			return SCARD_E_NO_MEMORY;
-		memcpy(allocation, value.c_str(), required * sizeof(Char));
-		if (!RegisterLocalAllocation(allocation)) {
-			LocalFree(allocation);
-			return SCARD_E_NO_MEMORY;
-		}
-		*reinterpret_cast<Char **>(buffer) = allocation;
-		return SCARD_S_SUCCESS;
-	}
-	if (!buffer)
-		return SCARD_S_SUCCESS;
-	if (supplied < required)
-		return SCARD_E_INSUFFICIENT_BUFFER;
-	memcpy(buffer, value.c_str(), required * sizeof(Char));
-	return SCARD_S_SUCCESS;
-}
-
-template <typename Char>
-LONG CopyMultiString(const std::vector<std::basic_string<Char>> &values,
-			     Char *buffer, LPDWORD length)
-{
-	if (!length)
-		return SCARD_E_INVALID_PARAMETER;
-	DWORD required = 1;
-	for (const auto &value : values)
-		required += static_cast<DWORD>(value.size() + 1);
-	DWORD supplied = *length;
-	*length = required;
-	Char *destination = buffer;
-
-	if (supplied == SCARD_AUTOALLOCATE) {
-		if (!buffer)
-			return SCARD_E_INVALID_PARAMETER;
-		destination = static_cast<Char *>(LocalAlloc(LMEM_FIXED,
-			required * sizeof(Char)));
-		if (!destination)
-			return SCARD_E_NO_MEMORY;
-		if (!RegisterLocalAllocation(destination)) {
-			LocalFree(destination);
-			return SCARD_E_NO_MEMORY;
-		}
-		*reinterpret_cast<Char **>(buffer) = destination;
-	} else if (!buffer) {
-		return SCARD_S_SUCCESS;
-	} else if (supplied < required) {
-		return SCARD_E_INSUFFICIENT_BUFFER;
-	}
-
-	for (const auto &value : values) {
-		memcpy(destination, value.c_str(), (value.size() + 1) * sizeof(Char));
-		destination += value.size() + 1;
-	}
-	*destination = 0;
-	return SCARD_S_SUCCESS;
-}
-
-LONG ListPx4Readers(std::vector<std::wstring> &readers,
-		 std::uint64_t *reader_generation = nullptr) try
-{
-	px4::CardClient client;
-	if (!client.Connect())
-		return SCARD_E_NO_SERVICE;
 	px4::card_command::Command command = {};
 	command.code = px4::card_command::Code::LIST_READERS;
 	LONG result = Call(client, command);
@@ -272,6 +176,16 @@ LONG ListPx4Readers(std::vector<std::wstring> &readers,
 	for (std::size_t index = 0; index < command.reader_count; index++)
 		readers.emplace_back(command.readers[index]);
 	return readers.empty() ? SCARD_E_NO_READERS_AVAILABLE : SCARD_S_SUCCESS;
+}
+PX4_SCARD_CATCH
+
+LONG ListPx4Readers(std::vector<std::wstring> &readers,
+	std::uint64_t *reader_generation = nullptr) try
+{
+	px4::CardClient client;
+	if (!client.Connect())
+		return SCARD_E_NO_SERVICE;
+	return QueryPx4Readers(client, readers, reader_generation);
 }
 PX4_SCARD_CATCH
 
@@ -341,11 +255,13 @@ bool IncludesPx4ReaderGroup(LPCWSTR groups)
 }
 
 LONG ListCombinedReaders(const std::shared_ptr<Context> &context, LPCWSTR groups,
-	std::vector<std::wstring> &readers) try
+	std::vector<std::wstring> &readers,
+	px4::CardClient *px4_client = nullptr) try
 {
 	std::vector<std::wstring> px4_readers;
 	LONG px4_result = IncludesPx4ReaderGroup(groups) ?
-		ListPx4Readers(px4_readers) : SCARD_E_NO_READERS_AVAILABLE;
+		(px4_client ? QueryPx4Readers(*px4_client, px4_readers) :
+			ListPx4Readers(px4_readers)) : SCARD_E_NO_READERS_AVAILABLE;
 	if (px4_result == SCARD_S_SUCCESS)
 		readers.insert(readers.end(), px4_readers.begin(), px4_readers.end());
 
@@ -413,12 +329,51 @@ LONG GetStatusChange(SCARDCONTEXT context_handle, DWORD timeout,
 	const auto cancel_generation = context->cancel_generation.load();
 
 	std::vector<std::wstring> px4_readers;
-	LONG px4_result = ListPx4Readers(px4_readers);
-	std::unique_ptr<px4::CardClient> px4_client;
-	if (px4_result == SCARD_S_SUCCESS) {
-		px4_client = std::make_unique<px4::CardClient>();
-		if (!px4_client->Connect())
-			px4_readers.clear();
+	std::unique_ptr<px4::CardClient> px4_client =
+		std::make_unique<px4::CardClient>();
+	if (!px4_client->Connect()) {
+		px4_client.reset();
+	} else if (QueryPx4Readers(*px4_client, px4_readers) != SCARD_S_SUCCESS) {
+		/* リーダー0台でも接続を保持し、同じ DriverHost で後から追加された機器を検出する */
+		px4_readers.clear();
+	}
+
+	/* PX4 を含まない監視は Windows 標準へ一括転送し、待機精度と状態値をそのまま維持する */
+	bool requires_combined_wait = false;
+	for (DWORD index = 0; index < reader_count; index++) {
+		if (!states[index].szReader)
+			return SCARD_E_INVALID_PARAMETER;
+		if (states[index].dwCurrentState & SCARD_STATE_IGNORE)
+			continue;
+
+		std::wstring reader;
+		if constexpr (std::is_same_v<ReaderChar, char>)
+			reader = ToWide(states[index].szReader);
+		else
+			reader = states[index].szReader;
+		if (reader == px4::winscard::PNP_NOTIFICATION ||
+			std::find(px4_readers.begin(), px4_readers.end(), reader) !=
+			px4_readers.end()) {
+			requires_combined_wait = true;
+			break;
+		}
+	}
+	if (!requires_combined_wait && context->native_context) {
+		context->native_wait_count.fetch_add(1);
+		LONG result;
+		if constexpr (std::is_same_v<ReaderChar, char>) {
+			auto status_change = px4::winscard::GetNativeFunction<
+				decltype(&SCardGetStatusChangeA)>("SCardGetStatusChangeA");
+			result = status_change ? status_change(context->native_context, timeout,
+				states, reader_count) : SCARD_E_NO_SERVICE;
+		} else {
+			auto status_change = px4::winscard::GetNativeFunction<
+				decltype(&SCardGetStatusChangeW)>("SCardGetStatusChangeW");
+			result = status_change ? status_change(context->native_context, timeout,
+				states, reader_count) : SCARD_E_NO_SERVICE;
+		}
+		context->native_wait_count.fetch_sub(1);
+		return result;
 	}
 	auto start = std::chrono::steady_clock::now();
 
@@ -437,9 +392,10 @@ LONG GetStatusChange(SCARDCONTEXT context_handle, DWORD timeout,
 				reader = ToWide(states[index].szReader);
 			else
 				reader = states[index].szReader;
-			if (reader == PNP_NOTIFICATION) {
+			if (reader == px4::winscard::PNP_NOTIFICATION) {
 				std::vector<std::wstring> readers;
-				LONG result = ListCombinedReaders(context, nullptr, readers);
+				LONG result = ListCombinedReaders(context, nullptr, readers,
+					px4_client.get());
 				if (result != SCARD_S_SUCCESS && result != SCARD_E_NO_READERS_AVAILABLE)
 					return result;
 				std::uint32_t generation = 2166136261U;
@@ -561,15 +517,25 @@ LONG ConnectCard(SCARDCONTEXT context_handle, const ReaderChar *reader_name,
 	if (!IsPx4Reader(reader)) {
 		if (!context->native_context)
 			return SCARD_E_UNKNOWN_READER;
-		auto native_connect = px4::winscard::GetNativeFunction<
-			decltype(&SCardConnectW)>("SCardConnectW");
-		if (!native_connect)
-			return SCARD_E_NO_SERVICE;
-
 		SCARDHANDLE native_handle = 0;
 		DWORD native_protocol = SCARD_PROTOCOL_UNDEFINED;
-		LONG result = native_connect(context->native_context, reader.c_str(),
-			share_mode, preferred_protocols, &native_handle, &native_protocol);
+		LONG result;
+		/* 外付けリーダー名の文字変換規則も、呼ばれた ANSI / Unicode API と一致させる */
+		if constexpr (std::is_same_v<ReaderChar, char>) {
+			auto native_connect = px4::winscard::GetNativeFunction<
+				decltype(&SCardConnectA)>("SCardConnectA");
+			if (!native_connect)
+				return SCARD_E_NO_SERVICE;
+			result = native_connect(context->native_context, reader_name,
+				share_mode, preferred_protocols, &native_handle, &native_protocol);
+		} else {
+			auto native_connect = px4::winscard::GetNativeFunction<
+				decltype(&SCardConnectW)>("SCardConnectW");
+			if (!native_connect)
+				return SCARD_E_NO_SERVICE;
+			result = native_connect(context->native_context, reader_name,
+				share_mode, preferred_protocols, &native_handle, &native_protocol);
+		}
 		if (result != SCARD_S_SUCCESS)
 			return result;
 
@@ -580,9 +546,20 @@ LONG ConnectCard(SCARDCONTEXT context_handle, const ReaderChar *reader_name,
 			card->reader = std::move(reader);
 			card->native_handle = native_handle;
 			SCARDHANDLE handle = static_cast<SCARDHANDLE>(next_handle.fetch_add(1));
+			bool context_released = false;
 			{
 				std::lock_guard<std::mutex> lock(state_mutex);
-				cards.emplace(handle, std::move(card));
+				/* 接続中にコンテキストが解放された場合は孤立ハンドルを登録しない */
+				context_released = contexts.find(context_handle) == contexts.end();
+				if (!context_released)
+					cards.emplace(handle, std::move(card));
+			}
+			if (context_released) {
+				auto native_disconnect = px4::winscard::GetNativeFunction<
+					decltype(&SCardDisconnect)>("SCardDisconnect");
+				if (native_disconnect)
+					native_disconnect(native_handle, SCARD_LEAVE_CARD);
+				return SCARD_E_INVALID_HANDLE;
 			}
 			*card_handle = handle;
 			*active_protocol = native_protocol;
@@ -637,11 +614,20 @@ LONG ConnectCard(SCARDCONTEXT context_handle, const ReaderChar *reader_name,
 		card->reader = std::move(reader);
 		card->atr = std::move(atr);
 		SCARDHANDLE handle = static_cast<SCARDHANDLE>(next_handle.fetch_add(1));
+		bool context_released = false;
 		{
 			std::lock_guard<std::mutex> lock(state_mutex);
-			/* 挿入失敗時も切断要求を送れるよう client の所有権は登録成功後に移す */
-			cards.emplace(handle, card);
-			card->client = std::move(client);
+			/* 接続中に解放されたコンテキストへカードを登録せず、共有数を後で戻す */
+			context_released = contexts.find(context_handle) == contexts.end();
+			if (!context_released) {
+				/* 挿入失敗時も切断要求を送れるよう client の所有権は登録成功後に移す */
+				cards.emplace(handle, card);
+				card->client = std::move(client);
+			}
+		}
+		if (context_released) {
+			disconnect();
+			return SCARD_E_INVALID_HANDLE;
 		}
 		*card_handle = handle;
 		*active_protocol = SCARD_PROTOCOL_T1;
@@ -678,6 +664,8 @@ LONG CardStatus(SCARDHANDLE card_handle, Char *reader_names,
 				SCARD_E_NO_SERVICE;
 		}
 	}
+	if ((reader_names && !reader_length) || (atr_buffer && !atr_length))
+		return SCARD_E_INVALID_PARAMETER;
 
 	bool present = false;
 	bool initialized = false;
@@ -731,6 +719,39 @@ PX4_SCARD_CATCH
 
 namespace px4::winscard {
 
+std::wstring ToWide(LPCSTR value)
+{
+	if (!value)
+		return {};
+	const int length = MultiByteToWideChar(CP_ACP, 0, value, -1, nullptr, 0);
+	if (length <= 0)
+		return {};
+	std::wstring result(static_cast<std::size_t>(length), L'\0');
+	if (!MultiByteToWideChar(CP_ACP, 0, value, -1, result.data(), length))
+		return {};
+	result.pop_back();
+	return result;
+}
+
+std::wstring ToWide(LPCWSTR value)
+{
+	return value ? std::wstring(value) : std::wstring();
+}
+
+std::string ToAnsi(const std::wstring &value)
+{
+	const int length = WideCharToMultiByte(CP_ACP, 0, value.c_str(), -1,
+		nullptr, 0, nullptr, nullptr);
+	if (length <= 0)
+		return {};
+	std::string result(static_cast<std::size_t>(length), '\0');
+	if (!WideCharToMultiByte(CP_ACP, 0, value.c_str(), -1,
+		result.data(), length, nullptr, nullptr))
+		return {};
+	result.pop_back();
+	return result;
+}
+
 bool GetNativeContext(SCARDCONTEXT context_handle,
 	SCARDCONTEXT &native_context) noexcept
 {
@@ -749,6 +770,11 @@ bool RegisterProxyAllocation(LPCVOID allocation) noexcept
 bool IsPx4ReaderName(const std::wstring &reader) noexcept
 {
 	return IsPx4Reader(reader);
+}
+
+LONG GetPx4ReaderNames(std::vector<std::wstring> &readers) noexcept
+{
+	return ListPx4Readers(readers);
 }
 
 } // namespace px4::winscard
@@ -770,12 +796,19 @@ LONG WINAPI SCardEstablishContext(DWORD scope, LPCVOID reserved1,
 	auto context = std::make_shared<Context>();
 	auto native_establish = px4::winscard::GetNativeFunction<
 		decltype(&SCardEstablishContext)>("SCardEstablishContext");
+	LONG native_result = SCARD_E_NO_SERVICE;
 	if (native_establish) {
 		SCARDCONTEXT native_context = 0;
-		/* Windows 側のサービス停止時も PX4 内蔵リーダーだけで利用できる */
-		if (native_establish(scope, reserved1, reserved2, &native_context) ==
-			SCARD_S_SUCCESS)
+		native_result = native_establish(scope, reserved1, reserved2,
+			&native_context);
+		if (native_result == SCARD_S_SUCCESS)
 			context->native_context = native_context;
+	}
+	if (native_result != SCARD_S_SUCCESS) {
+		/* Windows のサービス停止時は、実在する PX4 リーダーがある場合だけ独立して開始する */
+		std::vector<std::wstring> px4_readers;
+		if (ListPx4Readers(px4_readers) != SCARD_S_SUCCESS)
+			return native_result;
 	}
 	SCARDCONTEXT handle = static_cast<SCARDCONTEXT>(next_handle.fetch_add(1));
 	{
@@ -848,6 +881,12 @@ LONG WINAPI SCardFreeMemory(SCARDCONTEXT context_handle, LPCVOID memory) try
 	if (RemoveLocalAllocation(memory))
 		return LocalFree(const_cast<LPVOID>(memory)) ?
 			SCARD_F_INTERNAL_ERROR : SCARD_S_SUCCESS;
+	/* context == 0 で Windows が自動確保した領域も同じ値のまま解放する */
+	if (!context_handle) {
+		auto free_memory = px4::winscard::GetNativeFunction<
+			decltype(&SCardFreeMemory)>("SCardFreeMemory");
+		return free_memory ? free_memory(0, memory) : SCARD_E_NO_SERVICE;
+	}
 	auto context = FindContext(context_handle);
 	if (!context)
 		return SCARD_E_INVALID_HANDLE;
@@ -860,8 +899,21 @@ LONG WINAPI SCardFreeMemory(SCARDCONTEXT context_handle, LPCVOID memory) try
 }
 PX4_SCARD_CATCH
 
-HANDLE WINAPI SCardAccessStartedEvent(void) { return StartedEvent(); }
-void WINAPI SCardReleaseStartedEvent(void) {}
+HANDLE WINAPI SCardAccessStartedEvent(void)
+{
+	auto access = px4::winscard::GetNativeFunction<
+		decltype(&SCardAccessStartedEvent)>("SCardAccessStartedEvent");
+	/* Windows 標準を読み込めない環境でも内蔵リーダー用コンテキストは開始可能とする */
+	return access ? access() : StartedEvent();
+}
+
+void WINAPI SCardReleaseStartedEvent(void)
+{
+	auto release = px4::winscard::GetNativeFunction<
+		decltype(&SCardReleaseStartedEvent)>("SCardReleaseStartedEvent");
+	if (release)
+		release();
+}
 
 LONG WINAPI SCardListReaderGroupsA(SCARDCONTEXT context_handle,
 	LPSTR groups, LPDWORD length) try
@@ -1109,9 +1161,13 @@ LONG WINAPI SCardCancel(SCARDCONTEXT context_handle) try
 	auto context = FindContext(context_handle);
 	if (!context)
 		return SCARD_E_INVALID_HANDLE;
-	/* System32 側は非ブロッキング照会だけなので、複合待機を管理する世代番号だけを進める */
+	/* 複合待機と Windows 標準へ直接転送した待機の双方を同じ呼び出しで解除する */
 	context->cancel_generation.fetch_add(1);
-	return SCARD_S_SUCCESS;
+	if (!context->native_context || !context->native_wait_count.load())
+		return SCARD_S_SUCCESS;
+	auto cancel = px4::winscard::GetNativeFunction<
+		decltype(&SCardCancel)>("SCardCancel");
+	return cancel ? cancel(context->native_context) : SCARD_E_NO_SERVICE;
 }
 PX4_SCARD_CATCH
 
@@ -1163,6 +1219,10 @@ LONG WINAPI SCardState(SCARDHANDLE card_handle, LPDWORD state,
 		std::lock_guard<std::mutex> lock(card->mutex);
 		return native_state(card->native_handle, state, protocol, atr, atr_length);
 	}
+	if (!state || !protocol || !atr_length || (!atr && *atr_length))
+		return SCARD_E_INVALID_PARAMETER;
+	*state = SCARD_UNKNOWN;
+	*protocol = SCARD_PROTOCOL_UNDEFINED;
 	return CardStatus<wchar_t>(card_handle, nullptr, nullptr, state,
 		protocol, atr, atr_length);
 }
@@ -1240,7 +1300,7 @@ PX4_SCARD_CATCH
 
 LONG WINAPI SCardControl(SCARDHANDLE card_handle, DWORD control_code,
 	LPCVOID input, DWORD input_length, LPVOID output, DWORD output_length,
-	LPDWORD bytes_returned)
+	LPDWORD bytes_returned) try
 {
 	auto card = FindCard(card_handle);
 	if (!card)
@@ -1254,10 +1314,12 @@ LONG WINAPI SCardControl(SCARDHANDLE card_handle, DWORD control_code,
 		return control(card->native_handle, control_code, input, input_length,
 			output, output_length, bytes_returned);
 	}
-	if (bytes_returned)
-		*bytes_returned = 0;
+	if (!bytes_returned)
+		return SCARD_E_INVALID_PARAMETER;
+	*bytes_returned = 0;
 	return SCARD_E_UNSUPPORTED_FEATURE;
 }
+PX4_SCARD_CATCH
 
 LONG WINAPI SCardGetAttrib(SCARDHANDLE card_handle, DWORD attribute,
 	LPBYTE buffer, LPDWORD length) try
@@ -1337,7 +1399,7 @@ LONG WINAPI SCardGetAttrib(SCARDHANDLE card_handle, DWORD attribute,
 PX4_SCARD_CATCH
 
 LONG WINAPI SCardSetAttrib(SCARDHANDLE card_handle, DWORD attribute,
-	LPCBYTE buffer, DWORD length)
+	LPCBYTE buffer, DWORD length) try
 {
 	auto card = FindCard(card_handle);
 	if (!card)
@@ -1351,5 +1413,6 @@ LONG WINAPI SCardSetAttrib(SCARDHANDLE card_handle, DWORD attribute,
 	std::lock_guard<std::mutex> lock(card->mutex);
 	return set_attrib(card->native_handle, attribute, buffer, length);
 }
+PX4_SCARD_CATCH
 
 } // extern "C"
