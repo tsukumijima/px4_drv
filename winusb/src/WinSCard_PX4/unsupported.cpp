@@ -10,11 +10,53 @@
 #include <windows.h>
 #include <winscard.h>
 
+#include "native_winscard.hpp"
+#include "proxy_support.hpp"
+
 namespace {
 
 #define PX4_SCARD_CATCH \
 	catch (const std::bad_alloc &) { return SCARD_E_NO_MEMORY; } \
 	catch (...) { return SCARD_F_INTERNAL_ERROR; }
+
+template <typename Function, typename... Args>
+LONG CallNative(SCARDCONTEXT context, const char *name, Args... args)
+{
+	SCARDCONTEXT native_context = 0;
+	/* SCardListCards() など context == 0 を許す API は System32 にもそのまま渡す */
+	if (context) {
+		if (!px4::winscard::GetNativeContext(context, native_context))
+			return SCARD_E_INVALID_HANDLE;
+		if (!native_context)
+			return SCARD_E_NO_SERVICE;
+	}
+	auto function = px4::winscard::GetNativeFunction<Function>(name);
+	return function ? function(native_context, args...) : SCARD_E_NO_SERVICE;
+}
+
+template <typename Char>
+std::wstring ReaderToWide(const Char *reader)
+{
+	if (!reader)
+		return {};
+	if constexpr (std::is_same_v<Char, wchar_t>) {
+		return reader;
+	} else {
+		int length = MultiByteToWideChar(CP_ACP, 0, reader, -1, nullptr, 0);
+		if (length <= 0)
+			return {};
+		std::wstring result(static_cast<std::size_t>(length), L'\0');
+		MultiByteToWideChar(CP_ACP, 0, reader, -1, result.data(), length);
+		result.pop_back();
+		return result;
+	}
+}
+
+template <typename Char>
+bool IsPx4Reader(const Char *reader)
+{
+	return reader && px4::winscard::IsPx4ReaderName(ReaderToWide(reader));
+}
 
 template <typename Char>
 LONG CopyMultiString(const std::vector<std::basic_string<Char>> &values,
@@ -38,6 +80,10 @@ LONG CopyMultiString(const std::vector<std::basic_string<Char>> &values,
 			required * sizeof(Char)));
 		if (!destination)
 			return SCARD_E_NO_MEMORY;
+		if (!px4::winscard::RegisterProxyAllocation(destination)) {
+			LocalFree(destination);
+			return SCARD_E_NO_MEMORY;
+		}
 		*reinterpret_cast<Char **>(buffer) = destination;
 	} else if (!buffer) {
 		return SCARD_S_SUCCESS;
@@ -71,6 +117,10 @@ LONG CopyString(const std::basic_string<Char> &value, Char *buffer, LPDWORD leng
 		if (!allocation)
 			return SCARD_E_NO_MEMORY;
 		memcpy(allocation, value.c_str(), required * sizeof(Char));
+		if (!px4::winscard::RegisterProxyAllocation(allocation)) {
+			LocalFree(allocation);
+			return SCARD_E_NO_MEMORY;
+		}
 		*reinterpret_cast<Char **>(buffer) = allocation;
 		return SCARD_S_SUCCESS;
 	}
@@ -111,16 +161,50 @@ LONG ListReaders(SCARDCONTEXT context,
 PX4_SCARD_CATCH
 
 template <typename Char>
-LONG ListCards(SCARDCONTEXT context, Char *cards, LPDWORD length) try
+LONG QueryNativeCards(SCARDCONTEXT context, LPCBYTE atr, LPCGUID interfaces,
+	DWORD interface_count, std::vector<std::basic_string<Char>> &names)
 {
-	LONG result = SCardIsValidContext(context);
+	DWORD native_length = 0;
+	LONG result;
+	if constexpr (std::is_same_v<Char, char>)
+		result = CallNative<decltype(&SCardListCardsA)>(context,
+			"SCardListCardsA", atr, interfaces, interface_count, nullptr,
+			&native_length);
+	else
+		result = CallNative<decltype(&SCardListCardsW)>(context,
+			"SCardListCardsW", atr, interfaces, interface_count, nullptr,
+			&native_length);
+	if (result != SCARD_S_SUCCESS || !native_length)
+		return result;
+
+	std::vector<Char> native_cards(native_length);
+	if constexpr (std::is_same_v<Char, char>)
+		result = CallNative<decltype(&SCardListCardsA)>(context,
+			"SCardListCardsA", atr, interfaces, interface_count,
+			native_cards.data(), &native_length);
+	else
+		result = CallNative<decltype(&SCardListCardsW)>(context,
+			"SCardListCardsW", atr, interfaces, interface_count,
+			native_cards.data(), &native_length);
 	if (result != SCARD_S_SUCCESS)
 		return result;
+
+	/* Windows のカード種別データベースが返した MULTI_SZ を文字列単位に分解する */
+	for (const Char *name = native_cards.data(); *name;
+		name += std::char_traits<Char>::length(name) + 1)
+		names.emplace_back(name);
+	return SCARD_S_SUCCESS;
+}
+
+template <typename Char>
+LONG ListCards(SCARDCONTEXT context, LPCBYTE atr, LPCGUID interfaces,
+	DWORD interface_count, Char *cards, LPDWORD length) try
+{
 	std::vector<std::basic_string<Char>> names;
-	if constexpr (std::is_same_v<Char, char>)
-		names.emplace_back("B-CAS");
-	else
-		names.emplace_back(L"B-CAS");
+	LONG result = QueryNativeCards(context, atr, interfaces, interface_count,
+		names);
+	if (result != SCARD_S_SUCCESS)
+		return result;
 	return CopyMultiString(names, cards, length);
 }
 PX4_SCARD_CATCH
@@ -135,16 +219,24 @@ LONG LocateCards(SCARDCONTEXT context, const Char *card_names,
 	if (!card_names || (count && !states))
 		return SCARD_E_INVALID_PARAMETER;
 
-	/* 未知のカード種別は無視し、このプロバイダーが公開する B-CAS だけを検索する */
-	bool search_bcas = false;
+	std::vector<std::basic_string<Char>> requested_names;
 	for (const Char *name = card_names; *name;
-		name += std::char_traits<Char>::length(name) + 1) {
-		if constexpr (std::is_same_v<Char, char>)
-			search_bcas = search_bcas || strcmp(name, "B-CAS") == 0;
-		else
-			search_bcas = search_bcas || wcscmp(name, L"B-CAS") == 0;
+		name += std::char_traits<Char>::length(name) + 1)
+		requested_names.emplace_back(name);
+
+	/* 未登録名を含む場合は System32 と同じ SCARD_E_UNKNOWN_CARD を返す */
+	std::vector<std::basic_string<Char>> registered_names;
+	result = QueryNativeCards<Char>(context, nullptr, nullptr, 0,
+		registered_names);
+	if (result != SCARD_S_SUCCESS)
+		return result;
+	for (const auto &name : requested_names) {
+		if (std::find(registered_names.begin(), registered_names.end(), name) ==
+			registered_names.end())
+			return SCARD_E_UNKNOWN_CARD;
 	}
 
+	/* 統合済みの状態取得を使い、内蔵・外付けを同じ ATR 照合へ流す */
 	if constexpr (std::is_same_v<ReaderState, SCARD_READERSTATEA>)
 		result = SCardGetStatusChangeA(context, 0, states, count);
 	else
@@ -152,10 +244,23 @@ LONG LocateCards(SCARDCONTEXT context, const Char *card_names,
 	if (result != SCARD_S_SUCCESS)
 		return result;
 
-	/* 呼び出し元が以前の検索結果を再利用しても古い ATRMATCH を残さない */
 	for (DWORD index = 0; index < count; index++) {
 		states[index].dwEventState &= ~SCARD_STATE_ATRMATCH;
-		if (search_bcas && (states[index].dwEventState & SCARD_STATE_PRESENT))
+		if (!(states[index].dwEventState & SCARD_STATE_PRESENT))
+			continue;
+
+		/* 実際の ATR を Windows の登録情報へ問い合わせ、要求された名前との共通項を探す */
+		std::vector<std::basic_string<Char>> matching_names;
+		result = QueryNativeCards<Char>(context, states[index].rgbAtr, nullptr, 0,
+			matching_names);
+		if (result != SCARD_S_SUCCESS)
+			return result;
+		const bool matched = std::any_of(requested_names.begin(),
+			requested_names.end(), [&matching_names](const auto &name) {
+				return std::find(matching_names.begin(), matching_names.end(),
+					name) != matching_names.end();
+			});
+		if (matched)
 			states[index].dwEventState |= SCARD_STATE_ATRMATCH;
 	}
 	return SCARD_S_SUCCESS;
@@ -213,6 +318,14 @@ LONG GetDeviceType(SCARDCONTEXT context, const Char *reader, LPDWORD type) try
 {
 	if (!reader || !type)
 		return SCARD_E_INVALID_PARAMETER;
+	if (!IsPx4Reader(reader)) {
+		if constexpr (std::is_same_v<Char, char>)
+			return CallNative<decltype(&SCardGetDeviceTypeIdA)>(context,
+				"SCardGetDeviceTypeIdA", reader, type);
+		else
+			return CallNative<decltype(&SCardGetDeviceTypeIdW)>(context,
+				"SCardGetDeviceTypeIdW", reader, type);
+	}
 	std::vector<std::basic_string<Char>> readers;
 	LONG result = ListReaders(context, readers);
 	if (result != SCARD_S_SUCCESS)
@@ -230,6 +343,14 @@ LONG CopyDeviceInstance(SCARDCONTEXT context, const Char *reader,
 {
 	if (!reader)
 		return SCARD_E_INVALID_PARAMETER;
+	if (!IsPx4Reader(reader)) {
+		if constexpr (std::is_same_v<Char, char>)
+			return CallNative<decltype(&SCardGetReaderDeviceInstanceIdA)>(context,
+				"SCardGetReaderDeviceInstanceIdA", reader, instance, length);
+		else
+			return CallNative<decltype(&SCardGetReaderDeviceInstanceIdW)>(context,
+				"SCardGetReaderDeviceInstanceIdW", reader, instance, length);
+	}
 	std::vector<std::basic_string<Char>> readers;
 	LONG result = ListReaders(context, readers);
 	if (result != SCARD_S_SUCCESS)
@@ -259,6 +380,23 @@ LONG ListReadersWithDeviceInstance(SCARDCONTEXT context, const Char *instance,
 {
 	if (!instance)
 		return SCARD_E_INVALID_PARAMETER;
+	const std::basic_string<Char> instance_name(instance);
+	const std::basic_string<Char> px4_prefix = []() {
+		if constexpr (std::is_same_v<Char, char>)
+			return std::basic_string<Char>("PX4_WINUSB\\CARD_READER_");
+		else
+			return std::basic_string<Char>(L"PX4_WINUSB\\CARD_READER_");
+	}();
+	if (instance_name.rfind(px4_prefix, 0) != 0) {
+		if constexpr (std::is_same_v<Char, char>)
+			return CallNative<decltype(&SCardListReadersWithDeviceInstanceIdA)>(
+				context, "SCardListReadersWithDeviceInstanceIdA", instance,
+				reader_buffer, length);
+		else
+			return CallNative<decltype(&SCardListReadersWithDeviceInstanceIdW)>(
+				context, "SCardListReadersWithDeviceInstanceIdW", instance,
+				reader_buffer, length);
+	}
 	std::vector<std::basic_string<Char>> readers;
 	LONG result = ListReaders(context, readers);
 	if (result != SCARD_S_SUCCESS)
@@ -288,101 +426,157 @@ PX4_SCARD_CATCH
 
 extern "C" {
 
-LONG WINAPI SCardListCardsA(SCARDCONTEXT context, LPCBYTE, LPCGUID, DWORD,
-	LPSTR cards, LPDWORD length) { return ListCards(context, cards, length); }
-LONG WINAPI SCardListCardsW(SCARDCONTEXT context, LPCBYTE, LPCGUID, DWORD,
-	LPWSTR cards, LPDWORD length) { return ListCards(context, cards, length); }
-/* B-CAS に登録済みインターフェイスはなく、長さ0の配列は書き込み対象を持たない */
-#pragma warning(suppress: 6101)
-LONG WINAPI SCardListInterfacesA(SCARDCONTEXT, LPCSTR card_name, LPGUID,
-	LPDWORD count)
+LONG WINAPI SCardListCardsA(SCARDCONTEXT context, LPCBYTE atr,
+	LPCGUID interfaces, DWORD interface_count, LPSTR cards, LPDWORD length)
 {
-	if (!card_name || !count)
-		return SCARD_E_INVALID_PARAMETER;
-	*count = 0;
-	return strcmp(card_name, "B-CAS") == 0 ?
-		SCARD_S_SUCCESS : SCARD_E_UNKNOWN_CARD;
+	return ListCards(context, atr, interfaces, interface_count, cards, length);
 }
-/* B-CAS に登録済みインターフェイスはなく、長さ0の配列は書き込み対象を持たない */
-#pragma warning(suppress: 6101)
-LONG WINAPI SCardListInterfacesW(SCARDCONTEXT, LPCWSTR card_name, LPGUID,
-	LPDWORD count)
+LONG WINAPI SCardListCardsW(SCARDCONTEXT context, LPCBYTE atr,
+	LPCGUID interfaces, DWORD interface_count, LPWSTR cards, LPDWORD length)
 {
-	if (!card_name || !count)
-		return SCARD_E_INVALID_PARAMETER;
-	*count = 0;
-	return wcscmp(card_name, L"B-CAS") == 0 ?
-		SCARD_S_SUCCESS : SCARD_E_UNKNOWN_CARD;
+	return ListCards(context, atr, interfaces, interface_count, cards, length);
 }
-LONG WINAPI SCardGetProviderIdA(SCARDCONTEXT, LPCSTR, LPGUID provider)
+LONG WINAPI SCardListInterfacesA(SCARDCONTEXT context, LPCSTR card_name,
+	LPGUID interfaces, LPDWORD count)
 {
-	if (provider)
-		*provider = GUID_NULL;
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardListInterfacesA)>(context,
+		"SCardListInterfacesA", card_name, interfaces, count);
 }
-LONG WINAPI SCardGetProviderIdW(SCARDCONTEXT, LPCWSTR, LPGUID provider)
+LONG WINAPI SCardListInterfacesW(SCARDCONTEXT context, LPCWSTR card_name,
+	LPGUID interfaces, LPDWORD count)
 {
-	if (provider)
-		*provider = GUID_NULL;
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardListInterfacesW)>(context,
+		"SCardListInterfacesW", card_name, interfaces, count);
 }
-LONG WINAPI SCardGetCardTypeProviderNameA(SCARDCONTEXT, LPCSTR, DWORD,
-	LPSTR name, LPDWORD length)
+LONG WINAPI SCardGetProviderIdA(SCARDCONTEXT context, LPCSTR card,
+	LPGUID provider)
 {
-	if (length) {
-		if (name && *length)
-			*name = '\0';
-		*length = 0;
-	}
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardGetProviderIdA)>(context,
+		"SCardGetProviderIdA", card, provider);
 }
-LONG WINAPI SCardGetCardTypeProviderNameW(SCARDCONTEXT, LPCWSTR, DWORD,
-	LPWSTR name, LPDWORD length)
+LONG WINAPI SCardGetProviderIdW(SCARDCONTEXT context, LPCWSTR card,
+	LPGUID provider)
 {
-	if (length) {
-		if (name && *length)
-			*name = L'\0';
-		*length = 0;
-	}
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardGetProviderIdW)>(context,
+		"SCardGetProviderIdW", card, provider);
+}
+LONG WINAPI SCardGetCardTypeProviderNameA(SCARDCONTEXT context, LPCSTR card,
+	DWORD provider_id, LPSTR name, LPDWORD length)
+{
+	return CallNative<decltype(&SCardGetCardTypeProviderNameA)>(context,
+		"SCardGetCardTypeProviderNameA", card, provider_id, name, length);
+}
+LONG WINAPI SCardGetCardTypeProviderNameW(SCARDCONTEXT context, LPCWSTR card,
+	DWORD provider_id, LPWSTR name, LPDWORD length)
+{
+	return CallNative<decltype(&SCardGetCardTypeProviderNameW)>(context,
+		"SCardGetCardTypeProviderNameW", card, provider_id, name, length);
 }
 
-LONG WINAPI SCardIntroduceReaderGroupA(SCARDCONTEXT,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardIntroduceReaderGroupW(SCARDCONTEXT,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardForgetReaderGroupA(SCARDCONTEXT,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardForgetReaderGroupW(SCARDCONTEXT,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardIntroduceReaderA(SCARDCONTEXT, LPCSTR,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardIntroduceReaderW(SCARDCONTEXT, LPCWSTR,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardForgetReaderA(SCARDCONTEXT,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardForgetReaderW(SCARDCONTEXT,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardAddReaderToGroupA(SCARDCONTEXT, LPCSTR,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardAddReaderToGroupW(SCARDCONTEXT, LPCWSTR,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardRemoveReaderFromGroupA(SCARDCONTEXT, LPCSTR,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardRemoveReaderFromGroupW(SCARDCONTEXT, LPCWSTR,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardIntroduceCardTypeA(SCARDCONTEXT, LPCSTR, LPCGUID, LPCGUID,
-	DWORD, LPCBYTE, LPCBYTE, DWORD) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardIntroduceCardTypeW(SCARDCONTEXT, LPCWSTR, LPCGUID, LPCGUID,
-	DWORD, LPCBYTE, LPCBYTE, DWORD) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardSetCardTypeProviderNameA(SCARDCONTEXT, LPCSTR, DWORD,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardSetCardTypeProviderNameW(SCARDCONTEXT, LPCWSTR, DWORD,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardForgetCardTypeA(SCARDCONTEXT,
-	LPCSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardForgetCardTypeW(SCARDCONTEXT,
-	LPCWSTR) { return SCARD_E_UNSUPPORTED_FEATURE; }
+LONG WINAPI SCardIntroduceReaderGroupA(SCARDCONTEXT context, LPCSTR group)
+{
+	return CallNative<decltype(&SCardIntroduceReaderGroupA)>(context,
+		"SCardIntroduceReaderGroupA", group);
+}
+LONG WINAPI SCardIntroduceReaderGroupW(SCARDCONTEXT context, LPCWSTR group)
+{
+	return CallNative<decltype(&SCardIntroduceReaderGroupW)>(context,
+		"SCardIntroduceReaderGroupW", group);
+}
+LONG WINAPI SCardForgetReaderGroupA(SCARDCONTEXT context, LPCSTR group)
+{
+	return CallNative<decltype(&SCardForgetReaderGroupA)>(context,
+		"SCardForgetReaderGroupA", group);
+}
+LONG WINAPI SCardForgetReaderGroupW(SCARDCONTEXT context, LPCWSTR group)
+{
+	return CallNative<decltype(&SCardForgetReaderGroupW)>(context,
+		"SCardForgetReaderGroupW", group);
+}
+LONG WINAPI SCardIntroduceReaderA(SCARDCONTEXT context, LPCSTR reader,
+	LPCSTR device)
+{
+	return CallNative<decltype(&SCardIntroduceReaderA)>(context,
+		"SCardIntroduceReaderA", reader, device);
+}
+LONG WINAPI SCardIntroduceReaderW(SCARDCONTEXT context, LPCWSTR reader,
+	LPCWSTR device)
+{
+	return CallNative<decltype(&SCardIntroduceReaderW)>(context,
+		"SCardIntroduceReaderW", reader, device);
+}
+LONG WINAPI SCardForgetReaderA(SCARDCONTEXT context, LPCSTR reader)
+{
+	return CallNative<decltype(&SCardForgetReaderA)>(context,
+		"SCardForgetReaderA", reader);
+}
+LONG WINAPI SCardForgetReaderW(SCARDCONTEXT context, LPCWSTR reader)
+{
+	return CallNative<decltype(&SCardForgetReaderW)>(context,
+		"SCardForgetReaderW", reader);
+}
+LONG WINAPI SCardAddReaderToGroupA(SCARDCONTEXT context, LPCSTR reader,
+	LPCSTR group)
+{
+	return CallNative<decltype(&SCardAddReaderToGroupA)>(context,
+		"SCardAddReaderToGroupA", reader, group);
+}
+LONG WINAPI SCardAddReaderToGroupW(SCARDCONTEXT context, LPCWSTR reader,
+	LPCWSTR group)
+{
+	return CallNative<decltype(&SCardAddReaderToGroupW)>(context,
+		"SCardAddReaderToGroupW", reader, group);
+}
+LONG WINAPI SCardRemoveReaderFromGroupA(SCARDCONTEXT context, LPCSTR reader,
+	LPCSTR group)
+{
+	return CallNative<decltype(&SCardRemoveReaderFromGroupA)>(context,
+		"SCardRemoveReaderFromGroupA", reader, group);
+}
+LONG WINAPI SCardRemoveReaderFromGroupW(SCARDCONTEXT context, LPCWSTR reader,
+	LPCWSTR group)
+{
+	return CallNative<decltype(&SCardRemoveReaderFromGroupW)>(context,
+		"SCardRemoveReaderFromGroupW", reader, group);
+}
+LONG WINAPI SCardIntroduceCardTypeA(SCARDCONTEXT context, LPCSTR card,
+	LPCGUID primary_provider, LPCGUID interfaces, DWORD interface_count,
+	LPCBYTE atr, LPCBYTE mask, DWORD atr_length)
+{
+	return CallNative<decltype(&SCardIntroduceCardTypeA)>(context,
+		"SCardIntroduceCardTypeA", card, primary_provider, interfaces,
+		interface_count, atr, mask, atr_length);
+}
+LONG WINAPI SCardIntroduceCardTypeW(SCARDCONTEXT context, LPCWSTR card,
+	LPCGUID primary_provider, LPCGUID interfaces, DWORD interface_count,
+	LPCBYTE atr, LPCBYTE mask, DWORD atr_length)
+{
+	return CallNative<decltype(&SCardIntroduceCardTypeW)>(context,
+		"SCardIntroduceCardTypeW", card, primary_provider, interfaces,
+		interface_count, atr, mask, atr_length);
+}
+LONG WINAPI SCardSetCardTypeProviderNameA(SCARDCONTEXT context, LPCSTR card,
+	DWORD provider_id, LPCSTR provider)
+{
+	return CallNative<decltype(&SCardSetCardTypeProviderNameA)>(context,
+		"SCardSetCardTypeProviderNameA", card, provider_id, provider);
+}
+LONG WINAPI SCardSetCardTypeProviderNameW(SCARDCONTEXT context, LPCWSTR card,
+	DWORD provider_id, LPCWSTR provider)
+{
+	return CallNative<decltype(&SCardSetCardTypeProviderNameW)>(context,
+		"SCardSetCardTypeProviderNameW", card, provider_id, provider);
+}
+LONG WINAPI SCardForgetCardTypeA(SCARDCONTEXT context, LPCSTR card)
+{
+	return CallNative<decltype(&SCardForgetCardTypeA)>(context,
+		"SCardForgetCardTypeA", card);
+}
+LONG WINAPI SCardForgetCardTypeW(SCARDCONTEXT context, LPCWSTR card)
+{
+	return CallNative<decltype(&SCardForgetCardTypeW)>(context,
+		"SCardForgetCardTypeW", card);
+}
 
 LONG WINAPI SCardLocateCardsA(SCARDCONTEXT context, LPCSTR card_names,
 	LPSCARD_READERSTATEA states, DWORD count)
@@ -405,38 +599,54 @@ LONG WINAPI SCardLocateCardsByATRW(SCARDCONTEXT context, LPSCARD_ATRMASK masks,
 	return LocateCardsByAtr(context, masks, mask_count, states, state_count);
 }
 
-LONG WINAPI SCardReadCacheA(SCARDCONTEXT, UUID *, DWORD, LPSTR, PBYTE,
-	DWORD *length)
+LONG WINAPI SCardReadCacheA(SCARDCONTEXT context, UUID *card_id,
+	DWORD freshness, LPSTR key, PBYTE data, DWORD *length)
 {
-	if (length)
-		*length = 0;
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardReadCacheA)>(context, "SCardReadCacheA",
+		card_id, freshness, key, data, length);
 }
-LONG WINAPI SCardReadCacheW(SCARDCONTEXT, UUID *, DWORD, LPWSTR, PBYTE,
-	DWORD *length)
+LONG WINAPI SCardReadCacheW(SCARDCONTEXT context, UUID *card_id,
+	DWORD freshness, LPWSTR key, PBYTE data, DWORD *length)
 {
-	if (length)
-		*length = 0;
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardReadCacheW)>(context, "SCardReadCacheW",
+		card_id, freshness, key, data, length);
 }
-LONG WINAPI SCardWriteCacheA(SCARDCONTEXT, UUID *, DWORD, LPSTR, PBYTE,
-	DWORD) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardWriteCacheW(SCARDCONTEXT, UUID *, DWORD, LPWSTR, PBYTE,
-	DWORD) { return SCARD_E_UNSUPPORTED_FEATURE; }
-LONG WINAPI SCardGetReaderIconA(SCARDCONTEXT, LPCSTR, LPBYTE,
-	LPDWORD length)
+LONG WINAPI SCardWriteCacheA(SCARDCONTEXT context, UUID *card_id,
+	DWORD freshness, LPSTR key, PBYTE data, DWORD length)
 {
-	if (length)
-		*length = 0;
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardWriteCacheA)>(context, "SCardWriteCacheA",
+		card_id, freshness, key, data, length);
 }
-LONG WINAPI SCardGetReaderIconW(SCARDCONTEXT, LPCWSTR, LPBYTE,
-	LPDWORD length)
+LONG WINAPI SCardWriteCacheW(SCARDCONTEXT context, UUID *card_id,
+	DWORD freshness, LPWSTR key, PBYTE data, DWORD length)
 {
-	if (length)
-		*length = 0;
-	return SCARD_E_UNSUPPORTED_FEATURE;
+	return CallNative<decltype(&SCardWriteCacheW)>(context, "SCardWriteCacheW",
+		card_id, freshness, key, data, length);
 }
+LONG WINAPI SCardGetReaderIconA(SCARDCONTEXT context, LPCSTR reader,
+	LPBYTE icon, LPDWORD length) try
+{
+	if (IsPx4Reader(reader)) {
+		if (length)
+			*length = 0;
+		return SCARD_E_UNSUPPORTED_FEATURE;
+	}
+	return CallNative<decltype(&SCardGetReaderIconA)>(context,
+		"SCardGetReaderIconA", reader, icon, length);
+}
+PX4_SCARD_CATCH
+LONG WINAPI SCardGetReaderIconW(SCARDCONTEXT context, LPCWSTR reader,
+	LPBYTE icon, LPDWORD length) try
+{
+	if (IsPx4Reader(reader)) {
+		if (length)
+			*length = 0;
+		return SCARD_E_UNSUPPORTED_FEATURE;
+	}
+	return CallNative<decltype(&SCardGetReaderIconW)>(context,
+		"SCardGetReaderIconW", reader, icon, length);
+}
+PX4_SCARD_CATCH
 LONG WINAPI SCardGetDeviceTypeIdA(SCARDCONTEXT context, LPCSTR reader,
 	LPDWORD type) { return GetDeviceType(context, reader, type); }
 LONG WINAPI SCardGetDeviceTypeIdW(SCARDCONTEXT context, LPCWSTR reader,
@@ -455,13 +665,37 @@ LONG WINAPI SCardListReadersWithDeviceInstanceIdW(SCARDCONTEXT context,
 {
 	return ListReadersWithDeviceInstance(context, instance, readers, length);
 }
-LONG WINAPI SCardAudit(SCARDCONTEXT,
-	DWORD) { return SCARD_E_UNSUPPORTED_FEATURE; }
+LONG WINAPI SCardAudit(SCARDCONTEXT context, DWORD event)
+{
+	return CallNative<decltype(&SCardAudit)>(context, "SCardAudit", event);
+}
 
-DWORD CALLBACK ClassInstall32(DWORD, DWORD, LPVOID) { return ERROR_CALL_NOT_IMPLEMENTED; }
-HANDLE WINAPI SCardAccessNewReaderEvent(void) { return nullptr; }
-void WINAPI SCardReleaseAllEvents(void) {}
-void WINAPI SCardReleaseNewReaderEvent(void) {}
+DWORD CALLBACK ClassInstall32(DWORD function, DWORD flags, LPVOID data)
+{
+	auto install = px4::winscard::GetNativeFunction<decltype(&ClassInstall32)>(
+		"ClassInstall32");
+	return install ? install(function, flags, data) : ERROR_CALL_NOT_IMPLEMENTED;
+}
+HANDLE WINAPI SCardAccessNewReaderEvent(void)
+{
+	auto access = px4::winscard::GetNativeFunction<
+		decltype(&SCardAccessNewReaderEvent)>("SCardAccessNewReaderEvent");
+	return access ? access() : nullptr;
+}
+void WINAPI SCardReleaseAllEvents(void)
+{
+	auto release = px4::winscard::GetNativeFunction<
+		decltype(&SCardReleaseAllEvents)>("SCardReleaseAllEvents");
+	if (release)
+		release();
+}
+void WINAPI SCardReleaseNewReaderEvent(void)
+{
+	auto release = px4::winscard::GetNativeFunction<
+		decltype(&SCardReleaseNewReaderEvent)>("SCardReleaseNewReaderEvent");
+	if (release)
+		release();
+}
 const SCARD_IO_REQUEST * WINAPI SCardPciRaw(void) { return &g_rgSCardRawPci; }
 const SCARD_IO_REQUEST * WINAPI SCardPciT0(void) { return &g_rgSCardT0Pci; }
 const SCARD_IO_REQUEST * WINAPI SCardPciT1(void) { return &g_rgSCardT1Pci; }

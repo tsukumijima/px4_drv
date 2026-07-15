@@ -70,6 +70,7 @@
     <ClCompile Include="..\common\pipe.cpp" />
     <ClCompile Include="..\BonDriver_PX4\pipe_client.cpp" />
     <ClCompile Include="card_client.cpp" />
+    <ClCompile Include="native_winscard.cpp" />
     <ClCompile Include="unsupported.cpp" />
     <ClCompile Include="winscard.cpp" />
   </ItemGroup>
@@ -78,6 +79,8 @@
     <ClInclude Include="..\common\pipe.hpp" />
     <ClInclude Include="..\BonDriver_PX4\pipe_client.hpp" />
     <ClInclude Include="card_client.hpp" />
+    <ClInclude Include="native_winscard.hpp" />
+    <ClInclude Include="proxy_support.hpp" />
   </ItemGroup>
   <ItemGroup><None Include="exports.def" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

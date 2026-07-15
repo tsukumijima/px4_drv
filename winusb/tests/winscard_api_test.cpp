@@ -5,10 +5,13 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <windows.h>
 #include <winscard.h>
+
+#include "../src/WinSCard_PX4/bcas_atr.hpp"
 
 namespace {
 
@@ -27,6 +30,34 @@ std::vector<std::wstring> SplitMultiString(const wchar_t *values)
 	std::vector<std::wstring> result;
 	for (const wchar_t *value = values; *value; value += wcslen(value) + 1)
 		result.emplace_back(value);
+	return result;
+}
+
+std::vector<std::wstring> SplitAnsiMultiString(const char *values)
+{
+	std::vector<std::wstring> result;
+	for (const char *value = values; *value; value += strlen(value) + 1) {
+		int length = MultiByteToWideChar(CP_ACP, 0, value, -1, nullptr, 0);
+		if (length <= 0)
+			continue;
+		std::wstring wide(static_cast<std::size_t>(length), L'\0');
+		MultiByteToWideChar(CP_ACP, 0, value, -1, wide.data(), length);
+		wide.pop_back();
+		result.emplace_back(std::move(wide));
+	}
+	return result;
+}
+
+std::string ToAnsi(const std::wstring &value)
+{
+	int length = WideCharToMultiByte(CP_ACP, 0, value.c_str(), -1,
+		nullptr, 0, nullptr, nullptr);
+	if (length <= 0)
+		return {};
+	std::string result(static_cast<std::size_t>(length), '\0');
+	WideCharToMultiByte(CP_ACP, 0, value.c_str(), -1,
+		result.data(), length, nullptr, nullptr);
+	result.pop_back();
 	return result;
 }
 
@@ -103,26 +134,33 @@ bool TestAttribute(SCARDCONTEXT context, SCARDHANDLE card, DWORD attribute)
 	return matched && freed;
 }
 
-bool TestReader(SCARDCONTEXT context, const std::wstring &reader)
+bool TestReaderDevice(SCARDCONTEXT context, const std::wstring &reader,
+	bool &is_px4_reader, bool &is_card_present)
 {
-	/* デバイス固有 ID がリーダー名の列挙位置に依存せず、逆引きできることを確認する */
+	/* 内蔵・外付けの双方でデバイス固有 ID が取得でき、同じリーダー名へ逆引きできることを確認する */
 	DWORD instance_length = 0;
 	LONG result = SCardGetReaderDeviceInstanceIdW(context, reader.c_str(),
 		nullptr, &instance_length);
 	bool succeeded = CheckResult("SCardGetReaderDeviceInstanceIdW(size)", result);
+	if (result != SCARD_S_SUCCESS || !instance_length)
+		return false;
 	std::vector<wchar_t> instance(instance_length);
-	if (result == SCARD_S_SUCCESS) {
-		result = SCardGetReaderDeviceInstanceIdW(context, reader.c_str(),
-			instance.data(), &instance_length);
-		succeeded = CheckResult("SCardGetReaderDeviceInstanceIdW", result) &&
-			succeeded;
-	}
-	const auto separator = reader.rfind(L'#');
-	if (result == SCARD_S_SUCCESS && (separator == std::wstring::npos ||
-		std::wstring(instance.data()) !=
-			L"PX4_WINUSB\\CARD_READER_" + reader.substr(separator + 1))) {
-		std::fprintf(stderr, "Reader device instance ID is not stable.\n");
-		succeeded = false;
+	result = SCardGetReaderDeviceInstanceIdW(context, reader.c_str(),
+		instance.data(), &instance_length);
+	succeeded = CheckResult("SCardGetReaderDeviceInstanceIdW", result) && succeeded;
+	if (result != SCARD_S_SUCCESS)
+		return false;
+	const std::wstring instance_id(instance.data());
+	is_px4_reader = instance_id.rfind(L"PX4_WINUSB\\CARD_READER_", 0) == 0;
+
+	/* PX4 の仮想 ID だけは列挙順に依存しない末尾識別子まで検証する */
+	if (is_px4_reader) {
+		const auto separator = reader.rfind(L'#');
+		if (separator == std::wstring::npos || instance_id !=
+			L"PX4_WINUSB\\CARD_READER_" + reader.substr(separator + 1)) {
+			std::fprintf(stderr, "PX4 reader device instance ID is not stable.\n");
+			succeeded = false;
+		}
 	}
 	wchar_t *automatic_instance = nullptr;
 	DWORD automatic_instance_length = SCARD_AUTOALLOCATE;
@@ -161,6 +199,24 @@ bool TestReader(SCARDCONTEXT context, const std::wstring &reader)
 			succeeded = false;
 		}
 	}
+
+	/* 接続前の状態を取得し、カード未挿入の外付けリーダーも転送経路の検証対象に含める */
+	SCARD_READERSTATEW reader_state = {};
+	reader_state.szReader = reader.c_str();
+	reader_state.dwCurrentState = SCARD_STATE_UNAWARE;
+	result = SCardGetStatusChangeW(context, 0, &reader_state, 1);
+	succeeded = CheckResult("SCardGetStatusChangeW(reader)", result) && succeeded;
+	is_card_present = result == SCARD_S_SUCCESS &&
+		(reader_state.dwEventState & SCARD_STATE_PRESENT) != 0;
+	std::printf("reader=%ls backend=%s card=%s\n", reader.c_str(),
+		is_px4_reader ? "px4" : "system", is_card_present ? "present" : "empty");
+	return succeeded;
+}
+
+bool TestPx4Reader(SCARDCONTEXT context, const std::wstring &reader)
+{
+	bool succeeded = true;
+	LONG result = SCARD_S_SUCCESS;
 
 	SCARDHANDLE card = 0;
 	DWORD protocol = 0;
@@ -314,6 +370,140 @@ bool TestReader(SCARDCONTEXT context, const std::wstring &reader)
 	return succeeded;
 }
 
+bool TestNativeReader(SCARDCONTEXT context, const std::wstring &reader,
+	bool is_card_present)
+{
+	/* Windows に登録済みのカード名を使い、外付けリーダーの検索が System32 まで届くことを確認する */
+	wchar_t *card_names = nullptr;
+	DWORD card_names_length = SCARD_AUTOALLOCATE;
+	LONG result = SCardListCardsW(context, nullptr, nullptr, 0,
+		reinterpret_cast<wchar_t *>(&card_names), &card_names_length);
+	bool succeeded = CheckResult("SCardListCardsW(native locate)", result);
+	if (result == SCARD_S_SUCCESS) {
+		const auto names = SplitMultiString(card_names);
+		if (!names.empty()) {
+			std::vector<wchar_t> locate_names(names.front().begin(),
+				names.front().end());
+			locate_names.emplace_back(L'\0');
+			locate_names.emplace_back(L'\0');
+			SCARD_READERSTATEW locate_state = {};
+			locate_state.szReader = reader.c_str();
+			locate_state.dwCurrentState = SCARD_STATE_UNAWARE;
+			result = SCardLocateCardsW(context, locate_names.data(),
+				&locate_state, 1);
+			succeeded = CheckResult("SCardLocateCardsW(native)", result) &&
+				succeeded;
+		}
+	}
+	if (card_names) {
+		succeeded = CheckResult("SCardFreeMemory(native card names)",
+			SCardFreeMemory(context, card_names)) && succeeded;
+	}
+
+	SCARDHANDLE card = 0;
+	DWORD protocol = 0;
+	result = SCardConnectW(context, reader.c_str(), SCARD_SHARE_SHARED,
+		SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &card, &protocol);
+
+	/* 空の外付けリーダーは Windows の標準エラーまで一致すれば転送できている */
+	if (!is_card_present) {
+		succeeded = CheckResult("SCardConnectW(native empty)", result,
+			SCARD_E_NO_SMARTCARD) && succeeded;
+		std::printf("reader=%ls result=%s\n", reader.c_str(),
+			succeeded ? "passed" : "failed");
+		return succeeded;
+	}
+	if (!CheckResult("SCardConnectW(native)", result))
+		return false;
+
+	/* カード挿入時は接続ハンドルも System32 側へ転送されることを状態取得で確認する */
+	DWORD state = 0;
+	DWORD status_protocol = 0;
+	wchar_t *status_readers = nullptr;
+	BYTE *status_atr = nullptr;
+	DWORD reader_length = SCARD_AUTOALLOCATE;
+	DWORD atr_length = SCARD_AUTOALLOCATE;
+	succeeded = CheckResult("SCardStatusW(native)", SCardStatusW(card,
+		reinterpret_cast<wchar_t *>(&status_readers), &reader_length, &state,
+		&status_protocol, reinterpret_cast<BYTE *>(&status_atr), &atr_length)) &&
+		succeeded;
+	if (!status_readers || reader != status_readers || !status_atr ||
+		status_protocol != protocol || state != SCARD_SPECIFIC || !atr_length) {
+		std::fprintf(stderr, "SCardStatusW returned invalid native card data.\n");
+		succeeded = false;
+	}
+	const bool is_bcas = px4::winscard::IsBcasAtr(status_atr, atr_length);
+	if (status_readers) {
+		succeeded = CheckResult("SCardFreeMemory(native reader)",
+			SCardFreeMemory(context, status_readers)) && succeeded;
+	}
+	if (status_atr) {
+		succeeded = CheckResult("SCardFreeMemory(native ATR)",
+			SCardFreeMemory(context, status_atr)) && succeeded;
+	}
+
+	/* B-CAS と確認できたカードだけに固有 APDU を送り、別用途のカードへ干渉しない */
+	if (is_bcas) {
+		const BYTE apdu[] = { 0x90, 0x30, 0x00, 0x00, 0x00 };
+		BYTE response[128] = {};
+		DWORD response_length = sizeof(response);
+		result = SCardTransmit(card, protocol == SCARD_PROTOCOL_T1 ? SCARD_PCI_T1 :
+			SCARD_PCI_T0, apdu, sizeof(apdu), nullptr, response, &response_length);
+		succeeded = CheckResult("SCardTransmit(native B-CAS)", result) && succeeded;
+		if (result == SCARD_S_SUCCESS && (response_length < 2 ||
+			response[response_length - 2] != 0x90 ||
+			response[response_length - 1] != 0x00)) {
+			std::fprintf(stderr, "External card returned an invalid B-CAS response.\n");
+			succeeded = false;
+		}
+	}
+	succeeded = CheckResult("SCardDisconnect(native)",
+		SCardDisconnect(card, SCARD_LEAVE_CARD)) && succeeded;
+	std::printf("reader=%ls result=%s\n", reader.c_str(),
+		succeeded ? "passed" : "failed");
+	return succeeded;
+}
+
+bool TestAnsiReader(SCARDCONTEXT context, const std::wstring &reader)
+{
+	const std::string ansi_reader = ToAnsi(reader);
+	if (ansi_reader.empty())
+		return false;
+	SCARDHANDLE card = 0;
+	DWORD protocol = 0;
+	LONG connect_result = SCardConnectA(context, ansi_reader.c_str(),
+		SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &card, &protocol);
+	if (!CheckResult("SCardConnectA", connect_result)) {
+		std::fwprintf(stderr, L"ANSI connection failed. reader: %ls\n", reader.c_str());
+		return false;
+	}
+
+	/* ANSI 名で接続したカードも ATR を調べ、B-CAS の場合だけ固有 APDU を確認する */
+	BYTE atr[SCARD_ATR_LENGTH] = {};
+	DWORD atr_length = sizeof(atr);
+	DWORD state = 0;
+	DWORD state_protocol = 0;
+	LONG result = SCardState(card, &state, &state_protocol, atr, &atr_length);
+	bool succeeded = CheckResult("SCardState(ANSI)", result);
+	if (result == SCARD_S_SUCCESS && px4::winscard::IsBcasAtr(atr, atr_length)) {
+		const BYTE apdu[] = { 0x90, 0x30, 0x00, 0x00, 0x00 };
+		BYTE response[128] = {};
+		DWORD response_length = sizeof(response);
+		result = SCardTransmit(card, protocol == SCARD_PROTOCOL_T1 ? SCARD_PCI_T1 :
+			SCARD_PCI_T0, apdu, sizeof(apdu), nullptr, response, &response_length);
+		succeeded = CheckResult("SCardTransmit(ANSI B-CAS)", result) && succeeded;
+		if (result == SCARD_S_SUCCESS && (response_length < 2 ||
+			response[response_length - 2] != 0x90 ||
+			response[response_length - 1] != 0x00)) {
+			std::fprintf(stderr, "ANSI connection returned an invalid B-CAS response.\n");
+			succeeded = false;
+		}
+	}
+	succeeded = CheckResult("SCardDisconnect(ANSI)",
+		SCardDisconnect(card, SCARD_LEAVE_CARD)) && succeeded;
+	return succeeded;
+}
+
 } // namespace
 
 int wmain()
@@ -323,14 +513,25 @@ int wmain()
 		SCARD_SCOPE_SYSTEM, nullptr, nullptr, &context)))
 		return 1;
 
+	/* 既知の B-CAS だけを受け入れ、1バイト違う別カードを誤認しないことを確認する */
+	bool succeeded = true;
+	for (const auto &atr : px4::winscard::BCAS_ATRS)
+		succeeded = px4::winscard::IsBcasAtr(atr.data(), atr.size()) && succeeded;
+	auto similar_atr = px4::winscard::BCAS_ATRS.back();
+	similar_atr.back() ^= 0x01;
+	if (px4::winscard::IsBcasAtr(similar_atr.data(), similar_atr.size())) {
+		std::fprintf(stderr, "Another ATR was misidentified as B-CAS.\n");
+		succeeded = false;
+	}
+
 	/* 外部入力の固定長 IPC 境界を越えてもプロセスを終了させない */
 	std::wstring long_reader_name(256, L'X');
 	SCARDHANDLE invalid_card = 0;
 	DWORD invalid_protocol = 0;
-	bool succeeded = CheckResult("SCardConnectW(long reader name)",
+	succeeded = CheckResult("SCardConnectW(long reader name)",
 		SCardConnectW(context, long_reader_name.c_str(), SCARD_SHARE_SHARED,
 			SCARD_PROTOCOL_T1, &invalid_card, &invalid_protocol),
-		SCARD_E_UNKNOWN_READER);
+		SCARD_E_UNKNOWN_READER) && succeeded;
 	succeeded = CheckResult("SCardLocateCardsW(invalid context)",
 		SCardLocateCardsW(0, nullptr, nullptr, 0), SCARD_E_INVALID_HANDLE) &&
 		succeeded;
@@ -339,6 +540,34 @@ int wmain()
 	succeeded = CheckResult("SCardLocateCardsByATRW(invalid ATR length)",
 		SCardLocateCardsByATRW(context, &invalid_mask, 1, nullptr, 0),
 		SCARD_E_INVALID_PARAMETER) && succeeded;
+
+	/* context == 0 を許すカード種別 API も System32 と同じ登録情報を返す */
+	DWORD card_names_length = 0;
+	LONG result = SCardListCardsW(0, nullptr, nullptr, 0, nullptr,
+		&card_names_length);
+	succeeded = CheckResult("SCardListCardsW(null context size)", result) &&
+		succeeded;
+	std::vector<wchar_t> card_names(card_names_length);
+	if (result == SCARD_S_SUCCESS) {
+		result = SCardListCardsW(0, nullptr, nullptr, 0, card_names.data(),
+			&card_names_length);
+		succeeded = CheckResult("SCardListCardsW(null context)", result) &&
+			succeeded;
+	}
+	const auto registered_card_names = result == SCARD_S_SUCCESS &&
+		!card_names.empty() ?
+		SplitMultiString(card_names.data()) : std::vector<std::wstring>();
+	wchar_t *automatic_card_names = nullptr;
+	DWORD automatic_card_names_length = SCARD_AUTOALLOCATE;
+	result = SCardListCardsW(0, nullptr, nullptr, 0,
+		reinterpret_cast<wchar_t *>(&automatic_card_names),
+		&automatic_card_names_length);
+	succeeded = CheckResult("SCardListCardsW(null context autoallocate)", result) &&
+		succeeded;
+	if (automatic_card_names) {
+		succeeded = CheckResult("SCardFreeMemory(null context card names)",
+			SCardFreeMemory(0, automatic_card_names)) && succeeded;
+	}
 
 	/* 存在しないリーダーの状態値も実装差の診断用に表示する */
 	SCARD_READERSTATEW unknown = {};
@@ -351,7 +580,7 @@ int wmain()
 
 	wchar_t *reader_buffer = nullptr;
 	DWORD reader_length = SCARD_AUTOALLOCATE;
-	LONG result = SCardListReadersW(context, nullptr,
+	result = SCardListReadersW(context, nullptr,
 		reinterpret_cast<wchar_t *>(&reader_buffer), &reader_length);
 	if (!CheckResult("SCardListReadersW", result)) {
 		SCardReleaseContext(context);
@@ -361,40 +590,83 @@ int wmain()
 	succeeded = CheckResult("SCardFreeMemory(readers)",
 		SCardFreeMemory(context, reader_buffer)) && succeeded;
 
-	/* カード名による検索が未知の種別を B-CAS と誤認しないことを確認する */
+	/* ANSI 版も同じ固定順序を返し、libaribb25 など従来の利用者から外付けを選択できることを確認する */
+	char *ansi_reader_buffer = nullptr;
+	DWORD ansi_reader_length = SCARD_AUTOALLOCATE;
+	result = SCardListReadersA(context, nullptr,
+		reinterpret_cast<char *>(&ansi_reader_buffer), &ansi_reader_length);
+	succeeded = CheckResult("SCardListReadersA", result) && succeeded;
+	if (result == SCARD_S_SUCCESS &&
+		SplitAnsiMultiString(ansi_reader_buffer) != readers) {
+		std::fprintf(stderr, "ANSI and Unicode reader lists do not match.\n");
+		succeeded = false;
+	}
+	if (ansi_reader_buffer) {
+		succeeded = CheckResult("SCardFreeMemory(ANSI readers)",
+			SCardFreeMemory(context, ansi_reader_buffer)) && succeeded;
+	}
+
+	/* 未登録のカード名は Windows 標準と同じエラーで拒否する */
 	if (!readers.empty()) {
 		SCARD_READERSTATEW locate_state = {};
 		locate_state.szReader = readers.front().c_str();
 		locate_state.dwCurrentState = SCARD_STATE_UNAWARE;
 		const wchar_t unknown_cards[] = L"Unknown card\0";
 		result = SCardLocateCardsW(context, unknown_cards, &locate_state, 1);
-		succeeded = CheckResult("SCardLocateCardsW(unknown card)", result) &&
-			succeeded;
-		if (result == SCARD_S_SUCCESS &&
-			(locate_state.dwEventState & SCARD_STATE_ATRMATCH)) {
-			std::fprintf(stderr, "Unknown card unexpectedly matched a reader.\n");
-			succeeded = false;
-		}
+		succeeded = CheckResult("SCardLocateCardsW(unknown card)", result,
+			SCARD_E_UNKNOWN_CARD) && succeeded;
 
-		locate_state = {};
-		locate_state.szReader = readers.front().c_str();
-		locate_state.dwCurrentState = SCARD_STATE_UNAWARE;
-		const wchar_t bcas_cards[] = L"B-CAS\0";
-		result = SCardLocateCardsW(context, bcas_cards, &locate_state, 1);
-		succeeded = CheckResult("SCardLocateCardsW(B-CAS)", result) && succeeded;
-		if (result == SCARD_S_SUCCESS) {
-			if (!(locate_state.dwEventState & SCARD_STATE_PRESENT)) {
-				std::printf("SCardLocateCardsW did not detect a present card.\n");
-			} else if (!(locate_state.dwEventState & SCARD_STATE_ATRMATCH)) {
-				std::fprintf(stderr, "B-CAS did not match a present card.\n");
-				succeeded = false;
+		/* 登録済みカード名は全リーダーを同じ ATR 照合処理で検索する */
+		if (!registered_card_names.empty()) {
+			std::vector<wchar_t> locate_names(registered_card_names.front().begin(),
+				registered_card_names.front().end());
+			locate_names.emplace_back(L'\0');
+			locate_names.emplace_back(L'\0');
+			std::vector<SCARD_READERSTATEW> locate_states(readers.size());
+			for (std::size_t index = 0; index < readers.size(); index++) {
+				locate_states[index].szReader = readers[index].c_str();
+				locate_states[index].dwCurrentState = SCARD_STATE_UNAWARE;
 			}
+			result = SCardLocateCardsW(context, locate_names.data(),
+				locate_states.data(), static_cast<DWORD>(locate_states.size()));
+			succeeded = CheckResult("SCardLocateCardsW(registered card)", result) &&
+				succeeded;
 		}
 	}
 
 	succeeded = TestCancel(context) && succeeded;
-	for (const auto &reader : readers)
-		succeeded = TestReader(context, reader) && succeeded;
+	bool native_reader_seen = false;
+	for (const auto &reader : readers) {
+		bool is_px4_reader = false;
+		bool is_card_present = false;
+		bool device_succeeded = TestReaderDevice(context, reader, is_px4_reader,
+			is_card_present);
+		succeeded = device_succeeded && succeeded;
+
+		/* 一度 System32 側へ移った後に PX4 リーダーが現れた場合は固定順序違反とする */
+		if (is_px4_reader && native_reader_seen) {
+			std::fprintf(stderr, "PX4 reader was listed after a system reader.\n");
+			succeeded = false;
+		}
+		if (!is_px4_reader)
+			native_reader_seen = true;
+		if (!device_succeeded)
+			continue;
+
+		/* PX4 は B-CAS 通信を、System32 側はカード有無に応じた標準動作を検証する */
+		if (is_px4_reader) {
+			if (is_card_present) {
+				succeeded = TestPx4Reader(context, reader) && succeeded;
+				succeeded = TestAnsiReader(context, reader) && succeeded;
+			} else {
+				std::printf("reader=%ls result=skipped (no card)\n", reader.c_str());
+			}
+		} else {
+			succeeded = TestNativeReader(context, reader, is_card_present) && succeeded;
+			if (is_card_present)
+				succeeded = TestAnsiReader(context, reader) && succeeded;
+		}
+	}
 	succeeded = CheckResult("SCardReleaseContext",
 		SCardReleaseContext(context)) && succeeded;
 	std::printf("readers=%zu result=%s\n", readers.size(),

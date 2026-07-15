@@ -1,82 +1,82 @@
 LIBRARY "WinSCard"
 EXPORTS
-	ClassInstall32
-	SCardAccessNewReaderEvent
-	SCardAccessStartedEvent
-	SCardAddReaderToGroupA
-	SCardAddReaderToGroupW
-	SCardAudit
-	SCardBeginTransaction
-	SCardCancel
-	SCardConnectA
-	SCardConnectW
-	SCardControl
-	SCardDisconnect
-	SCardEndTransaction
-	SCardEstablishContext
-	SCardForgetCardTypeA
-	SCardForgetCardTypeW
-	SCardForgetReaderA
-	SCardForgetReaderGroupA
-	SCardForgetReaderGroupW
-	SCardForgetReaderW
-	SCardFreeMemory
-	SCardGetAttrib
-	SCardGetCardTypeProviderNameA
-	SCardGetCardTypeProviderNameW
-	SCardGetDeviceTypeIdA
-	SCardGetDeviceTypeIdW
-	SCardGetProviderIdA
-	SCardGetProviderIdW
-	SCardGetReaderDeviceInstanceIdA
-	SCardGetReaderDeviceInstanceIdW
-	SCardGetReaderIconA
-	SCardGetReaderIconW
-	SCardGetStatusChangeA
-	SCardGetStatusChangeW
-	SCardGetTransmitCount
-	SCardIntroduceCardTypeA
-	SCardIntroduceCardTypeW
-	SCardIntroduceReaderA
-	SCardIntroduceReaderGroupA
-	SCardIntroduceReaderGroupW
-	SCardIntroduceReaderW
-	SCardIsValidContext
-	SCardListCardsA
-	SCardListCardsW
-	SCardListInterfacesA
-	SCardListInterfacesW
-	SCardListReaderGroupsA
-	SCardListReaderGroupsW
-	SCardListReadersA
-	SCardListReadersW
-	SCardListReadersWithDeviceInstanceIdA
-	SCardListReadersWithDeviceInstanceIdW
-	SCardLocateCardsA
-	SCardLocateCardsByATRA
-	SCardLocateCardsByATRW
-	SCardLocateCardsW
-	SCardPciRaw
-	SCardPciT0
-	SCardPciT1
-	SCardReadCacheA
-	SCardReadCacheW
-	SCardReconnect
-	SCardReleaseAllEvents
-	SCardReleaseContext
-	SCardReleaseNewReaderEvent
-	SCardReleaseStartedEvent
-	SCardRemoveReaderFromGroupA
-	SCardRemoveReaderFromGroupW
-	SCardSetAttrib
-	SCardSetCardTypeProviderNameA
-	SCardSetCardTypeProviderNameW
-	SCardState
-	SCardStatusA
-	SCardStatusW
-	SCardTransmit
-	SCardWriteCacheA
-	SCardWriteCacheW
-	g_rgSCardRawPci DATA
-	g_rgSCardT0Pci DATA
-	g_rgSCardT1Pci DATA
+	ClassInstall32 @1
+	SCardAccessNewReaderEvent @2
+	SCardPciRaw @3
+	SCardPciT0 @4
+	SCardPciT1 @5
+	SCardReleaseAllEvents @6
+	SCardReleaseNewReaderEvent @7
+	SCardAccessStartedEvent @8
+	SCardAddReaderToGroupA @9
+	SCardAddReaderToGroupW @10
+	SCardAudit @11
+	SCardBeginTransaction @12
+	SCardCancel @13
+	SCardConnectA @14
+	SCardConnectW @15
+	SCardControl @16
+	SCardDisconnect @17
+	SCardEndTransaction @18
+	SCardEstablishContext @19
+	SCardForgetCardTypeA @20
+	SCardForgetCardTypeW @21
+	SCardForgetReaderA @22
+	SCardForgetReaderGroupA @23
+	SCardForgetReaderGroupW @24
+	SCardForgetReaderW @25
+	SCardFreeMemory @26
+	SCardGetAttrib @27
+	SCardGetCardTypeProviderNameA @28
+	SCardGetCardTypeProviderNameW @29
+	SCardGetDeviceTypeIdA @30
+	SCardGetDeviceTypeIdW @31
+	SCardGetProviderIdA @32
+	SCardGetProviderIdW @33
+	SCardGetReaderDeviceInstanceIdA @34
+	SCardGetReaderDeviceInstanceIdW @35
+	SCardGetReaderIconA @36
+	SCardGetReaderIconW @37
+	SCardGetStatusChangeA @38
+	SCardGetStatusChangeW @39
+	SCardGetTransmitCount @40
+	SCardIntroduceCardTypeA @41
+	SCardIntroduceCardTypeW @42
+	SCardIntroduceReaderA @43
+	SCardIntroduceReaderGroupA @44
+	SCardIntroduceReaderGroupW @45
+	SCardIntroduceReaderW @46
+	SCardIsValidContext @47
+	SCardListCardsA @48
+	SCardListCardsW @49
+	SCardListInterfacesA @50
+	SCardListInterfacesW @51
+	SCardListReaderGroupsA @52
+	SCardListReaderGroupsW @53
+	SCardListReadersA @54
+	SCardListReadersW @55
+	SCardListReadersWithDeviceInstanceIdA @56
+	SCardListReadersWithDeviceInstanceIdW @57
+	SCardLocateCardsA @58
+	SCardLocateCardsByATRA @59
+	SCardLocateCardsByATRW @60
+	SCardLocateCardsW @61
+	SCardReadCacheA @62
+	SCardReadCacheW @63
+	SCardReconnect @64
+	SCardReleaseContext @65
+	SCardReleaseStartedEvent @66
+	SCardRemoveReaderFromGroupA @67
+	SCardRemoveReaderFromGroupW @68
+	SCardSetAttrib @69
+	SCardSetCardTypeProviderNameA @70
+	SCardSetCardTypeProviderNameW @71
+	SCardState @72
+	SCardStatusA @73
+	SCardStatusW @74
+	SCardTransmit @75
+	SCardWriteCacheA @76
+	SCardWriteCacheW @77
+	g_rgSCardRawPci @78 DATA
+	g_rgSCardT0Pci @79 DATA
+	g_rgSCardT1Pci @80 DATA
