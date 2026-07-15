@@ -77,12 +77,15 @@
   <ItemGroup>
     <ClInclude Include="..\common\card_command.hpp" />
     <ClInclude Include="..\common\pipe.hpp" />
+    <ClInclude Include="..\common\version.h" />
     <ClInclude Include="..\BonDriver_PX4\pipe_client.hpp" />
     <ClInclude Include="card_client.hpp" />
     <ClInclude Include="native_winscard.hpp" />
     <ClInclude Include="proxy_support.hpp" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup><None Include="exports.def" /></ItemGroup>
+  <ItemGroup><ResourceCompile Include="WinSCard_PX4.rc" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>
