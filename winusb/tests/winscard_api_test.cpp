@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <utility>
@@ -183,11 +184,19 @@ bool TestReaderDevice(SCARDCONTEXT context, const std::wstring &reader,
 	const std::wstring instance_id(instance.data());
 	is_px4_reader = instance_id.rfind(L"PX4_WINUSB\\CARD_READER_", 0) == 0;
 
-	/* PX4 の仮想 ID だけは列挙順に依存しない末尾識別子まで検証する */
+	/* PX4 の仮想 ID だけは表示名の16桁 ID と一致することまで検証する */
 	if (is_px4_reader) {
-		const auto separator = reader.rfind(L'#');
-		if (separator == std::wstring::npos || instance_id !=
-			L"PX4_WINUSB\\CARD_READER_" + reader.substr(separator + 1)) {
+		constexpr wchar_t marker[] = L" (ID: ";
+		const auto marker_position = reader.rfind(marker);
+		const bool has_reader_id = marker_position != std::wstring::npos &&
+			reader.back() == L')' &&
+			reader.size() > marker_position + std::size(marker);
+		const auto reader_id = has_reader_id ?
+			reader.substr(marker_position + std::size(marker) - 1,
+				reader.size() - marker_position - std::size(marker)) :
+			std::wstring();
+		if (reader_id.size() != 16 || instance_id !=
+			L"PX4_WINUSB\\CARD_READER_" + reader_id) {
 			std::fprintf(stderr, "PX4 reader device instance ID is not stable.\n");
 			succeeded = false;
 		}

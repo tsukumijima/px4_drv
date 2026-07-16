@@ -321,13 +321,21 @@ LONG CopyDeviceInstance(SCARDCONTEXT context, const Char *reader,
 			return CallNative<decltype(&SCardGetReaderDeviceInstanceIdW)>(context,
 				"SCardGetReaderDeviceInstanceIdW", reader, instance, length);
 	}
-	/* リーダー名末尾のデバイスパス由来ハッシュを使い、他機器の増減で ID を変えない */
+	/* デバイスパス全体から生成された ID を使い、異なる機種や個体を区別する */
 	const std::basic_string<Char> reader_name(reader);
-	const auto separator = reader_name.rfind(static_cast<Char>('#'));
-	if (separator == std::basic_string<Char>::npos ||
-		reader_name.size() - separator - 1 != 16)
+	const std::basic_string<Char> marker = []() {
+		if constexpr (std::is_same_v<Char, char>)
+			return std::basic_string<Char>(" (ID: ");
+		else
+			return std::basic_string<Char>(L" (ID: ");
+	}();
+	const auto marker_position = reader_name.rfind(marker);
+	if (marker_position == std::basic_string<Char>::npos ||
+		reader_name.back() != static_cast<Char>(')') ||
+		reader_name.size() - marker_position - marker.size() - 1 != 16)
 		return SCARD_F_INTERNAL_ERROR;
-	const auto reader_id = reader_name.substr(separator + 1);
+	const auto reader_id = reader_name.substr(marker_position + marker.size(),
+		reader_name.size() - marker_position - marker.size() - 1);
 	std::basic_string<Char> value;
 	if constexpr (std::is_same_v<Char, char>)
 		value = "PX4_WINUSB\\CARD_READER_" + reader_id;
