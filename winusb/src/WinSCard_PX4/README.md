@@ -242,15 +242,12 @@ PX-MLT8PE は1台の筐体に5チューナー側と3チューナー側のデバ�
 
 ## 検証
 
-`winusb/build.ps1` は Visual Studio 2022 の MSBuild を使い、x86 と x64 の `Release-static` をビルドします。  
-同じスクリプトから、TS 同期判定と実機に依存しないカード状態遷移のテストを両アーキテクチャで実行します。
+`winusb/build.ps1` を実行すると、Visual Studio 2022 の MSBuild を使い、x86 と x64 の両方のアーキテクチャで `Release-static` ビルドが生成されます。  
 
 ```powershell
 Set-Location C:\Develop\px4_drv\winusb
 .\build.ps1
 ```
-
-署名と配布物の作成まで行うため、日常の変更確認では対象プロジェクトを MSBuild でビルドし、最後に配布スクリプト全体を実行する方法も使えます。
 
 ### 実機に依存しない試験
 

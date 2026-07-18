@@ -26,7 +26,6 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
   - ref: https://mevius.5ch.net/test/read.cgi/avi/1577466040/104-108
 - 自己署名証明書のインストール・アンインストールスクリプトを追加
   - 拡張子が .jse となっているが、これは PowerShell スクリプトにダブルクリックで実行させるための JScript コードを先頭の行に加えたもの
-  - Smart App Control が有効な環境でブロックされにくくするため、BonDriver と DriverHost_PX4 にも自己署名を行うようにした
 - 地上波の ChSet に物理 53ch ～ 62ch の定義を追加
   - 物理 53ch ～ 62ch は地上波の割り当て周波数から削除されているが、現在も ”イッツコムch10” など、一部ケーブルテレビの自主放送の割り当て周波数として使われている
 - BS/CS の ChSet に2022年3月開局の BS 新チャンネル（BS松竹東急・BSJapanext・BSよしもと）の定義を追加

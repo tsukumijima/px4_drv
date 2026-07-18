@@ -210,7 +210,7 @@ Set-Location C:\Develop\px4_drv\winusb
 .\build.ps1
 ```
 
-`build.ps1` はソリューション、TS 同期判定テスト、カード状態遷移テスト、署名、配布物を処理します。  
+`build.ps1` はソリューション、TS 同期判定テスト、カード状態遷移テスト、配布物を処理します。  
 カードリーダー変更では `winscard_api_test`、`card_reader_reliability`、`card_stream_stress`、`live_b25_reliability` を変更内容に応じて実行します。
 
 チャンネル切り替えや TS バッファ変更では `channel_switch_stress` を実行し、各周期の同期エラー、transport error、continuity error、空受信を確認します。  

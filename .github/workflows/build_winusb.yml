@@ -176,7 +176,8 @@ jobs:
           $common_distribution_file_names = @(
               'DriverHost_PX4.exe',
               'DriverHost_PX4.ini',
-              'it930x-firmware.bin'
+              'it930x-firmware.bin',
+              'WinSCard.dll'
           )
 
           foreach ($distribution_check in $distribution_checks) {
