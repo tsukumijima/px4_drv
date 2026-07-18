@@ -55,26 +55,6 @@ foreach ($build_platform in $build_platforms) {
     }
 }
 
-# ビルドされたファイルに署名(Smart App Control 対応)
-$sign_tool_path = 'pkg/signing-tools/signtool'
-$trusted_publisher_pfx_path = 'pkg/signing-tools/trustedpub.pfx'
-$signing_target_paths = @(
-    'build/x86/Release-static/BonDriver_PX4.dll',
-    'build/x86/Release-static/DriverHost_PX4.exe',
-    'build/x86/Release-static/WinSCard.dll',
-    'build/x64/Release-static/BonDriver_PX4.dll',
-    'build/x64/Release-static/DriverHost_PX4.exe',
-    'build/x64/Release-static/WinSCard.dll'
-)
-
-foreach ($signing_target_path in $signing_target_paths) {
-    & $sign_tool_path sign /f $trusted_publisher_pfx_path /p 123 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $signing_target_path
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Code signing failed. target: $signing_target_path"
-    }
-}
-
 # dist/ フォルダにビルドされたファイルをコピー
 # フォルダの作成
 Remove-Item -Recurse -Force dist/ -ErrorAction SilentlyContinue
