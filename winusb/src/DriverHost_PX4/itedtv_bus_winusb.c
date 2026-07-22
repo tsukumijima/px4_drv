@@ -35,6 +35,8 @@ struct itedtv_usb_context {
 	struct itedtv_usb_work *works;
 	LONG streaming;
 	HANDLE worker_thread;
+	HANDLE startup_event;
+	LONG startup_result;
 };
 
 static int winerr_to_errno(struct device *dev)
@@ -299,6 +301,7 @@ unsigned __stdcall itedtv_winusb_worker(void *arg)
 	struct itedtv_usb_work *works;
 	WINUSB_INTERFACE_HANDLE winusb;
 	UCHAR raw_io;
+	int startup_result = 0;
 
 	dev_dbg(bus->dev, "itedtv_winusb_worker: start\n");
 
@@ -308,8 +311,9 @@ unsigned __stdcall itedtv_winusb_worker(void *arg)
 	raw_io = (ctx->no_raw_io) ? 0 : 1;
 
 	if (!WinUsb_SetPipePolicy(winusb, 0x84, RAW_IO, sizeof(raw_io), &raw_io)) {
+		startup_result = -winerr_to_errno(bus->dev);
 		dev_err(bus->dev, "itedtv_winusb_worker: WinUsb_SetPipePolicy(RAW_IO, %u) failed.\n", raw_io);
-		goto exit;
+		goto startup_failed;
 	}
 
 	for (i = 0; i < num; i++) {
@@ -325,6 +329,7 @@ unsigned __stdcall itedtv_winusb_worker(void *arg)
 		if (GetLastError() == ERROR_IO_PENDING)
 			continue;
 
+		startup_result = -winerr_to_errno(bus->dev);
 		dev_err(bus->dev, "itedtv_winusb_worker: WinUsb_ReadPipe() 1 failed. (%u, %u)\n", i, GetLastError());
 		works[i].can_submit = true;
 
@@ -333,6 +338,11 @@ unsigned __stdcall itedtv_winusb_worker(void *arg)
 	}
 
 	dev_dbg(bus->dev, "itedtv_winusb_worker: num: %u\n", num);
+	if (!num)
+		goto startup_failed;
+
+	InterlockedExchange(&ctx->startup_result, 0);
+	SetEvent(ctx->startup_event);
 
 	while (ctx->streaming) {
 		uint32_t idx = next_idx;
@@ -382,6 +392,17 @@ unsigned __stdcall itedtv_winusb_worker(void *arg)
 		WinUsb_SetPipePolicy(winusb, 0x84, RAW_IO, sizeof(raw_io), &raw_io);
 	}
 
+	goto exit;
+
+startup_failed:
+	InterlockedExchange(&ctx->streaming, 0);
+	InterlockedExchange(&ctx->startup_result, startup_result ? startup_result : -EIO);
+	SetEvent(ctx->startup_event);
+	if (raw_io) {
+		raw_io = 0;
+		WinUsb_SetPipePolicy(winusb, 0x84, RAW_IO, sizeof(raw_io), &raw_io);
+	}
+
 exit:
 	dev_dbg(bus->dev, "itedtv_winusb_worker: exit\n");
 	return 0;
@@ -408,8 +429,10 @@ static int itedtv_usb_start_streaming(struct itedtv_bus *bus, itedtv_bus_stream_
 	buf_size = bus->usb.streaming.urb_buffer_size;
 	num = bus->usb.streaming.urb_num;
 
-	if (num > 64)
+	if (!buf_size || !num || num > 64) {
+		ret = -EINVAL;
 		goto fail;
+	}
 
 	if (!ctx->no_raw_io && (buf_size % bus->usb.max_bulk_size))
 		buf_size += bus->usb.max_bulk_size - (buf_size % bus->usb.max_bulk_size);
@@ -434,17 +457,41 @@ static int itedtv_usb_start_streaming(struct itedtv_bus *bus, itedtv_bus_stream_
 	if (ret)
 		goto fail;
 
+	ctx->startup_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+	if (!ctx->startup_event) {
+		ret = -winerr_to_errno(bus->dev);
+		goto fail;
+	}
+	InterlockedExchange(&ctx->startup_result, -EIO);
+
 	WinUsb_ResetPipe(bus->usb.dev->winusb, 0x84);
 	InterlockedExchange(&ctx->streaming, 1);
 
 	ctx->worker_thread = (HANDLE)_beginthreadex(NULL, 0, itedtv_winusb_worker, ctx, 0, NULL);
 	if (!ctx->worker_thread) {
-		dev_err(bus->dev, "itedtv_usb_start_streaming: _beginthreadex() failed.");
+		ret = -EAGAIN;
+		dev_err(bus->dev, "itedtv_usb_start_streaming: _beginthreadex() failed.\n");
 		goto fail;
 	}
 
 	if (!SetThreadPriority(ctx->worker_thread, THREAD_PRIORITY_TIME_CRITICAL))
 		dev_dbg(bus->dev, "itedtv_usb_start_streaming: SetThreadPriority(THREAD_PRIORITY_TIME_CRITICAL) failed.\n");
+
+	/* 最初の USB 転送を投入できたことを確認してから受信開始を成功として返す */
+	{
+		DWORD wait_result = WaitForSingleObject(ctx->startup_event, bus->usb.ctrl_timeout);
+		if (wait_result == WAIT_OBJECT_0)
+			ret = InterlockedCompareExchange(&ctx->startup_result, 0, 0);
+		else if (wait_result == WAIT_TIMEOUT)
+			ret = -ETIMEDOUT;
+		else
+			ret = -EIO;
+	}
+	if (ret)
+		goto fail;
+
+	CloseHandle(ctx->startup_event);
+	ctx->startup_event = NULL;
 
 	dev_dbg(bus->dev, "itedtv_usb_start_streaming: num: %u\n", num);
 
@@ -459,6 +506,11 @@ fail:
 		WaitForSingleObject(ctx->worker_thread, INFINITE);
 		CloseHandle(ctx->worker_thread);
 		ctx->worker_thread = NULL;
+	}
+
+	if (ctx->startup_event) {
+		CloseHandle(ctx->startup_event);
+		ctx->startup_event = NULL;
 	}
 
 	itedtv_usb_clean_context(ctx);
@@ -541,6 +593,8 @@ int itedtv_bus_init(struct itedtv_bus *bus)
 		ctx->works = NULL;
 		ctx->streaming = 0;
 		ctx->worker_thread = NULL;
+		ctx->startup_event = NULL;
+		ctx->startup_result = 0;
 
 		bus->usb.priv = ctx;
 
