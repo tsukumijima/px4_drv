@@ -59,6 +59,7 @@ protected:
 
 	device dev_;
 	usb_device usb_dev_;
+	std::wstring usb_serial_number_;
 	std::wstring card_reader_name_;
 };
 

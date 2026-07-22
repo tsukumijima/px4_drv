@@ -2,8 +2,10 @@
 
 #include "px4_device.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <stdexcept>
 
 #include "type.hpp"
 #include "command.hpp"
@@ -100,17 +102,26 @@ void Px4Device::LoadConfig()
 
 void Px4Device::ParseSerialNumber() noexcept
 {
-	if (!usb_dev_.serial)
+	if (usb_serial_number_.empty())
 		return;
 
 	try {
-		serial_.serial_number = std::stoull(usb_dev_.serial->bString);
+		// PX4 系のシリアル番号は末尾1桁を同一筐体内のデバイス番号として使う
+		if (!std::all_of(usb_serial_number_.cbegin(), usb_serial_number_.cend(), [](wchar_t character) {
+			return (character >= L'0') && (character <= L'9');
+		}))
+			throw std::invalid_argument("USB serial number contains a non-digit character.");
+
+		serial_.serial_number = std::stoull(usb_serial_number_);
 		serial_.dev_id = static_cast<std::uint8_t>(serial_.serial_number % 10);
 		serial_.serial_number /= 10;
 
 		dev_dbg(&dev_, "px4::Px4Device::ParseSerialNumber: serial_number: %014llu\n", serial_.serial_number);
 		dev_dbg(&dev_, "px4::Px4Device::ParseSerialNumber: dev_id: %u\n", serial_.dev_id);
-	} catch (...) {}
+	} catch (const std::exception &ex) {
+		serial_ = {};
+		dev_warn(&dev_, "px4::Px4Device::ParseSerialNumber: Invalid USB serial number: %s\n", ex.what());
+	}
 
 	return;
 }

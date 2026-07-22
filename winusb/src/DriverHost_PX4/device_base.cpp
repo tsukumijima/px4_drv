@@ -2,8 +2,10 @@
 
 #include "device_base.hpp"
 
+#include <cstddef>
 #include <cinttypes>
 #include <cwchar>
+#include <vector>
 
 #include "msg.h"
 #include "command.hpp"
@@ -38,7 +40,6 @@ DeviceBase::DeviceBase(const std::wstring &path, const px4::DeviceDefinition &de
 		reader_id + L")";
 
 	usb_dev_.winusb = nullptr;
-	usb_dev_.serial = nullptr;
 
 	usb_dev_.dev = CreateFileW(
 		path.c_str(),
@@ -73,33 +74,45 @@ DeviceBase::DeviceBase(const std::wstring &path, const px4::DeviceDefinition &de
 	}
 
 	if (usb_dev_.descriptor.iSerialNumber) {
-		size = sizeof(*usb_dev_.serial) + (sizeof(usb_dev_.serial->bString) * MAXIMUM_USB_STRING_LENGTH);
-		usb_dev_.serial = reinterpret_cast<USB_STRING_DESCRIPTOR *>(new std::uint8_t[size]);
+		const ULONG buffer_size = offsetof(USB_STRING_DESCRIPTOR, bString) +
+			(sizeof(wchar_t) * MAXIMUM_USB_STRING_LENGTH);
+		std::vector<std::uint8_t> descriptor_buffer(buffer_size);
 
 		if (!WinUsb_GetDescriptor(
 			usb_dev_.winusb,
 			USB_STRING_DESCRIPTOR_TYPE,
 			usb_dev_.descriptor.iSerialNumber,
 			0x0409,
-			reinterpret_cast<PUCHAR>(usb_dev_.serial),
-			size,
+			descriptor_buffer.data(),
+			buffer_size,
 			&size)
 		) {
-			delete[] reinterpret_cast<std::uint8_t *>(usb_dev_.serial);
 			WinUsb_Free(usb_dev_.winusb);
 			CloseHandle(usb_dev_.dev);
 			throw DeviceError("px4::DeviceBase::DeviceBase: WinUsb_GetDescriptor(USB_STRING_DESCRIPTOR_TYPE) failed.");
 		}
+
+		// USB 文字列は終端文字を持たないため、実際に返された記述子長だけを文字列として保持する
+		const auto *serial_descriptor = reinterpret_cast<const USB_STRING_DESCRIPTOR *>(descriptor_buffer.data());
+		const ULONG header_size = offsetof(USB_STRING_DESCRIPTOR, bString);
+		if ((size < header_size) ||
+			(serial_descriptor->bDescriptorType != USB_STRING_DESCRIPTOR_TYPE) ||
+			(serial_descriptor->bLength < header_size) ||
+			(serial_descriptor->bLength > size) ||
+			(((serial_descriptor->bLength - header_size) % sizeof(wchar_t)) != 0)) {
+			WinUsb_Free(usb_dev_.winusb);
+			CloseHandle(usb_dev_.dev);
+			throw DeviceError("px4::DeviceBase::DeviceBase: Invalid USB serial string descriptor.");
+		}
+
+		usb_serial_number_.assign(
+			serial_descriptor->bString,
+			(serial_descriptor->bLength - header_size) / sizeof(wchar_t));
 	}
 }
 
 DeviceBase::~DeviceBase()
 {
-	if (usb_dev_.serial) {
-		delete[] reinterpret_cast<std::uint8_t *>(usb_dev_.serial);
-		usb_dev_.serial = nullptr;
-	}
-
 	if (usb_dev_.winusb) {
 		WinUsb_Free(usb_dev_.winusb);
 		usb_dev_.winusb = nullptr;
