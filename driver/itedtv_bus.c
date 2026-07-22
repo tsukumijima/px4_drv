@@ -103,7 +103,7 @@ static int itedtv_usb_stream_rx(struct itedtv_bus *bus,
 	int ret = 0, rlen = 0;
 	struct usb_device *dev = bus->usb.dev;
 
-	if (unlikely(!buf | !len || !*len))
+	if (unlikely(!buf || !len || !*len))
 		return -EINVAL;
 
 	/* Endpoint 0x84: Device->Host bulk endpoint for receiving TS from the device */
@@ -478,7 +478,7 @@ static int itedtv_usb_start_streaming(struct itedtv_bus *bus,
 				i, ret);
 
 			for (j = 0; j < i; j++)
-				usb_kill_urb(works[i].urb);
+				usb_kill_urb(works[j].urb);
 
 			break;
 		}
