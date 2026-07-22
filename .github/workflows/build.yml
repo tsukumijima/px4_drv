@@ -15,7 +15,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install DKMS
         run: apt-get update && apt-get install -y -q --no-install-recommends debhelper devscripts dh-exec dkms dpkg
