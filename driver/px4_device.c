@@ -1294,6 +1294,14 @@ int px4_device_init(struct px4_device *px4, struct device *dev,
 	if (ret)
 		goto fail_device;
 
+	/*
+	 * it930x_init_warm() leaves the tuner board powered,
+	 * so keep it off until a receiver is opened
+	 */
+	ret = it930x_write_gpio(it930x, 7, true);
+	if (ret)
+		goto fail_device;
+
 	if (use_mldev) {
 		if (px4_mldev_search(px4->serial.serial_number, &px4->mldev))
 			ret = px4_mldev_add(px4->mldev, px4);
@@ -1305,10 +1313,6 @@ int px4_device_init(struct px4_device *px4, struct device *dev,
 		if (ret)
 			goto fail_device;
 	} else {
-		ret = it930x_write_gpio(it930x, 7, true);
-		if (ret)
-			goto fail_device;
-
 		ret = it930x_write_gpio(it930x, 2, false);
 		if (ret)
 			goto fail_device;
