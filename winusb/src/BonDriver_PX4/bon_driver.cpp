@@ -215,6 +215,10 @@ const BOOL BonDriver::OpenTuner()
 		return TRUE;
 
 	try {
+		// CloseTuner() が残した終了通知を消し、新しい読み出しワーカーだけを動かす
+		if (!ResetEvent(quit_event_))
+			throw BonDriverError("BonDriver::OpenTuner: ResetEvent() failed.");
+
 		HANDLE startup_event;
 		DWORD st;
 
