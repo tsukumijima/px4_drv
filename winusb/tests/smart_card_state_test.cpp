@@ -50,8 +50,9 @@ public:
 		return 0;
 	}
 
-	int SetCardBaudrate(::it930x_uart_baudrate) override
+	int SetCardBaudrate(::it930x_uart_baudrate value) override
 	{
+		baudrate = value;
 		return 0;
 	}
 
@@ -87,11 +88,18 @@ public:
 		if (length < 4)
 			return -EINVAL;
 		const std::uint8_t pcb = buffer[1];
+		written_pcbs.push_back(pcb);
 		const std::uint8_t data_length = buffer[2];
+		if (pcb == 0xc1 && data_length == 1)
+			ifs_values.push_back(buffer[3]);
 		std::size_t expected_length = static_cast<std::size_t>(data_length) +
 			(expected_crc ? 5 : 4);
 		if (expected_length != length || !ValidateEdc(buffer, length))
 			return -EINVAL;
+		if (drop_first_ifs && pcb == 0xc1) {
+			drop_first_ifs = false;
+			return 0;
+		}
 
 		/* 初期化 S ブロックは要求データをそのまま応答する */
 		if ((pcb & 0xc0) == 0xc0) {
@@ -181,6 +189,7 @@ public:
 	bool fail_next_apdu = false;
 	bool endless_wtx = false;
 	bool delay_next_response = false;
+	bool drop_first_ifs = false;
 	bool read_called_before_ready = false;
 	bool read_allowed = false;
 	unsigned int ready_delay_checks = 0;
@@ -188,9 +197,14 @@ public:
 	unsigned int reset_count = 0;
 	unsigned int malformed_atr_resets = 0;
 	std::vector<std::uint8_t> malformed_atr_bytes = { 0xfc, 0xff };
-	/* TA2 / TC2 は T=1 パラメータではないため既定の LRC と IFSC を使う */
-	std::vector<std::uint8_t> atr_bytes = { 0x3b, 0x80, 0xd1, 0x40, 0x01, 0x01, 0x11 };
+	std::vector<std::uint8_t> atr_bytes = {
+		0x3b, 0xf0, 0x12, 0x00, 0xff, 0x91, 0x81,
+		0xb1, 0x7c, 0x45, 0x1f, 0x01, 0x9b,
+	};
+	::it930x_uart_baudrate baudrate = IT930X_UART_BAUDRATE_9600;
 	bool expected_crc = false;
+	std::vector<std::uint8_t> written_pcbs;
+	std::vector<std::uint8_t> ifs_values;
 	std::deque<std::uint8_t> read_queue;
 };
 
@@ -221,7 +235,11 @@ int main()
 	/* 挿入検出時に ATR と T=1 を初期化する */
 	device->is_present = true;
 	succeeded = Check(card.GetStatus(present, initialized, atr) == 0 &&
-		present && initialized && atr.size() == 7 && device->reset_count == 1,
+		present && initialized && atr.size() == 13 && device->reset_count == 1 &&
+		device->baudrate == IT930X_UART_BAUDRATE_19200 &&
+		device->written_pcbs.size() == 2 && device->written_pcbs[0] == 0xc0 &&
+		device->written_pcbs[1] == 0xc1 && device->ifs_values.size() == 1 &&
+		device->ifs_values[0] == 251,
 		"Card insertion did not initialize the session.") && succeeded;
 
 	const std::uint8_t apdu[] = { 0x90, 0x30, 0x00, 0x00, 0x00 };
@@ -312,6 +330,46 @@ int main()
 		crc_present && crc_initialized && crc_atr.size() == 8,
 		"TA3 / TC3 CRC parameters were not applied.") && succeeded;
 	crc_card.Close();
+
+	/* ACAS の TA1=13 は PPS なしで IT930x の38400bps 設定へ切り替える */
+	auto acas_device = std::make_shared<MockCardDevice>();
+	acas_device->atr_bytes = {
+		0x3b, 0xf0, 0x13, 0x00, 0xff, 0x91, 0x81,
+		0xb1, 0xfe, 0x46, 0x1f, 0x03, 0x19,
+	};
+	acas_device->is_present = true;
+	acas_device->drop_first_ifs = true;
+	px4::SmartCard acas_card(acas_device);
+	succeeded = Check(acas_card.Open() == 0 &&
+		acas_device->baudrate == IT930X_UART_BAUDRATE_38400 &&
+		acas_device->written_pcbs.size() == 3 &&
+		acas_device->written_pcbs[0] == 0xc1 &&
+		acas_device->written_pcbs[1] == 0xc0 &&
+		acas_device->written_pcbs[2] == 0xc1 &&
+		acas_device->ifs_values.size() == 2 &&
+		acas_device->ifs_values[0] == 254 && acas_device->ifs_values[1] == 254,
+		"ACAS IFS timeout did not recover through RESYNCH and IFS retry.") &&
+		succeeded;
+
+	/* TB3 の BWI=4 は500ms を超える正当なブロック待機時間を許容する */
+	acas_device->ready_delay_checks = 120;
+	response_length = sizeof(response);
+	succeeded = Check(acas_card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == 0 && response_length == 2,
+		"ACAS BWI was not applied to the T=1 block timeout.") && succeeded;
+	acas_card.Close();
+
+	/* IT930x で生成できない TA1 は誤った通信速度へ丸めず明示的に拒否する */
+	auto unsupported_device = std::make_shared<MockCardDevice>();
+	unsupported_device->atr_bytes = {
+		0x3b, 0xf0, 0x14, 0x00, 0xff, 0x91, 0x81,
+		0xb1, 0x7c, 0x45, 0x1f, 0x01, 0x9d,
+	};
+	unsupported_device->is_present = true;
+	px4::SmartCard unsupported_card(unsupported_device);
+	succeeded = Check(unsupported_card.Open() == -EOPNOTSUPP &&
+		!unsupported_device->is_open,
+		"An unsupported TA1 value was accepted.") && succeeded;
 
 	card.Close();
 	succeeded = Check(!device->is_open, "Closing the reader failed.") && succeeded;

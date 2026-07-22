@@ -33,22 +33,24 @@ private:
 	using Deadline = std::chrono::steady_clock::time_point;
 
 	struct AtrParameters final {
+		::it930x_uart_baudrate baudrate = IT930X_UART_BAUDRATE_9600;
 		std::uint8_t ifsc = 32;
 		bool use_crc = false;
+		unsigned int block_timeout_ms = 500;
 	};
 
 	int ReadAtr(std::vector<std::uint8_t> &atr, AtrParameters &parameters);
 	int WaitCardDataReady(const Deadline &deadline);
 	int ParseAtr(const std::vector<std::uint8_t> &atr,
 		     std::size_t &expected_length, AtrParameters &parameters) const;
-	int InitializeT1();
+	int InitializeT1(bool resynchronize, std::uint8_t ifsd);
 	int SendBlock(std::uint8_t pcb, const std::uint8_t *data, std::size_t length);
 	int ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 			 const Deadline &deadline);
 	int ExchangeBlock(std::uint8_t pcb, const std::uint8_t *send_data,
 			  std::size_t send_length, std::uint8_t &recv_pcb,
 			  std::vector<std::uint8_t> &recv_data,
-			  const Deadline &deadline);
+			  const Deadline &deadline, unsigned int max_retries = 3);
 	int TransmitInitialized(const std::uint8_t *send_buf, std::size_t send_len,
 				std::uint8_t *recv_buf, std::size_t &recv_len,
 				const Deadline &deadline);
@@ -61,6 +63,7 @@ private:
 	bool initialized_;
 	bool use_crc_;
 	std::uint8_t card_ifsc_;
+	unsigned int block_timeout_ms_;
 	std::uint8_t send_sequence_;
 	std::uint8_t receive_sequence_;
 	std::vector<std::uint8_t> atr_;

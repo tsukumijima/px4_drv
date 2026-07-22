@@ -38,6 +38,7 @@ SmartCard::SmartCard(std::shared_ptr<CardDevice> device) noexcept
 	initialized_(false),
 	use_crc_(false),
 	card_ifsc_(32),
+	block_timeout_ms_(BLOCK_TIMEOUT_MS),
 	send_sequence_(0),
 	receive_sequence_(0)
 {
@@ -142,8 +143,8 @@ int SmartCard::Reset(std::vector<std::uint8_t> &atr)
 			return ret;
 	}
 
-	/* B-CAS は ATR 後の実通信を19200bpsで行う */
-	ret = device_->SetCardBaudrate(IT930X_UART_BAUDRATE_19200);
+	/* 特定モードのカードは PPS を行わず、TA1 が指定した速度へ直接切り替える */
+	ret = device_->SetCardBaudrate(parameters.baudrate);
 	if (ret)
 		return ret;
 
@@ -151,7 +152,11 @@ int SmartCard::Reset(std::vector<std::uint8_t> &atr)
 	present_ = true;
 	card_ifsc_ = parameters.ifsc;
 	use_crc_ = parameters.use_crc;
-	ret = InitializeT1();
+	block_timeout_ms_ = parameters.block_timeout_ms;
+	const bool is_acas = parameters.baudrate == IT930X_UART_BAUDRATE_38400;
+	/* ACAS は IFS (254) から開始し、B-CAS は従来の RESYNCH を先に送る */
+	const std::uint8_t ifsd = is_acas ? 254 : (use_crc_ ? 250 : 251);
+	ret = InitializeT1(!is_acas, ifsd);
 	if (ret) {
 		InvalidateSession();
 		return ret;
@@ -228,8 +233,10 @@ int SmartCard::ParseAtr(const std::vector<std::uint8_t> &atr,
 
 	while (interfaces) {
 		std::uint8_t ta = 0;
+		std::uint8_t tb = 0;
 		std::uint8_t tc = 0;
 		bool has_ta = false;
+		bool has_tb = false;
 		bool has_tc = false;
 
 		if (interfaces & 0x01) {
@@ -241,7 +248,8 @@ int SmartCard::ParseAtr(const std::vector<std::uint8_t> &atr,
 		if (interfaces & 0x02) {
 			if (offset >= atr.size())
 				return -EAGAIN;
-			offset++;
+			tb = atr[offset++];
+			has_tb = true;
 		}
 		if (interfaces & 0x04) {
 			if (offset >= atr.size())
@@ -250,11 +258,41 @@ int SmartCard::ParseAtr(const std::vector<std::uint8_t> &atr,
 			has_tc = true;
 		}
 
+		if (group == 1 && has_ta) {
+			/* IT930x が生成できる FI=1 の速度だけを受理する */
+			switch (ta) {
+			case 0x11:
+				parameters.baudrate = IT930X_UART_BAUDRATE_9600;
+				break;
+			case 0x12:
+				parameters.baudrate = IT930X_UART_BAUDRATE_19200;
+				break;
+			case 0x13:
+				parameters.baudrate = IT930X_UART_BAUDRATE_38400;
+				break;
+			default:
+				return -EOPNOTSUPP;
+			}
+		}
+
 		/* T=1 を示す TD の次グループに IFSC と EDC 種別が置かれる */
 		if (t1_group && group >= 3) {
 			/* TA2 は特定モード、TC2 は T=0 専用なので T=1 値として扱わない */
 			if (has_ta && ta >= 1 && ta <= 254)
 				parameters.ifsc = ta;
+			if (has_tb) {
+				/*
+				 * TB3 上位4bitの BWI からブロック待機時間を求める
+				 * 4MHz 時の基準値89.28ms へ USB/UART の余裕を加えて100ms 単位とし、
+				 * 既存カードの500ms 下限と APDU 全体の3秒上限に収める
+				 */
+				unsigned int bwi = tb >> 4;
+				unsigned int block_waiting_time = bwi < 5 ? (100U << bwi) :
+					OPERATION_TIMEOUT_MS;
+				parameters.block_timeout_ms = std::min<unsigned int>(
+					OPERATION_TIMEOUT_MS,
+					std::max<unsigned int>(BLOCK_TIMEOUT_MS, block_waiting_time));
+			}
 			if (has_tc)
 				parameters.use_crc = (tc & 0x01) != 0;
 		}
@@ -294,7 +332,7 @@ int SmartCard::ParseAtr(const std::vector<std::uint8_t> &atr,
 	return 0;
 }
 
-int SmartCard::InitializeT1()
+int SmartCard::InitializeT1(bool resynchronize, std::uint8_t ifsd)
 {
 	send_sequence_ = 0;
 	receive_sequence_ = 0;
@@ -303,16 +341,31 @@ int SmartCard::InitializeT1()
 	std::vector<std::uint8_t> data;
 	auto deadline = std::chrono::steady_clock::now() +
 		std::chrono::milliseconds(OPERATION_TIMEOUT_MS);
-	int ret = ExchangeBlock(T1_S_BLOCK | T1_S_RESYNCH, nullptr, 0, pcb, data,
-		deadline);
-	if (ret)
-		return ret;
-	if (pcb != (T1_S_BLOCK | T1_S_RESPONSE | T1_S_RESYNCH) || !data.empty())
-		return -EPROTO;
+	if (resynchronize) {
+		int ret = ExchangeBlock(T1_S_BLOCK | T1_S_RESYNCH, nullptr, 0, pcb,
+			data, deadline);
+		if (ret)
+			return ret;
+		if (pcb != (T1_S_BLOCK | T1_S_RESPONSE | T1_S_RESYNCH) ||
+			!data.empty())
+			return -EPROTO;
+	}
 
-	/* UART の1フレーム上限を超えない最大受信サイズをカードへ通知する */
-	std::uint8_t ifsd = use_crc_ ? 250 : 251;
-	ret = ExchangeBlock(T1_S_BLOCK | T1_S_IFS, &ifsd, 1, pcb, data, deadline);
+	/* 最初の I ブロックより前に受信可能な INF の最大長を通知する */
+	int ret = ExchangeBlock(T1_S_BLOCK | T1_S_IFS, &ifsd, 1, pcb, data,
+		deadline, resynchronize ? MAX_RETRIES : 1);
+	if (!resynchronize && (ret == -ETIMEDOUT || ret == -EBADMSG)) {
+		/* ACAS が最初の IFS に応答しない場合は RESYNCH 後に IFS を再送する */
+		ret = ExchangeBlock(T1_S_BLOCK | T1_S_RESYNCH, nullptr, 0, pcb,
+			data, deadline, 1);
+		if (ret)
+			return ret;
+		if (pcb != (T1_S_BLOCK | T1_S_RESPONSE | T1_S_RESYNCH) ||
+			!data.empty())
+			return -EPROTO;
+		ret = ExchangeBlock(T1_S_BLOCK | T1_S_IFS, &ifsd, 1, pcb, data,
+			deadline);
+	}
 	if (ret)
 		return ret;
 	if (pcb != (T1_S_BLOCK | T1_S_RESPONSE | T1_S_IFS) ||
@@ -408,16 +461,20 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 int SmartCard::ExchangeBlock(std::uint8_t pcb, const std::uint8_t *send_data,
 			     std::size_t send_length, std::uint8_t &recv_pcb,
 			     std::vector<std::uint8_t> &recv_data,
-			     const Deadline &deadline)
+			     const Deadline &deadline, unsigned int max_retries)
 {
-	for (unsigned int retry = 0; retry < MAX_RETRIES; retry++) {
+	for (unsigned int retry = 0; retry < max_retries; retry++) {
 		if (std::chrono::steady_clock::now() >= deadline)
 			return -ETIMEDOUT;
 		int ret = SendBlock(pcb, send_data, send_length);
 		if (ret)
 			return ret;
 
-		ret = ReceiveBlock(recv_pcb, recv_data, deadline);
+		/* 各再送をカード指定の待機時間で区切り、APDU 全体の期限は延長しない */
+		auto block_deadline = std::min<Deadline>(deadline,
+			std::chrono::steady_clock::now() +
+			std::chrono::milliseconds(block_timeout_ms_));
+		ret = ReceiveBlock(recv_pcb, recv_data, block_deadline);
 		if (!ret) {
 			/* WTX へ応答しても APDU 開始時の期限は延長しない */
 			while (recv_pcb == (T1_S_BLOCK | T1_S_WTX)) {
@@ -584,6 +641,7 @@ void SmartCard::InvalidateSession() noexcept
 	initialized_ = false;
 	use_crc_ = false;
 	card_ifsc_ = 32;
+	block_timeout_ms_ = BLOCK_TIMEOUT_MS;
 	send_sequence_ = 0;
 	receive_sequence_ = 0;
 	atr_.clear();

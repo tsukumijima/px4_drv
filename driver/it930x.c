@@ -1177,6 +1177,12 @@ static int it930x_set_uart_baudrate(struct it930x_bridge *it930x,
 		value = 0;
 	else if (baudrate == IT930X_UART_BAUDRATE_19200)
 		value = 1;
+	else if (baudrate == IT930X_UART_BAUDRATE_38400)
+		/*
+		 * UART mode 1 では2が9600bps 相当へ戻るため、
+		 * 汎用 UART と同じ38400bps のリロード値を直接指定する
+		 */
+		value = 0xef;
 	else
 		return -EINVAL;
 

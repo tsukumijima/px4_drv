@@ -33,6 +33,7 @@
 enum it930x_uart_baudrate {
 	IT930X_UART_BAUDRATE_9600 = 0,
 	IT930X_UART_BAUDRATE_19200 = 1,
+	IT930X_UART_BAUDRATE_38400 = 2,
 };
 
 enum it930x_gpio_mode {
