@@ -211,20 +211,17 @@ int Px4Device::Init()
 		break;
 	}
 
+	/* 共有管理へ登録する前に各デバイスの基板電源を既知の停止状態へ戻す */
+	ret = SetBackendPower(false);
+	if (ret)
+		goto fail_device;
+
 	if (use_mldev) {
 		if (MultiDevice::Search(serial_.serial_number, mldev_))
 			ret = mldev_->Add(*this);
 		else
 			ret = MultiDevice::Alloc(*this, config_.device.multi_device_power_control_mode, mldev_);
 
-		if (ret)
-			goto fail_device;
-	} else {
-		ret = it930x_write_gpio(&it930x_, 7, true);
-		if (ret)
-			goto fail_device;
-
-		ret = it930x_write_gpio(&it930x_, 2, false);
 		if (ret)
 			goto fail_device;
 	}
@@ -477,8 +474,13 @@ int Px4Device::SetBackendPower(bool state)
 
 		Sleep(20);
 	} else {
-		it930x_write_gpio(&it930x_, 2, false);
-		it930x_write_gpio(&it930x_, 7, true);
+		ret = it930x_write_gpio(&it930x_, 2, false);
+		if (ret)
+			return ret;
+
+		ret = it930x_write_gpio(&it930x_, 7, true);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
