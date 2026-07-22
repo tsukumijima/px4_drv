@@ -28,7 +28,7 @@ bool ReceiverManager::Unregister(px4::ReceiverBase *receiver)
 	return true;
 }
 
-static GUID empty_guid = { 0 };
+static const GUID empty_guid = { 0 };
 
 px4::ReceiverBase* ReceiverManager::SearchAndOpen(px4::command::ReceiverInfo &key, px4::command::ReceiverInfo &info, std::uint32_t &data_id)
 {
@@ -43,13 +43,15 @@ px4::ReceiverBase* ReceiverManager::SearchAndOpen(px4::command::ReceiverInfo &ke
 		if (key.device_name[0] && wcscmp(key.device_name, k.device_name))
 			continue;
 
-		if (memcmp(&key.device_guid, &empty_guid, sizeof(key.device_guid) && memcmp(&key.device_guid, &k.device_guid, sizeof(key.device_guid))))
+		if (memcmp(&key.device_guid, &empty_guid, sizeof(key.device_guid)) &&
+		    memcmp(&key.device_guid, &k.device_guid, sizeof(key.device_guid)))
 			continue;
 
 		if (key.receiver_name[0] && wcscmp(key.receiver_name, k.receiver_name))
 			continue;
 
-		if (memcmp(&key.receiver_guid, &empty_guid, sizeof(key.receiver_guid) && memcmp(&key.receiver_guid, &k.receiver_guid, sizeof(key.receiver_guid))))
+		if (memcmp(&key.receiver_guid, &empty_guid, sizeof(key.receiver_guid)) &&
+		    memcmp(&key.receiver_guid, &k.receiver_guid, sizeof(key.receiver_guid)))
 			continue;
 
 		if ((key.systems & k.systems) != key.systems)
@@ -78,7 +80,7 @@ px4::ReceiverBase* ReceiverManager::SearchAndOpen(px4::command::ReceiverInfo &ke
 
 px4::ReceiverBase* ReceiverManager::SearchByDataId(std::uint32_t data_id)
 {
-	std::shared_lock<std::shared_mutex> lock(mtx_);
+	std::unique_lock<std::shared_mutex> lock(mtx_);
 
 	for (auto it = data_.begin(); it != data_.end(); ++it) {
 		if (it->second.info.data_id != data_id || !it->second.valid_data_id)
