@@ -34,6 +34,10 @@ struct px4_mldev {
 	int (*backend_set_power)(struct px4_device *px4, bool state);
 };
 
+/*
+ * A successful px4_mldev_search() reference is consumed by
+ * px4_mldev_add() on both success and failure
+ */
 bool px4_mldev_search(unsigned long long serial_number,
 		      struct px4_mldev **mldev);
 int px4_mldev_alloc(struct px4_mldev **mldev, enum px4_mldev_mode mode,

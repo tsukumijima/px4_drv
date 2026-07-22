@@ -30,7 +30,9 @@ bool px4_mldev_search(unsigned long long serial_number,
 	mutex_lock(&px4_mldev_glock);
 	list_for_each_entry(m, &px4_mldev_list, list) {
 		if (m->serial_number == serial_number) {
-			*mldev = m;
+			/* Keep the object alive until px4_mldev_add() attaches the device */
+			if (kref_get_unless_zero(&m->kref))
+				*mldev = m;
 			break;
 		}
 	}
@@ -105,15 +107,12 @@ int px4_mldev_add(struct px4_mldev *mldev, struct px4_device *px4)
 		"px4_mldev_add: serial_number: %014llu, dev_id: %u\n",
 		mldev->serial_number, dev_id + 1);
 
-	if (dev_id > 1)
-		return -EINVAL;
+	if (dev_id > 1) {
+		ret = -EINVAL;
+		goto fail;
+	}
 
 	mutex_lock(&mldev->lock);
-
-	if (kref_read(&mldev->kref) >= 2) {
-		ret = -EINVAL;
-		goto exit;
-	}
 
 	if (mldev->dev[dev_id]) {
 		ret = -EALREADY;
@@ -132,11 +131,15 @@ int px4_mldev_add(struct px4_mldev *mldev, struct px4_device *px4)
 		mldev->power_state[dev_id] = true;
 	}
 
+	/* The reference acquired by px4_mldev_search() now belongs to this device */
 	mldev->dev[dev_id] = px4;
-	kref_get(&mldev->kref);
 
 exit:
 	mutex_unlock(&mldev->lock);
+
+fail:
+	if (ret)
+		kref_put(&mldev->kref, px4_mldev_release);
 	return ret;
 }
 
@@ -144,7 +147,7 @@ int px4_mldev_remove(struct px4_mldev *mldev, struct px4_device *px4)
 {
 	int i;
 	unsigned int dev_id = px4->serial.dev_id - 1;
-	unsigned int other_dev_id = (dev_id) ? 1 : 0;
+	unsigned int other_dev_id = (dev_id) ? 0 : 1;
 
 	dev_dbg(px4->dev,
 		"px4_mldev_remove: serial_number: %014llu, dev_id: %u\n",
@@ -175,10 +178,12 @@ int px4_mldev_remove(struct px4_mldev *mldev, struct px4_device *px4)
 		mldev->power_state[other_dev_id] = false;
 	}
 
-	if (kref_put(&mldev->kref, px4_mldev_release))
-		return 0;
-
+	/*
+	 * px4_mldev_release() destroys this mutex,
+	 * so unlock before dropping the last reference
+	 */
 	mutex_unlock(&mldev->lock);
+	kref_put(&mldev->kref, px4_mldev_release);
 	return 0;
 }
 
@@ -223,6 +228,9 @@ int px4_mldev_set_power(struct px4_mldev *mldev, struct px4_device *px4,
 	unsigned int dev_id = px4->serial.dev_id - 1;
 	unsigned int other_dev_id = (dev_id) ? 0 : 1;
 
+	if (dev_id > 1 || chrdev_id > 3)
+		return -EINVAL;
+
 	dev_dbg(px4->dev,
 		"px4_mldev_set_power: serial_number: %014llu, dev_id: %u, chrdev_id: %u state: %s\n",
 		mldev->serial_number, dev_id, chrdev_id,
@@ -235,9 +243,6 @@ int px4_mldev_set_power(struct px4_mldev *mldev, struct px4_device *px4,
 		"px4_mldev_set_power: chrdev_state[%u][%u]: %s\n",
 		dev_id, chrdev_id, 
 		(mldev->chrdev_state[dev_id][chrdev_id]) ? "true" : "false");
-
-	if (dev_id > 1 || chrdev_id > 3)
-		return -EINVAL;
 
 	mutex_lock(&mldev->lock);
 
