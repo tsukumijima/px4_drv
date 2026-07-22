@@ -159,7 +159,7 @@ static int itedtv_usb_stream_rx(struct itedtv_bus *bus, void *buf, int *len, int
 	ULONG rlen = 0;
 	OVERLAPPED ol;
 
-	if (!buf | !len || !*len)
+	if (!buf || !len || !*len)
 		return -EINVAL;
 
 	ol.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
