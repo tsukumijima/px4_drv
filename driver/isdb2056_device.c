@@ -284,7 +284,7 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(isdb2056->dev,
 			"isdb2056_chrdev_open %u: tc90522_enable_ts_pins_t(false) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	/* sleep */
@@ -293,7 +293,7 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(isdb2056->dev,
 			"isdb2056_chrdev_open %u: tc90522_sleep_t(true) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	sys.system = R850_SYSTEM_ISDB_T;
@@ -305,7 +305,7 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(isdb2056->dev,
 			"isdb2056_chrdev_open %u: r850_set_system() failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	/* Initialization for ISDB-S */
@@ -316,7 +316,7 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(isdb2056->dev,
 			"isdb2056_chrdev_open %u: tc90522_write_multiple_regs(tc_init_s) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	/* disable ts pins */
@@ -325,7 +325,7 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(isdb2056->dev,
 			"isdb2056_chrdev_open %u: tc90522_enable_ts_pins_s(false) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	/* sleep */
@@ -334,7 +334,7 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(isdb2056->dev,
 			"isdb2056_chrdev_open %u: tc90522_sleep_s(true) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	kref_get(&isdb2056->kref);
