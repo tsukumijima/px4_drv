@@ -33,9 +33,9 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup>
-    <OutDir>$(SolutionDir)build\$(PlatformTarget)\$(Configuration)\</OutDir>
-    <IntDir>build\smart_card_state_test\$(PlatformTarget)\$(Configuration)\</IntDir>
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)..\driver;$(SolutionDir)src\common;$(SolutionDir)src\DriverHost_PX4</IncludePath>
+    <OutDir>$(MSBuildThisFileDirectory)..\build\$(PlatformTarget)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)build\smart_card_state_test\$(PlatformTarget)\$(Configuration)\</IntDir>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(MSBuildThisFileDirectory)..\..\driver;$(MSBuildThisFileDirectory)..\src\common;$(MSBuildThisFileDirectory)..\src\DriverHost_PX4</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
