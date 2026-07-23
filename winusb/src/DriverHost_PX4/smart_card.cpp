@@ -21,6 +21,8 @@ constexpr std::uint8_t T1_S_RESPONSE = 0x20;
 constexpr std::uint8_t T1_S_RESYNCH = 0x00;
 constexpr std::uint8_t T1_S_IFS = 0x01;
 constexpr std::uint8_t T1_S_WTX = 0x03;
+/* IT930x のカード UART API はフレーム長を1バイトで受け取る */
+constexpr std::size_t CARD_UART_FRAME_MAX_LENGTH = 255;
 constexpr unsigned int CARD_POLL_INTERVAL_MS = 5;
 constexpr unsigned int ATR_TIMEOUT_MS = 1000;
 /* 通常応答は約70msで返るため、取りこぼしを500msで再送処理へ移す */
@@ -400,7 +402,7 @@ int SmartCard::SendBlock(std::uint8_t pcb, const std::uint8_t *data,
 		frame.push_back(lrc);
 	}
 
-	if (frame.size() > 255)
+	if (frame.size() > CARD_UART_FRAME_MAX_LENGTH)
 		return -EMSGSIZE;
 	return device_->WriteCardData(frame.data(), static_cast<std::uint8_t>(frame.size()));
 }
@@ -546,9 +548,14 @@ int SmartCard::TransmitInitialized(const std::uint8_t *send_buf,
 	std::size_t send_offset = 0;
 	std::uint8_t last_pcb = 0;
 	std::vector<std::uint8_t> last_data;
+	/* カードの IFSC が大きくても1回の UART 送信は255バイトを超えられない */
+	const std::size_t max_inf_length = CARD_UART_FRAME_MAX_LENGTH -
+		3 - (use_crc_ ? 2 : 1);
 
 	while (send_offset < send_len) {
-		std::size_t chunk_length = std::min<std::size_t>(card_ifsc_, send_len - send_offset);
+		std::size_t chunk_length = std::min<std::size_t>(
+			std::min<std::size_t>(card_ifsc_, max_inf_length),
+			send_len - send_offset);
 		bool has_more = send_offset + chunk_length < send_len;
 		std::uint8_t pcb = T1_I_BLOCK |
 			(send_sequence_ ? T1_I_SEQUENCE : 0) |

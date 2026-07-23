@@ -122,6 +122,16 @@ public:
 			QueueBlock(0xc3, &multiplier, 1);
 			return 0;
 		}
+		/* 連結 I ブロックを受理したら次の送信連番を R ブロックで要求する */
+		if ((pcb & 0x80) == 0) {
+			apdu_block_lengths.push_back(data_length);
+			if (pcb & 0x20) {
+				const std::uint8_t next_sequence = (pcb & 0x40) ? 0 : 0x10;
+				QueueBlock(static_cast<std::uint8_t>(0x80 | next_sequence),
+					buffer, 0);
+				return 0;
+			}
+		}
 		const std::uint8_t response[] = { 0x90, 0x00 };
 		QueueBlock(0x00, response, sizeof(response));
 		if (delay_next_response) {
@@ -205,6 +215,7 @@ public:
 	bool expected_crc = false;
 	std::vector<std::uint8_t> written_pcbs;
 	std::vector<std::uint8_t> ifs_values;
+	std::vector<std::uint8_t> apdu_block_lengths;
 	std::deque<std::uint8_t> read_queue;
 };
 
@@ -358,6 +369,23 @@ int main()
 		response_length) == 0 && response_length == 2,
 		"ACAS BWI was not applied to the T=1 block timeout.") && succeeded;
 	acas_card.Close();
+
+	/* ACAS の IFSC=254 でも UART 上限に合わせて I ブロックを連結送信する */
+	auto long_apdu_device = std::make_shared<MockCardDevice>();
+	long_apdu_device->atr_bytes = acas_device->atr_bytes;
+	long_apdu_device->is_present = true;
+	px4::SmartCard long_apdu_card(long_apdu_device);
+	std::vector<std::uint8_t> long_apdu(254, 0);
+	response_length = sizeof(response);
+	succeeded = Check(long_apdu_card.Open() == 0 &&
+		long_apdu_card.Transmit(long_apdu.data(), long_apdu.size(), response,
+			response_length) == 0 &&
+		response_length == 2 &&
+		long_apdu_device->apdu_block_lengths.size() == 2 &&
+		long_apdu_device->apdu_block_lengths[0] == 251 &&
+		long_apdu_device->apdu_block_lengths[1] == 3,
+		"ACAS APDU was not split at the UART frame limit.") && succeeded;
+	long_apdu_card.Close();
 
 	/* IT930x で生成できない TA1 は誤った通信速度へ丸めず明示的に拒否する */
 	auto unsupported_device = std::make_shared<MockCardDevice>();
