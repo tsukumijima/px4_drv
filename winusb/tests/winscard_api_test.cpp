@@ -553,14 +553,6 @@ bool TestAnsiReader(SCARDCONTEXT context, const std::wstring &reader)
 
 int wmain()
 {
-	/* サービス開始イベントも System32 の待機可能ハンドルとして利用できることを確認する */
-	HANDLE started_event = SCardAccessStartedEvent();
-	if (!started_event || WaitForSingleObject(started_event, 0) != WAIT_OBJECT_0) {
-		std::fprintf(stderr, "SCardAccessStartedEvent did not return a signaled event.\n");
-		return 1;
-	}
-	SCardReleaseStartedEvent();
-
 	SCARDCONTEXT context = 0;
 	if (!CheckResult("SCardEstablishContext", SCardEstablishContext(
 		SCARD_SCOPE_SYSTEM, nullptr, nullptr, &context)))
@@ -675,52 +667,12 @@ int wmain()
 		result = SCardLocateCardsW(context, unknown_cards, &locate_state, 1);
 		succeeded = CheckResult("SCardLocateCardsW(unknown card)", result,
 			SCARD_E_UNKNOWN_CARD) && succeeded;
-
-		/* 登録済みカード名は全リーダーを同じ ATR 照合処理で検索する */
-		if (!registered_card_names.empty()) {
-			std::vector<wchar_t> locate_names(registered_card_names.front().begin(),
-				registered_card_names.front().end());
-			locate_names.emplace_back(L'\0');
-			locate_names.emplace_back(L'\0');
-			std::vector<SCARD_READERSTATEW> locate_states(readers.size());
-			for (std::size_t index = 0; index < readers.size(); index++) {
-				locate_states[index].szReader = readers[index].c_str();
-				locate_states[index].dwCurrentState = SCARD_STATE_UNAWARE;
-			}
-			result = SCardLocateCardsW(context, locate_names.data(),
-				locate_states.data(), static_cast<DWORD>(locate_states.size()));
-			succeeded = CheckResult("SCardLocateCardsW(registered card)", result) &&
-				succeeded;
-			if (result == SCARD_S_SUCCESS) {
-				/* 状態に変化がない再検索もタイムアウト扱いせず、同じ ATR を照合する */
-				for (auto &state : locate_states)
-					state.dwCurrentState = state.dwEventState & ~SCARD_STATE_CHANGED;
-				result = SCardLocateCardsW(context, locate_names.data(),
-					locate_states.data(), static_cast<DWORD>(locate_states.size()));
-				succeeded = CheckResult("SCardLocateCardsW(unchanged)", result) &&
-					succeeded;
-
-				auto present = std::find_if(locate_states.begin(), locate_states.end(),
-					[](const auto &state) {
-						return (state.dwEventState & SCARD_STATE_PRESENT) && state.cbAtr;
-					});
-				if (present != locate_states.end()) {
-					SCARD_ATRMASK mask = {};
-					mask.cbAtr = present->cbAtr;
-					std::memcpy(mask.rgbAtr, present->rgbAtr, mask.cbAtr);
-					std::memset(mask.rgbMask, 0xff, mask.cbAtr);
-					result = SCardLocateCardsByATRW(context, &mask, 1,
-						locate_states.data(), static_cast<DWORD>(locate_states.size()));
-					succeeded = CheckResult("SCardLocateCardsByATRW(unchanged)", result) &&
-						succeeded;
-				}
-			}
-		}
 	}
 
 	succeeded = TestCancel(context) && succeeded;
 	bool native_reader_seen = false;
 	bool native_cancel_tested = false;
+	bool native_started_event_tested = false;
 	for (const auto &reader : readers) {
 		bool is_px4_reader = false;
 		bool is_card_present = false;
@@ -747,6 +699,19 @@ int wmain()
 				std::printf("reader=%ls result=skipped (no card)\n", reader.c_str());
 			}
 		} else {
+			/* System32 のサービスを使うリーダーがある場合だけ開始イベントを検証する */
+			if (!native_started_event_tested) {
+				HANDLE started_event = SCardAccessStartedEvent();
+				if (!started_event ||
+					WaitForSingleObject(started_event, 0) != WAIT_OBJECT_0) {
+					std::fprintf(stderr,
+						"SCardAccessStartedEvent did not return a signaled event.\n");
+					succeeded = false;
+				}
+				if (started_event)
+					SCardReleaseStartedEvent();
+				native_started_event_tested = true;
+			}
 			if (!native_cancel_tested) {
 				succeeded = TestNativeCancel(context, reader) && succeeded;
 				native_cancel_tested = true;
@@ -756,6 +721,52 @@ int wmain()
 				succeeded = TestAnsiReader(context, reader) && succeeded;
 		}
 	}
+
+	/* 外付けリーダーがなければ System32 依存の試験を明示して省略する */
+	if (!native_reader_seen) {
+		std::printf(
+			"external_reader_tests=skipped (no system smart card reader)\n");
+	} else if (!registered_card_names.empty()) {
+		/* 登録済みカード名は全リーダーを同じ ATR 照合処理で検索する */
+		std::vector<wchar_t> locate_names(registered_card_names.front().begin(),
+			registered_card_names.front().end());
+		locate_names.emplace_back(L'\0');
+		locate_names.emplace_back(L'\0');
+		std::vector<SCARD_READERSTATEW> locate_states(readers.size());
+		for (std::size_t index = 0; index < readers.size(); index++) {
+			locate_states[index].szReader = readers[index].c_str();
+			locate_states[index].dwCurrentState = SCARD_STATE_UNAWARE;
+		}
+		result = SCardLocateCardsW(context, locate_names.data(),
+			locate_states.data(), static_cast<DWORD>(locate_states.size()));
+		succeeded = CheckResult("SCardLocateCardsW(registered card)", result) &&
+			succeeded;
+		if (result == SCARD_S_SUCCESS) {
+			/* 状態に変化がない再検索もタイムアウト扱いせず、同じ ATR を照合する */
+			for (auto &state : locate_states)
+				state.dwCurrentState = state.dwEventState & ~SCARD_STATE_CHANGED;
+			result = SCardLocateCardsW(context, locate_names.data(),
+				locate_states.data(), static_cast<DWORD>(locate_states.size()));
+			succeeded = CheckResult("SCardLocateCardsW(unchanged)", result) &&
+				succeeded;
+
+			auto present = std::find_if(locate_states.begin(), locate_states.end(),
+				[](const auto &state) {
+					return (state.dwEventState & SCARD_STATE_PRESENT) && state.cbAtr;
+				});
+			if (present != locate_states.end()) {
+				SCARD_ATRMASK mask = {};
+				mask.cbAtr = present->cbAtr;
+				std::memcpy(mask.rgbAtr, present->rgbAtr, mask.cbAtr);
+				std::memset(mask.rgbMask, 0xff, mask.cbAtr);
+				result = SCardLocateCardsByATRW(context, &mask, 1,
+					locate_states.data(), static_cast<DWORD>(locate_states.size()));
+				succeeded = CheckResult("SCardLocateCardsByATRW(unchanged)", result) &&
+					succeeded;
+			}
+		}
+	}
+
 	succeeded = CheckResult("SCardReleaseContext",
 		SCardReleaseContext(context)) && succeeded;
 	std::printf("readers=%zu result=%s\n", readers.size(),
