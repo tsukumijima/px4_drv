@@ -1303,12 +1303,19 @@ int px4_device_init(struct px4_device *px4, struct device *dev,
 		goto fail_device;
 
 	if (use_mldev) {
-		if (px4_mldev_search(px4->serial.serial_number, &px4->mldev))
+		if (px4_mldev_search(px4->serial.serial_number, &px4->mldev)) {
 			ret = px4_mldev_add(px4->mldev, px4);
-		else
+			/*
+			 * px4_mldev_add() consumes the search reference even
+			 * when the device could not be attached
+			 */
+			if (ret)
+				px4->mldev = NULL;
+		} else {
 			ret = px4_mldev_alloc(&px4->mldev,
 					      px4_device_params.multi_device_power_control_mode,
 					      px4, px4_backend_set_power);
+		}
 
 		if (ret)
 			goto fail_device;
