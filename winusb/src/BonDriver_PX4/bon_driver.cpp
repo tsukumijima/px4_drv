@@ -202,8 +202,10 @@ void BonDriver::Term() noexcept
 {
 	ioq_.reset();
 
-	if (quit_event_)
+	if (quit_event_) {
 		CloseHandle(quit_event_);
+		quit_event_ = nullptr;
+	}
 }
 
 const BOOL BonDriver::OpenTuner()
