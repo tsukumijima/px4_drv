@@ -1,0 +1,32 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[winusb/**/*.{c,cpp,h,hpp,def,ini,inf,jse,vcxproj,vcxproj.filters}]
+end_of_line = crlf
+
+# Windows PowerShell 5.1 でも日本語を UTF-8 として解釈できるように BOM を付ける
+[winusb/**/*.ps1]
+charset = utf-8-bom
+end_of_line = crlf
+
+# Visual Studio とリソースコンパイラが文字コードを確実に判定できるように BOM を付ける
+[winusb/*.sln]
+charset = utf-8-bom
+end_of_line = crlf
+[winusb/**/*.rc]
+charset = utf-8-bom
+end_of_line = crlf
+
+# ChannelSet::Load() がコードページ932として読み込むため UTF-8 へ変換しない
+[winusb/pkg/BonDriver_PX4/*.ChSet.txt]
+charset = unset
+end_of_line = crlf
+
+# Microsoft の署名ツールに同梱されたファイルの既存形式を維持
+[winusb/pkg/signing-tools/WindowsProtectedFiles.xml]
+charset = utf-8-bom
+end_of_line = crlf

@@ -1,4 +1,4 @@
-// WinSCard_PX4.rc
+﻿// WinSCard_PX4.rc
 
 #include <windows.h>
 

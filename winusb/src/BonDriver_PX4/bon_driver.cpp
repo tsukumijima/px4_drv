@@ -217,7 +217,7 @@ const BOOL BonDriver::OpenTuner()
 		return TRUE;
 
 	try {
-		// CloseTuner() ‚ªc‚µ‚½I—¹’Ê’m‚ğÁ‚µAV‚µ‚¢“Ç‚İo‚µƒ[ƒJ[‚¾‚¯‚ğ“®‚©‚·
+		// CloseTuner() ãŒæ®‹ã—ãŸçµ‚äº†é€šçŸ¥ã‚’æ¶ˆã—ã€æ–°ã—ã„èª­ã¿å‡ºã—ãƒ¯ãƒ¼ã‚«ãƒ¼ã ã‘ã‚’å‹•ã‹ã™
 		if (!ResetEvent(quit_event_))
 			throw BonDriverError("BonDriver::OpenTuner: ResetEvent() failed.");
 

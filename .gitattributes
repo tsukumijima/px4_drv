@@ -1,0 +1,33 @@
+# 通常のテキストは LF で保存・チェックアウト
+* text=auto eol=lf
+
+# WinUSB のソースコードと Windows 向け設定は作業ツリーで CRLF に変換
+winusb/**/*.c text eol=crlf
+winusb/**/*.cpp text eol=crlf
+winusb/**/*.h text eol=crlf
+winusb/**/*.hpp text eol=crlf
+winusb/**/*.def text eol=crlf
+winusb/**/*.ini text eol=crlf
+winusb/**/*.inf text eol=crlf
+winusb/**/*.jse text eol=crlf
+winusb/**/*.vcxproj text eol=crlf
+winusb/**/*.vcxproj.filters text eol=crlf
+winusb/**/*.ps1 text eol=crlf
+winusb/*.sln text eol=crlf
+winusb/**/*.rc text eol=crlf
+
+# ChSet は CP932 のバイト列を維持し、改行だけ CRLF に変換
+winusb/pkg/BonDriver_PX4/*.ChSet.txt text eol=crlf
+
+# Microsoft の署名ツールに同梱されたファイルの既存形式を維持
+winusb/pkg/signing-tools/WindowsProtectedFiles.xml text eol=crlf
+
+# バイナリは改行変換しない
+*.bin -text
+*.cat -text
+*.cer -text
+*.dll -text
+*.exe -text
+*.ico -text
+*.pfx -text
+*.pvk -text

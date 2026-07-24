@@ -1,4 +1,4 @@
-// DriverHost_PX4.rc
+﻿// DriverHost_PX4.rc
 
 #include <windows.h>
 

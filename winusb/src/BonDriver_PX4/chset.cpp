@@ -107,7 +107,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 
 bool ChannelSet::Merge(ChannelSet &chset) noexcept
 {
-	// TODO: Space IDÇÇ∏ÇÁÇ∑
+	// TODO: Space ID „Çí„Åö„Çâ„Åô
 	try {
 		for (auto it = chset.spaces_.cbegin(); it != chset.spaces_.cend(); ++it)
 			spaces_.emplace_back(*it);
