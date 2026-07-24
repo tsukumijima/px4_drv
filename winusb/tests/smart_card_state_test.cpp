@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <deque>
+#include <new>
 #include <memory>
 #include <vector>
 
@@ -87,6 +88,10 @@ public:
 
 	int WriteCardData(const std::uint8_t *buffer, std::uint8_t length) override
 	{
+		if (throw_next_apdu) {
+			throw_next_apdu = false;
+			throw std::bad_alloc();
+		}
 		if (length < 4)
 			return -EINVAL;
 		const std::uint8_t pcb = buffer[1];
@@ -214,6 +219,7 @@ public:
 	bool is_open = false;
 	bool is_present = false;
 	bool fail_next_apdu = false;
+	bool throw_next_apdu = false;
 	bool endless_wtx = false;
 	bool delay_next_response = false;
 	bool duplicate_next_response = false;
@@ -326,6 +332,21 @@ int main()
 		response_length) == 0 && device->reset_count == 3,
 		"Transport failure did not recover on the next APDU.") && succeeded;
 
+	/* 送受信中に例外が飛んでもセッションを破棄し、壊れた連番を残さない */
+	device->throw_next_apdu = true;
+	response_length = sizeof(response);
+	bool threw = false;
+	try {
+		card.Transmit(apdu, sizeof(apdu), response, response_length);
+	} catch (const std::bad_alloc &) {
+		threw = true;
+	}
+	succeeded = Check(threw, "An injected exception was not propagated.") && succeeded;
+	response_length = sizeof(response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == 0 && device->reset_count == 4,
+		"An exception did not invalidate the session.") && succeeded;
+
 	/* 接触不良による検出エラーも例外や状態破損へ変えない */
 	device->detect_error = -EIO;
 	response_length = sizeof(response);
@@ -334,7 +355,7 @@ int main()
 		"Card detection failure was not returned.") && succeeded;
 	response_length = sizeof(response);
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
-		response_length) == 0 && device->reset_count == 4,
+		response_length) == 0 && device->reset_count == 5,
 		"Card detection failure did not recover.") && succeeded;
 
 	/* 正常な WTX が繰り返されても APDU 全体の期限を延長しない */
@@ -348,7 +369,7 @@ int main()
 	device->endless_wtx = false;
 	response_length = sizeof(response);
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
-		response_length) == 0 && device->reset_count == 5,
+		response_length) == 0 && device->reset_count == 6,
 		"WTX timeout did not invalidate the session.") && succeeded;
 
 	/* UART の残留バイトで ATR が壊れた場合だけ、カード全体を1回再初期化する */

@@ -561,10 +561,23 @@ int SmartCard::Transmit(const std::uint8_t *send_buf, std::size_t send_len,
 	/* WTX やブロック再送が続いても1回の APDU を有限時間で打ち切る */
 	auto deadline = std::chrono::steady_clock::now() +
 		std::chrono::milliseconds(OPERATION_TIMEOUT_MS);
+	/*
+	 * 通信失敗後は次の APDU でカードを再初期化し、壊れた連番を残さない
+	 * 送受信中の例外でも同じ後始末が要るため、破棄はスコープの終わりに任せる
+	 */
+	bool succeeded = false;
+	struct SessionGuard final {
+		SmartCard &card;
+		const bool &succeeded;
+		~SessionGuard()
+		{
+			if (!succeeded)
+				card.InvalidateSession();
+		}
+	} guard{ *this, succeeded };
+
 	int ret = TransmitInitialized(send_buf, send_len, recv_buf, recv_len, deadline);
-	/* 通信失敗後は次の APDU でカードを再初期化し、壊れた連番を残さない */
-	if (ret)
-		InvalidateSession();
+	succeeded = !ret;
 	return ret;
 }
 
