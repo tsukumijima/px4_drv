@@ -200,16 +200,26 @@ void DeviceManager::Add(const std::wstring &path, const std::pair<DeviceType, px
 
 void DeviceManager::Remove(const std::wstring &path)
 {
-	std::lock_guard<std::mutex> lock(mtx_);
+	std::shared_ptr<DeviceBase> device;
 
-	if (!Exists(path))
-		return;
+	{
+		std::lock_guard<std::mutex> lock(mtx_);
 
-	auto device = devices_.at(path);
-	device->SetAvailability(false);
-	if (device->HasCardReader())
-		card_reader_generation_.fetch_add(1);
-	devices_.erase(path);
+		if (!Exists(path))
+			return;
+
+		device = devices_.at(path);
+		device->SetAvailability(false);
+		if (device->HasCardReader())
+			card_reader_generation_.fetch_add(1);
+		devices_.erase(path);
+	}
+
+	/*
+	 * 機器の破棄は開いている受信機が閉じるまで待つため、一覧のロックを解いてから行う
+	 * ロックを保持したまま待つと、カードリーダーの列挙と検索も巻き添えで止まる
+	 */
+	device.reset();
 }
 
 bool DeviceManager::Exists(const std::wstring &path) const
