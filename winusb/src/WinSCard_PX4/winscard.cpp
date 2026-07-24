@@ -150,8 +150,10 @@ LONG Call(px4::CardClient &client, px4::card_command::Command &command)
 				return SCARD_F_INTERNAL_ERROR;
 		}
 	}
+	/* ATR を返す応答はすべて同じ上限で検査し、境界を越えた参照を残さない */
 	if ((requested_code == px4::card_command::Code::STATUS ||
-		requested_code == px4::card_command::Code::RESET) &&
+		requested_code == px4::card_command::Code::RESET ||
+		requested_code == px4::card_command::Code::END_TRANSACTION) &&
 		command.atr_length > px4::card_command::MAX_ATR_SIZE)
 		return SCARD_F_INTERNAL_ERROR;
 	if (requested_code == px4::card_command::Code::TRANSMIT &&
