@@ -85,16 +85,20 @@ void DeviceManager::Search(const GUID &guid, const std::pair<DeviceType, px4::De
 		throw DeviceManagerError("px4::DeviceManager::Search: SetupDiGetClassDevsW() failed.");
 
 	SP_DEVICE_INTERFACE_DATA intf_data;
-	DWORD i = 0;
 
 	intf_data.cbSize = sizeof(intf_data);
 
-	while (SetupDiEnumDeviceInterfaces(dev_info, nullptr, &guid, i, &intf_data)) {
-		DWORD detail_size;
+	/* 途中で読み飛ばす場合も列挙位置を進めるため、増分を for 文へ持たせる */
+	for (DWORD i = 0; SetupDiEnumDeviceInterfaces(dev_info, nullptr, &guid, i, &intf_data); i++) {
+		DWORD detail_size = 0;
 		SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail_data;
 
+		/*
+		 * サイズ問い合わせは必ず失敗し、必要な長さは ERROR_INSUFFICIENT_BUFFER のときだけ返る
+		 * 列挙直後の抜去などで別のエラーになった場合は長さが更新されないため、その機器を飛ばす
+		 */
 		SetupDiGetDeviceInterfaceDetailW(dev_info, &intf_data, nullptr, 0, &detail_size, nullptr);
-		if (!detail_size)
+		if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !detail_size)
 			continue;
 
 		detail_data = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W *>(new std::uint8_t[detail_size]);
@@ -108,8 +112,6 @@ void DeviceManager::Search(const GUID &guid, const std::pair<DeviceType, px4::De
 		}
 
 		delete[] reinterpret_cast<std::uint8_t *>(detail_data);
-
-		i++;
 	}
 
 	SetupDiDestroyDeviceInfoList(dev_info);
