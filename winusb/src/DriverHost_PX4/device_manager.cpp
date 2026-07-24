@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <setupapi.h>
 
+#include "msg.h"
 #include "px4_device.hpp"
 #include "pxmlt_device.hpp"
 #include "isdb2056_device.hpp"
@@ -122,6 +123,13 @@ void DeviceManager::Add(const std::wstring &path, const std::pair<DeviceType, px
 	if (Exists(path))
 		return;
 
+	/*
+	 * DeviceBase のコンストラクタは機器を開けない場合に DeviceError を送出する
+	 * 到着通知の Handle() は noexcept のため、ここで捕まえないと1台の初期化失敗で
+	 * DriverHost_PX4 全体が終了し、進行中の受信も巻き添えになる
+	 */
+	try {
+
 	/* 機種追加時に型と DeviceType の対応をこの場で確認できるよう生成分岐を明示する */
 	switch (def.first) {
 	case px4::DeviceType::PX4:
@@ -178,6 +186,11 @@ void DeviceManager::Add(const std::wstring &path, const std::pair<DeviceType, px
 
 	default:
 		break;
+	}
+
+	} catch (const DeviceError &ex) {
+		/* 失敗した1台だけを登録対象から外し、他の機器の列挙と受信は継続する */
+		msg_err("px4::DeviceManager::Add: %s\n", ex.what());
 	}
 
 	return;
