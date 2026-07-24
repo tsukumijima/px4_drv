@@ -6,6 +6,7 @@
 外部の主張をそのまま採用せず、現行コードに同じ条件があるか、すでに同等以上の修正があるか、実機結果がどの範囲を支えるかを分けて判断しました。  
 
 調査時の基準コミットは `9eebc4d22b88b2f7cee07bd6bb255ff4901b77ca` です。  
+[`20260724_winusb_card_reader_implementation_history.md`](20260724_winusb_card_reader_implementation_history.md) が基準とする `f1c5a2cb7df824474b884e7a2006cb242baf0939` との差分は BonDriver の終了処理だけであり、本調査の採否には影響しません。  
 派生ブランチは調査後に更新される可能性があるため、後続作業では比較ページを再取得し、この日付以降の差分を別に確認してください。  
 
 採用した意思決定は [`20260724_decision_record.md`](20260724_decision_record.md)、実機と自動試験の境界は [`20260724_validation_record.md`](20260724_validation_record.md)、Linux への移植方法は [`20260724_linux_card_reader_handover.md`](20260724_linux_card_reader_handover.md) を参照してください。  

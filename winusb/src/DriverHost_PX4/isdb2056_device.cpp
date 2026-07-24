@@ -49,7 +49,6 @@ Isdb2056Device::Isdb2056Device(const std::wstring &path, const px4::DeviceDefini
 	LoadConfig();
 
 	memset(&it930x_, 0, sizeof(it930x_));
-	memset(&stream_ctx_, 0, sizeof(stream_ctx_));
 }
 
 Isdb2056Device::~Isdb2056Device()
