@@ -483,15 +483,16 @@ int Px4Device::SetBackendPower(bool state)
 		Sleep(20);
 	} else {
 		ret = it930x_write_gpio(&it930x_, 2, false);
-		if (ret)
-			return ret;
-
-		ret = it930x_write_gpio(&it930x_, 7, true);
-		if (ret)
-			return ret;
+		/*
+		 * GPIO2 の停止に失敗しても基板リセットは試し、終了処理で通電状態が残る範囲を狭める
+		 * 呼び出し元には最初の失敗を返し、初期化時の異常を成功扱いにしない
+		 */
+		int reset_ret = it930x_write_gpio(&it930x_, 7, true);
+		if (!ret)
+			ret = reset_ret;
 	}
 
-	return 0;
+	return ret;
 }
 
 int Px4Device::SetLnbVoltage(std::int32_t voltage)
