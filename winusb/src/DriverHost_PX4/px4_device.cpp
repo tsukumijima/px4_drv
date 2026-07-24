@@ -337,6 +337,14 @@ void Px4Device::SetAvailability(bool available)
 		/* 抜去済み USB へ電源制御を送らず、2基連動モデルの共有要求だけを解放する */
 		mldev_->ReleaseCardPower(*this);
 	}
+	if (!available && mldev_) {
+		/*
+		 * カード監視が旧デバイスの寿命を延ばしても、再接続した同じサブデバイスを登録できるよう
+		 * USB 抜去時点で共有管理の生ポインタを破棄する
+		 */
+		mldev_->Remove(*this);
+		mldev_.reset();
+	}
 }
 
 ReceiverBase* Px4Device::GetReceiver(int id) const
