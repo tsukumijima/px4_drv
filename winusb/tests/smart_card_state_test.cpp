@@ -41,7 +41,7 @@ public:
 			return -ENODEV;
 		reset_count++;
 		read_queue.clear();
-		/* セッション再構築でカード側の N(R) も初期値へ戻る */
+		/* セッション再構築でカード側の N(S) も初期値へ戻る */
 		response_sequence = 0;
 		if (malformed_atr_resets) {
 			malformed_atr_resets--;
@@ -139,7 +139,7 @@ public:
 				return 0;
 			}
 		}
-		/* I ブロック応答は N(R) を交互に進める */
+		/* I ブロック応答はカード側の N(S) を交互に進める */
 		const std::uint8_t response_pcb = response_sequence ? 0x40 : 0x00;
 		response_sequence ^= 1;
 		if (large_duplicate_response) {
@@ -148,6 +148,14 @@ public:
 			const std::vector<std::uint8_t> large(200, 0xa5);
 			QueueBlock(response_pcb, large.data(), large.size());
 			QueueBlock(response_pcb, large.data(), large.size());
+			return 0;
+		}
+		if (max_duplicate_response) {
+			max_duplicate_response = false;
+			/* 1フレームが読み出し上限とちょうど同じ255バイトになる長さにする */
+			const std::vector<std::uint8_t> max_inf(251, 0x5a);
+			QueueBlock(response_pcb, max_inf.data(), max_inf.size());
+			QueueBlock(response_pcb, max_inf.data(), max_inf.size());
 			return 0;
 		}
 		const std::uint8_t response[] = { 0x90, 0x00 };
@@ -224,6 +232,7 @@ public:
 	bool delay_next_response = false;
 	bool duplicate_next_response = false;
 	bool large_duplicate_response = false;
+	bool max_duplicate_response = false;
 	std::uint8_t response_sequence = 0;
 	bool drop_first_ifs = false;
 	bool read_called_before_ready = false;
@@ -306,6 +315,19 @@ int main()
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
 		response_length) == 0 && response_length == 2,
 		"The following APDU failed after a duplicated long response.") && succeeded;
+
+	/* 完成フレームが読み出し上限と同じ長さでも、後続の重複を残さない */
+	device->max_duplicate_response = true;
+	large_response_length = sizeof(large_response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), large_response,
+		large_response_length) == 0 && large_response_length == 251 &&
+		device->read_queue.empty(),
+		"A duplicated response at the read limit was not discarded.") && succeeded;
+
+	response_length = sizeof(response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == 0 && response_length == 2,
+		"The following APDU failed after a maximum length response.") && succeeded;
 
 	/* 抜去後は古い ATR と連番を破棄する */
 	device->is_present = false;

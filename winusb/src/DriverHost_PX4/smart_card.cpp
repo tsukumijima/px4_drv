@@ -219,7 +219,7 @@ int SmartCard::WaitCardDataReady(const Deadline &deadline)
 	return -ETIMEDOUT;
 }
 
-void SmartCard::DiscardPendingCardData() noexcept
+int SmartCard::DiscardPendingCardData()
 {
 	/*
 	 * 追加の待機を挟まず、今読める残余だけを捨てる
@@ -227,14 +227,23 @@ void SmartCard::DiscardPendingCardData() noexcept
 	 */
 	for (unsigned int count = 0; count < MAX_DISCARD_CHUNKS; count++) {
 		bool ready = false;
-		if (device_->IsCardDataReady(ready) || !ready)
-			return;
+		int ret = device_->IsCardDataReady(ready);
+		if (ret)
+			return ret;
+		if (!ready)
+			return 0;
 
 		std::uint8_t chunk[CARD_UART_FRAME_MAX_LENGTH];
 		std::uint8_t chunk_length = static_cast<std::uint8_t>(sizeof(chunk));
-		if (device_->ReadCardData(chunk, chunk_length) || !chunk_length)
-			return;
+		ret = device_->ReadCardData(chunk, chunk_length);
+		if (ret)
+			return ret;
+		if (!chunk_length)
+			return 0;
 	}
+
+	/* 捨て切れない量が残る状態は、次の要求へ持ち越さず通信の異常として扱う */
+	return -EPROTO;
 }
 
 int SmartCard::ParseAtr(const std::vector<std::uint8_t> &atr,
@@ -432,6 +441,7 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 {
 	std::vector<std::uint8_t> frame;
 	std::size_t expected_length = 0;
+	bool read_filled_chunk = false;
 
 	while (std::chrono::steady_clock::now() < deadline) {
 		/* RX_LENGTH は受信途中でも増えるため、RX_READY 後に完成フレームを読む */
@@ -445,6 +455,7 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 		if (ret)
 			return ret;
 		if (chunk_length) {
+			read_filled_chunk = chunk_length == sizeof(chunk);
 			frame.insert(frame.end(), chunk, chunk + chunk_length);
 			if (frame.size() >= 3)
 				expected_length = 3 + frame[2] + (use_crc_ ? 2 : 1);
@@ -461,13 +472,20 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 	 * 再送前の遅延応答と再送後の応答が同じ UART 読み出しへ連結される場合がある
 	 * T=1 は要求に対して次のブロックを自発送信しないため、先頭の完成フレームだけを処理する
 	 */
-	if (frame.size() > expected_length) {
+	/*
+	 * 読み出しがバッファを埋め切った場合は、完成フレームがちょうど上限の長さでも
+	 * 続きが FIFO に残っていることがあるため、余りの有無によらず捨てる
+	 */
+	if (frame.size() > expected_length || read_filled_chunk) {
 		frame.resize(expected_length);
 		/*
 		 * 連結された応答が1回の ReadCardData() で読み切れないと FIFO へ残りが留まり、
 		 * 次のブロック受信の先頭へ混ざって連番不一致を起こす
 		 */
-		DiscardPendingCardData();
+		int discard_ret = DiscardPendingCardData();
+
+		if (discard_ret)
+			return discard_ret;
 	}
 	if (frame[0] != T1_NAD)
 		return -EPROTO;

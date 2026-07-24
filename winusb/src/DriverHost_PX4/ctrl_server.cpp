@@ -33,10 +33,15 @@ bool CtrlServer::CtrlConnection::CheckCommandLength(const std::uint8_t *buf,
 	 * ParameterSet と StatSet は要素数1の配列を可変長として使うため、
 	 * 実際に届いた長さから収容できる要素数を求め、num がそれを超えないことを確かめる
 	 */
-	auto check_variable = [length](std::size_t fixed_size, std::size_t element_size,
-				       std::uint32_t num) {
+	auto check_variable = [buf, length](std::size_t fixed_size, std::size_t element_size,
+					    std::size_t num_offset) {
+		/* 要素数そのものが届いていない段階で読まないよう、先に長さを確かめる */
 		if (length < fixed_size)
 			return false;
+
+		std::uint32_t num;
+
+		memcpy(&num, buf + num_offset, sizeof(num));
 		if (!num)
 			return true;
 
@@ -60,8 +65,7 @@ bool CtrlServer::CtrlConnection::CheckCommandLength(const std::uint8_t *buf,
 	case px4::command::CtrlCmdCode::SET_PARAMS:
 		return check_variable(sizeof(px4::command::CtrlParamsCmd),
 				      sizeof(px4::command::Parameter),
-				      reinterpret_cast<const px4::command::CtrlParamsCmd *>(
-					      buf)->param_set.num);
+				      offsetof(px4::command::CtrlParamsCmd, param_set.num));
 
 	case px4::command::CtrlCmdCode::TUNE:
 		return length >= sizeof(px4::command::CtrlTuneCmd);
@@ -75,8 +79,7 @@ bool CtrlServer::CtrlConnection::CheckCommandLength(const std::uint8_t *buf,
 	case px4::command::CtrlCmdCode::READ_STATS:
 		return check_variable(sizeof(px4::command::CtrlStatsCmd),
 				      sizeof(px4::command::Stat),
-				      reinterpret_cast<const px4::command::CtrlStatsCmd *>(
-					      buf)->stat_set.num);
+				      offsetof(px4::command::CtrlStatsCmd, stat_set.num));
 
 	default:
 		/* ヘッダーだけで完結するコマンドは冒頭の検査で足りる */

@@ -166,24 +166,31 @@ int wmain(int argc, wchar_t **argv)
 	}
 
 	std::uint64_t total_foreign = 0;
+	unsigned int failed_tunes = 0;
+	unsigned int measured_cycles = 0;
 
 	for (unsigned int cycle = 0; cycle < cycles; cycle++) {
 		int index = cycle % 2;
 		int previous = index ^ 1;
 
 		/* 直前のチャンネルを一定時間受信してから切り替え、パイプへ滞留させる */
-		if (!bon_driver->SetChannel(space, channels[previous]))
+		if (!bon_driver->SetChannel(space, channels[previous])) {
+			failed_tunes++;
 			continue;
+		}
 		bon_driver->PurgeTsStream();
 		CollectPids(bon_driver, 2000);
 
-		if (!bon_driver->SetChannel(space, channels[index]))
+		if (!bon_driver->SetChannel(space, channels[index])) {
+			failed_tunes++;
 			continue;
+		}
 		bon_driver->PurgeTsStream();
 
 		/* 切り替え直後に、前チャンネル固有の PID が届かないことを確かめる */
 		LeakMetrics metrics = MeasureLeak(bon_driver, 2000, unique_pids[previous]);
 		total_foreign += metrics.foreign_packets;
+		measured_cycles++;
 		std::printf(
 			"cycle=%u channel=%lu packets=%llu foreign=%llu first_at=%llu\n",
 			cycle, channels[index],
@@ -192,11 +199,13 @@ int wmain(int argc, wchar_t **argv)
 			static_cast<unsigned long long>(metrics.first_foreign_offset));
 	}
 
-	std::printf("total cycles=%u foreign_packets=%llu\n", cycles,
+	std::printf("total cycles=%u measured=%u failed_tunes=%u foreign_packets=%llu\n",
+		cycles, measured_cycles, failed_tunes,
 		static_cast<unsigned long long>(total_foreign));
 
 	bon_driver->CloseTuner();
 	bon_driver->Release();
 	FreeLibrary(module);
-	return total_foreign ? 1 : 0;
+	/* 選局に失敗して測れなかった周期があれば、混入0でも成功にしない */
+	return (!total_foreign && !failed_tunes && measured_cycles == cycles) ? 0 : 1;
 }
