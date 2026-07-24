@@ -47,9 +47,19 @@ bool PipeServer::Accept(const std::wstring &name, const PipeServerConfig &config
 	try {
 		SecurityAttributes sa(GENERIC_READ | GENERIC_WRITE);
 
+		/*
+		 * 接続待ちの1本目だけ排他的に作り、別のプロセスが同じ名前を先に
+		 * 用意してクライアントの接続を横取りする状態で起動しないようにする
+		 * 2本目以降は同じ名前へ相乗りするため、この指定を付けられない
+		 */
+		DWORD open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED;
+
+		if (ready_event)
+			open_mode |= FILE_FLAG_FIRST_PIPE_INSTANCE;
+
 		pipe_handle = CreateNamedPipeW(
 			path.c_str(),
-			PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+			open_mode,
 			mode,
 			PIPE_UNLIMITED_INSTANCES,
 			static_cast<DWORD>(config.out_buffer_size),
