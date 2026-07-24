@@ -28,6 +28,8 @@ constexpr unsigned int ATR_TIMEOUT_MS = 1000;
 /* 通常応答は約70msで返るため、取りこぼしを500msで再送処理へ移す */
 constexpr unsigned int BLOCK_TIMEOUT_MS = 500;
 constexpr unsigned int MAX_RETRIES = 3;
+/* 連結応答の読み捨ては UART FIFO 1杯分あれば足りる */
+constexpr unsigned int MAX_DISCARD_CHUNKS = 4;
 /* USB と UART が競合した実機でも応答を待ちつつ、連続する WTX は3秒で打ち切る */
 constexpr unsigned int OPERATION_TIMEOUT_MS = 3000;
 
@@ -215,6 +217,24 @@ int SmartCard::WaitCardDataReady(const Deadline &deadline)
 	}
 
 	return -ETIMEDOUT;
+}
+
+void SmartCard::DiscardPendingCardData() noexcept
+{
+	/*
+	 * 追加の待機を挟まず、今読める残余だけを捨てる
+	 * カードが応答を送り続ける異常時に抜けられなくなるため回数で区切る
+	 */
+	for (unsigned int count = 0; count < MAX_DISCARD_CHUNKS; count++) {
+		bool ready = false;
+		if (device_->IsCardDataReady(ready) || !ready)
+			return;
+
+		std::uint8_t chunk[CARD_UART_FRAME_MAX_LENGTH];
+		std::uint8_t chunk_length = static_cast<std::uint8_t>(sizeof(chunk));
+		if (device_->ReadCardData(chunk, chunk_length) || !chunk_length)
+			return;
+	}
 }
 
 int SmartCard::ParseAtr(const std::vector<std::uint8_t> &atr,
@@ -441,8 +461,14 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 	 * 再送前の遅延応答と再送後の応答が同じ UART 読み出しへ連結される場合がある
 	 * T=1 は要求に対して次のブロックを自発送信しないため、先頭の完成フレームだけを処理する
 	 */
-	if (frame.size() > expected_length)
+	if (frame.size() > expected_length) {
 		frame.resize(expected_length);
+		/*
+		 * 連結された応答が1回の ReadCardData() で読み切れないと FIFO へ残りが留まり、
+		 * 次のブロック受信の先頭へ混ざって連番不一致を起こす
+		 */
+		DiscardPendingCardData();
+	}
 	if (frame[0] != T1_NAD)
 		return -EPROTO;
 

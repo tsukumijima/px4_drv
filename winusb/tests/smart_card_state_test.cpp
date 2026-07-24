@@ -40,6 +40,8 @@ public:
 			return -ENODEV;
 		reset_count++;
 		read_queue.clear();
+		/* セッション再構築でカード側の N(R) も初期値へ戻る */
+		response_sequence = 0;
 		if (malformed_atr_resets) {
 			malformed_atr_resets--;
 			read_queue.insert(read_queue.end(), malformed_atr_bytes.begin(),
@@ -132,11 +134,22 @@ public:
 				return 0;
 			}
 		}
+		/* I ブロック応答は N(R) を交互に進める */
+		const std::uint8_t response_pcb = response_sequence ? 0x40 : 0x00;
+		response_sequence ^= 1;
+		if (large_duplicate_response) {
+			large_duplicate_response = false;
+			/* 2フレームの合計が1回の読み出し上限255バイトを超える長さにする */
+			const std::vector<std::uint8_t> large(200, 0xa5);
+			QueueBlock(response_pcb, large.data(), large.size());
+			QueueBlock(response_pcb, large.data(), large.size());
+			return 0;
+		}
 		const std::uint8_t response[] = { 0x90, 0x00 };
-		QueueBlock(0x00, response, sizeof(response));
+		QueueBlock(response_pcb, response, sizeof(response));
 		if (duplicate_next_response) {
 			duplicate_next_response = false;
-			QueueBlock(0x00, response, sizeof(response));
+			QueueBlock(response_pcb, response, sizeof(response));
 		}
 		if (delay_next_response) {
 			delay_next_response = false;
@@ -204,6 +217,8 @@ public:
 	bool endless_wtx = false;
 	bool delay_next_response = false;
 	bool duplicate_next_response = false;
+	bool large_duplicate_response = false;
+	std::uint8_t response_sequence = 0;
 	bool drop_first_ifs = false;
 	bool read_called_before_ready = false;
 	bool read_allowed = false;
@@ -270,6 +285,21 @@ int main()
 		response_length) == 0 && response_length == 2 &&
 		!device->read_called_before_ready && device->read_queue.empty(),
 		"Initial APDU transmission failed.") && succeeded;
+
+	/* 1回の読み出し上限を超える重複応答でも、先頭フレームだけを処理して残りを FIFO に残さない */
+	device->large_duplicate_response = true;
+	std::uint8_t large_response[256] = {};
+	std::size_t large_response_length = sizeof(large_response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), large_response,
+		large_response_length) == 0 && large_response_length == 200 &&
+		device->read_queue.empty(),
+		"A duplicated response across the read limit was not discarded.") && succeeded;
+
+	/* FIFO の残留を持ち越さず、続く APDU も同じセッションで成功する */
+	response_length = sizeof(response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == 0 && response_length == 2,
+		"The following APDU failed after a duplicated long response.") && succeeded;
 
 	/* 抜去後は古い ATR と連番を破棄する */
 	device->is_present = false;

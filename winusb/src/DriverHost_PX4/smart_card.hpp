@@ -41,6 +41,7 @@ private:
 
 	int ReadAtr(std::vector<std::uint8_t> &atr, AtrParameters &parameters);
 	int WaitCardDataReady(const Deadline &deadline);
+	void DiscardPendingCardData() noexcept;
 	int ParseAtr(const std::vector<std::uint8_t> &atr,
 		     std::size_t &expected_length, AtrParameters &parameters) const;
 	int InitializeT1(bool resynchronize, std::uint8_t ifsd);
