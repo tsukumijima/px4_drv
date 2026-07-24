@@ -524,8 +524,9 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 	/*
 	 * CtrlCmdClient::SetParams() は固定長の ParameterSet を値でコピーするため、
 	 * params を使わない地上波でも構造体1個分を確保しないと末尾を範囲外参照する
+	 * 使わない領域もそのまま送るので、確保した時点で0で埋めておく
 	 */
-	px4::command::ParameterSet *param_set = reinterpret_cast<px4::command::ParameterSet*>(new std::uint8_t[std::max<std::size_t>(sizeof(*param_set), sizeof(*param_set) - sizeof(param_set->params) + (sizeof(param_set->params[0]) * num_param))]);
+	px4::command::ParameterSet *param_set = reinterpret_cast<px4::command::ParameterSet*>(new std::uint8_t[std::max<std::size_t>(sizeof(*param_set), sizeof(*param_set) - sizeof(param_set->params) + (sizeof(param_set->params[0]) * num_param))]());
 
 	param_set->system = system;
 	param_set->freq = real_freq;
