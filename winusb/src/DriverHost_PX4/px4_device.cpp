@@ -986,7 +986,8 @@ Px4Device::Px4Receiver::Px4Receiver(Px4Device &parent, std::uintptr_t index)
 	init_(false),
 	open_(false),
 	lnb_power_(false),
-	streaming_(false)
+	streaming_(false),
+	ts_pin_cleanup_pending_(false)
 {
 	memset(&r850_, 0, sizeof(r850_));
 	memset(&rt710_, 0, sizeof(rt710_));
@@ -1121,6 +1122,13 @@ void Px4Device::Px4Receiver::Term()
 	if (!init_)
 		return;
 
+	/* SetCapture() の解除失敗が残っている場合は復調器を破棄する前に再試行する */
+	if (ts_pin_cleanup_pending_) {
+		int ret = SetTsPins(false);
+		if (!ret)
+			ts_pin_cleanup_pending_ = false;
+	}
+
 	switch (system_) {
 	case px4::SystemType::ISDB_T:
 		r850_term(&r850_);
@@ -1139,6 +1147,31 @@ void Px4Device::Px4Receiver::Term()
 	init_ = false;
 
 	return;
+}
+
+int Px4Device::Px4Receiver::SetTsPins(bool enabled)
+{
+	int ret = 0;
+
+	switch (system_) {
+	case px4::SystemType::ISDB_T:
+		ret = tc90522_enable_ts_pins_t(&tc90522_, enabled);
+		break;
+
+	case px4::SystemType::ISDB_S:
+		ret = tc90522_enable_ts_pins_s(&tc90522_, enabled);
+		break;
+
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	if (ret)
+		dev_err(&parent_.dev_, "px4::Px4Device::Px4Receiver::SetTsPins(%u): failed. (enabled: %s, ret: %d)\n",
+			index_, (enabled) ? "true" : "false", ret);
+
+	return ret;
 }
 
 int Px4Device::Px4Receiver::InitPrimary()
@@ -1563,17 +1596,18 @@ int Px4Device::Px4Receiver::SetCapture(bool capture)
 
 	dev_dbg(&parent_.dev_, "px4::Px4Device::Px4Receiver::SetCapture(%u): capture: %s\n", index_, (capture) ? "true" : "false");
 
-	if ((capture && streaming_) || (!capture && !streaming_))
-		return -EALREADY;
-
 	int ret = 0;
 	std::lock_guard<std::mutex> lock(lock_);
+
+	/* TS ピンの解除だけが残っている場合は停止済みでも再試行する */
+	if ((capture && streaming_) || (!capture && !streaming_ && !ts_pin_cleanup_pending_))
+		return -EALREADY;
 
 	if (capture) {
 		ret = parent_.PrepareCapture();
 		if (ret)
 			return ret;
-	} else {
+	} else if (streaming_) {
 		ret = parent_.StopCapture();
 		if (ret)
 			return ret;
@@ -1582,47 +1616,24 @@ int Px4Device::Px4Receiver::SetCapture(bool capture)
 		streaming_ = false;
 	}
 
-	switch (system_) {
-	case px4::SystemType::ISDB_T:
-		ret = tc90522_enable_ts_pins_t(&tc90522_, capture);
-		if (ret)
-			dev_err(&parent_.dev_, "px4::Px4Device::Px4Receiver::SetCapture(%u): tc90522_enable_ts_pins_t() failed.\n", index_);
+	/* 有効化の途中失敗も解除対象に含め、後続の Close() と Term() から再試行できるようにする */
+	if (capture)
+		ts_pin_cleanup_pending_ = true;
 
-		break;
-
-	case px4::SystemType::ISDB_S:
-		ret = tc90522_enable_ts_pins_s(&tc90522_, capture);
-		if (ret)
-			dev_err(&parent_.dev_, "px4::Px4Device::Px4Receiver::SetCapture(%u): tc90522_enable_ts_pins_s() failed.\n", index_);
-
-		break;
-
-	default:
-		ret = -EINVAL;
-		break;
-	}
-
+	ret = SetTsPins(capture);
 	if (ret)
 		return ret;
+
+	if (!capture)
+		ts_pin_cleanup_pending_ = false;
 
 	if (capture) {
 		ret = parent_.StartCapture();
 		if (ret) {
-			/* 転送開始前に有効化した TS ピンを戻し、Close() で停止済みと判定されても残留させない */
-			int rollback_ret = 0;
-			switch (system_) {
-			case px4::SystemType::ISDB_T:
-				rollback_ret = tc90522_enable_ts_pins_t(&tc90522_, false);
-				break;
-			case px4::SystemType::ISDB_S:
-				rollback_ret = tc90522_enable_ts_pins_s(&tc90522_, false);
-				break;
-			default:
-				break;
-			}
-			if (rollback_ret)
-				dev_err(&parent_.dev_, "px4::Px4Device::Px4Receiver::SetCapture(%u): TS pin rollback failed. (ret: %d)\n",
-					index_, rollback_ret);
+			/* 解除に失敗した場合は保留状態を維持し、Close() と Term() で再試行する */
+			int rollback_ret = SetTsPins(false);
+			if (!rollback_ret)
+				ts_pin_cleanup_pending_ = false;
 			return ret;
 		}
 

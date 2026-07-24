@@ -174,6 +174,8 @@ private:
 		static struct tc90522_regbuf tc_init_t_[];
 		static struct tc90522_regbuf tc_init_s_[];
 
+		int SetTsPins(bool enabled);
+
 		Px4Device &parent_;
 		std::uintptr_t index_;
 
@@ -189,6 +191,7 @@ private:
 			rt710_tuner rt710_;
 		};
 		std::atomic_bool streaming_;
+		std::atomic_bool ts_pin_cleanup_pending_;
 	};
 
 	void LoadConfig();
