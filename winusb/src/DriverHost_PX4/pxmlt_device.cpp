@@ -637,7 +637,7 @@ const PxMltDevice::PxMltReceiver::PxMltReceiverCnTableIsdbS PxMltDevice::PxMltRe
 };
 
 PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t index)
-	: ReceiverBase(RECEIVER_SAT_SET_STREAM_ID_BEFORE_TUNE),
+	: ReceiverBase(RECEIVER_SAT_SET_STREAM_ID_BEFORE_TUNE | RECEIVER_WAIT_AFTER_LOCK_TC_T),
 	parent_(parent),
 	index_(index),
 	lock_(),
