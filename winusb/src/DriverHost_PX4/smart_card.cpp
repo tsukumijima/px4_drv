@@ -435,8 +435,14 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 		std::this_thread::sleep_for(std::chrono::milliseconds(CARD_POLL_INTERVAL_MS));
 	}
 
-	if (!expected_length || frame.size() != expected_length)
+	if (!expected_length || frame.size() < expected_length)
 		return -ETIMEDOUT;
+	/*
+	 * 再送前の遅延応答と再送後の応答が同じ UART 読み出しへ連結される場合がある
+	 * T=1 は要求に対して次のブロックを自発送信しないため、先頭の完成フレームだけを処理する
+	 */
+	if (frame.size() > expected_length)
+		frame.resize(expected_length);
 	if (frame[0] != T1_NAD)
 		return -EPROTO;
 

@@ -134,6 +134,10 @@ public:
 		}
 		const std::uint8_t response[] = { 0x90, 0x00 };
 		QueueBlock(0x00, response, sizeof(response));
+		if (duplicate_next_response) {
+			duplicate_next_response = false;
+			QueueBlock(0x00, response, sizeof(response));
+		}
 		if (delay_next_response) {
 			delay_next_response = false;
 			ready_delay_checks = 3;
@@ -199,6 +203,7 @@ public:
 	bool fail_next_apdu = false;
 	bool endless_wtx = false;
 	bool delay_next_response = false;
+	bool duplicate_next_response = false;
 	bool drop_first_ifs = false;
 	bool read_called_before_ready = false;
 	bool read_allowed = false;
@@ -258,10 +263,12 @@ int main()
 	std::size_t response_length = sizeof(response);
 	/* UART_RX_READY が立つまで途中フレームを読み出さない */
 	device->delay_next_response = true;
+	/* 同じ UART 読み出しへ連結された重複応答は先頭フレームの処理後に残さない */
+	device->duplicate_next_response = true;
 	device->read_called_before_ready = false;
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
 		response_length) == 0 && response_length == 2 &&
-		!device->read_called_before_ready,
+		!device->read_called_before_ready && device->read_queue.empty(),
 		"Initial APDU transmission failed.") && succeeded;
 
 	/* 抜去後は古い ATR と連番を破棄する */
