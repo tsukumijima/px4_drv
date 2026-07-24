@@ -25,6 +25,65 @@ CtrlServer::CtrlConnection::CtrlConnection(ServerBase &parent, std::unique_ptr<p
 
 }
 
+bool CtrlServer::CtrlConnection::CheckCommandLength(const std::uint8_t *buf,
+						    px4::command::CtrlCmdCode cmd,
+						    std::size_t length) noexcept
+{
+	/*
+	 * ParameterSet と StatSet は要素数1の配列を可変長として使うため、
+	 * 実際に届いた長さから収容できる要素数を求め、num がそれを超えないことを確かめる
+	 */
+	auto check_variable = [length](std::size_t fixed_size, std::size_t element_size,
+				       std::uint32_t num) {
+		if (length < fixed_size)
+			return false;
+		if (!num)
+			return true;
+
+		return (num - 1) <= ((length - fixed_size) / element_size);
+	};
+
+	switch (cmd) {
+	case px4::command::CtrlCmdCode::GET_VERSION:
+		return length >= sizeof(px4::command::CtrlVersionCmd);
+
+	case px4::command::CtrlCmdCode::OPEN:
+		return length >= sizeof(px4::command::CtrlOpenCmd);
+
+	case px4::command::CtrlCmdCode::GET_INFO:
+		return length >= sizeof(px4::command::CtrlReceiverInfoCmd);
+
+	case px4::command::CtrlCmdCode::SET_CAPTURE:
+		return length >= sizeof(px4::command::CtrlCaptureCmd);
+
+	case px4::command::CtrlCmdCode::GET_PARAMS:
+	case px4::command::CtrlCmdCode::SET_PARAMS:
+		return check_variable(sizeof(px4::command::CtrlParamsCmd),
+				      sizeof(px4::command::Parameter),
+				      reinterpret_cast<const px4::command::CtrlParamsCmd *>(
+					      buf)->param_set.num);
+
+	case px4::command::CtrlCmdCode::TUNE:
+		return length >= sizeof(px4::command::CtrlTuneCmd);
+
+	case px4::command::CtrlCmdCode::CHECK_LOCK:
+		return length >= sizeof(px4::command::CtrlCheckLockCmd);
+
+	case px4::command::CtrlCmdCode::SET_LNB_VOLTAGE:
+		return length >= sizeof(px4::command::CtrlLnbVoltageCmd);
+
+	case px4::command::CtrlCmdCode::READ_STATS:
+		return check_variable(sizeof(px4::command::CtrlStatsCmd),
+				      sizeof(px4::command::Stat),
+				      reinterpret_cast<const px4::command::CtrlStatsCmd *>(
+					      buf)->stat_set.num);
+
+	default:
+		/* ヘッダーだけで完結するコマンドは冒頭の検査で足りる */
+		return true;
+	}
+}
+
 void CtrlServer::CtrlConnection::Worker() noexcept
 {
 	std::size_t size = config_.in_buffer_size;
@@ -39,7 +98,24 @@ void CtrlServer::CtrlConnection::Worker() noexcept
 		if (!conn_->Read(buf.get(), size, read, quit_event_))
 			break;
 
+		/*
+		 * 受信長を確かめずにコマンド構造体へキャストすると、短いメッセージでも
+		 * 構造体の後半を読み書きしてしまうため、まず最小長を検査する
+		 */
+		if (read < sizeof(px4::command::CtrlCmdHeader))
+			break;
+
 		px4::command::CtrlCmdHeader *hdr = reinterpret_cast<px4::command::CtrlCmdHeader *>(buf.get());
+
+		if (!CheckCommandLength(buf.get(), hdr->cmd, read)) {
+			std::size_t written;
+
+			hdr->status = px4::command::CtrlStatusCode::FAILED;
+			if (!conn_->Write(buf.get(), read, written) || read != written)
+				break;
+
+			continue;
+		}
 
 		switch (hdr->cmd) {
 		case px4::command::CtrlCmdCode::GET_VERSION:

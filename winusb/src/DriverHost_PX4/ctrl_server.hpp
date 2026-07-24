@@ -40,6 +40,9 @@ private:
 		CtrlConnection& operator=(CtrlConnection &&) = delete;
 
 	private:
+		static bool CheckCommandLength(const std::uint8_t *buf,
+					       px4::command::CtrlCmdCode cmd,
+					       std::size_t length) noexcept;
 		void Worker() noexcept override;
 	};
 
