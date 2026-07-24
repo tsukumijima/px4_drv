@@ -1606,8 +1606,24 @@ int Px4Device::Px4Receiver::SetCapture(bool capture)
 
 	if (capture) {
 		ret = parent_.StartCapture();
-		if (ret)
+		if (ret) {
+			/* 転送開始前に有効化した TS ピンを戻し、Close() で停止済みと判定されても残留させない */
+			int rollback_ret = 0;
+			switch (system_) {
+			case px4::SystemType::ISDB_T:
+				rollback_ret = tc90522_enable_ts_pins_t(&tc90522_, false);
+				break;
+			case px4::SystemType::ISDB_S:
+				rollback_ret = tc90522_enable_ts_pins_s(&tc90522_, false);
+				break;
+			default:
+				break;
+			}
+			if (rollback_ret)
+				dev_err(&parent_.dev_, "px4::Px4Device::Px4Receiver::SetCapture(%u): TS pin rollback failed. (ret: %d)\n",
+					index_, rollback_ret);
 			return ret;
+		}
 
 		std::size_t size = 188 * parent_.config_.device.receiver_max_packets;
 
