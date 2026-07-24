@@ -26,3 +26,5 @@ fwtool/*.bin
 .vscode/
 !.vscode/c_cpp_properties.json
 /.vs/
+
+.codex*

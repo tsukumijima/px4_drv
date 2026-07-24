@@ -14,6 +14,19 @@ std::once_flag native_module_once;
 void LoadNativeModule() noexcept
 {
 	try {
+		HMODULE proxy_module = nullptr;
+
+		/*
+		 * System32 版より先に読み込まれたプロキシ DLL をホストプロセスの終了まで維持する
+		 * BonDriverProxyEx は最後のクライアントが切断されると B25Decoder.dll ごと解放するため、
+		 * System32 版だけが残ると次回の B25Decoder.dll が同名の System32 版へ結び付く
+		 */
+		if (!GetModuleHandleExW(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+			GET_MODULE_HANDLE_EX_FLAG_PIN,
+			reinterpret_cast<LPCWSTR>(&LoadNativeModule), &proxy_module))
+			return;
+
 		std::vector<wchar_t> system_directory(MAX_PATH);
 		UINT length = GetSystemDirectoryW(system_directory.data(),
 			static_cast<UINT>(system_directory.size()));
