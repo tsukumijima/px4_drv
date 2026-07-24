@@ -1357,8 +1357,13 @@ LONG WINAPI SCardGetAttrib(SCARDHANDLE card_handle, DWORD attribute,
 		attribute == SCARD_ATTR_PROTOCOL_TYPES) {
 		append_dword(SCARD_PROTOCOL_T1);
 	} else if (attribute == SCARD_ATTR_VENDOR_NAME) {
-		append_ansi(card->reader.find(L"PX-MLT") != std::wstring::npos ?
-			"PLEX" : "Digibest");
+		/* DeviceDefinition の表示名先頭からリーダー製造元を取得し、機種名の部分一致へ依存させない */
+		if (card->reader.compare(0, 5, L"PLEX ") == 0)
+			append_ansi("PLEX");
+		else if (card->reader.compare(0, 9, L"Digibest ") == 0)
+			append_ansi("Digibest");
+		else
+			return ERROR_NOT_SUPPORTED;
 	} else if (attribute == SCARD_ATTR_VENDOR_IFD_TYPE ||
 		attribute == SCARD_ATTR_DEVICE_FRIENDLY_NAME_A ||
 		attribute == SCARD_ATTR_DEVICE_SYSTEM_NAME_A) {
