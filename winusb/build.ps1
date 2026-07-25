@@ -53,6 +53,12 @@ foreach ($build_platform in $build_platforms) {
     if ($LASTEXITCODE -ne 0) {
         throw "Smart card state test failed. platform: $build_platform"
     }
+
+    # 選局時の TS バッファ初期化が読み書きと競合しても止まらないことを毎回検証
+    & "build/$build_platform/Release-static/ringbuffer_purge_test.exe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Ring buffer purge test failed. platform: $build_platform"
+    }
 }
 
 # dist/ フォルダにビルドされたファイルをコピー

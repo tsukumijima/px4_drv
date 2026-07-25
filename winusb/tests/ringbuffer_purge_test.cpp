@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <thread>
 #include <vector>
 
@@ -9,7 +10,8 @@
 
 namespace {
 
-constexpr unsigned int TEST_DURATION_SECONDS = 30;
+/* 取りこぼしは数十回のパージで現れるため、毎回のビルドを止めない長さに収める */
+constexpr unsigned int TEST_DURATION_SECONDS = 10;
 /* 進捗が完全に止まってから打ち切るまでの猶予 */
 constexpr unsigned int STALL_TIMEOUT_SECONDS = 5;
 constexpr std::size_t CHUNK_SIZE = 188 * 16;
@@ -73,19 +75,19 @@ int main()
 
 	stop = true;
 
-	/*
-	 * 取りこぼしが起きた場合、purger は Purge() の中で戻らないため join() できない
-	 * 判定はここまでで確定しているので、切り離してからプロセスごと終了する
-	 */
 	if (stalled) {
-		writer.detach();
-		reader.detach();
-		purger.detach();
 		std::fprintf(stderr,
 			"Purge() stopped returning after %llu calls.\n",
 			static_cast<unsigned long long>(last_count));
 		std::printf("ringbuffer_purge_test: failed\n");
-		return 1;
+		/*
+		 * 取りこぼしが起きた場合、purger は Purge() の中で戻らないため join() できない
+		 * main を通常どおり抜けると、待機中のスレッドが使っている buffer と
+		 * その同期オブジェクトを破棄してしまうため、後始末を行わずに終了する
+		 * 判定はここまでで確定しているので、出力だけ流し切ってプロセスごと落とす
+		 */
+		std::fflush(nullptr);
+		std::_Exit(1);
 	}
 
 	writer.join();

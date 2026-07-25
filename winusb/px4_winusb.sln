@@ -12,6 +12,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WinSCard_PX4", "src\WinSCar
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "smart_card_state_test", "tests\smart_card_state_test.vcxproj", "{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ringbuffer_purge_test", "tests\ringbuffer_purge_test.vcxproj", "{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -82,6 +84,18 @@ Global
 		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x64.Build.0 = Release-static|x64
 		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x86.ActiveCfg = Release-static|Win32
 		{EF14A2B9-B56E-44D6-9B34-D8B188E4110B}.Release-static|x86.Build.0 = Release-static|Win32
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Debug|x64.ActiveCfg = Debug|x64
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Debug|x64.Build.0 = Debug|x64
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Debug|x86.ActiveCfg = Debug|Win32
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Debug|x86.Build.0 = Debug|Win32
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release|x64.ActiveCfg = Release|x64
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release|x64.Build.0 = Release|x64
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release|x86.ActiveCfg = Release|Win32
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release|x86.Build.0 = Release|Win32
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release-static|x64.ActiveCfg = Release-static|x64
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release-static|x64.Build.0 = Release-static|x64
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release-static|x86.ActiveCfg = Release-static|Win32
+		{3B7C0F52-6A41-4E9D-9C8B-1F5A2D6E7B40}.Release-static|x86.Build.0 = Release-static|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
