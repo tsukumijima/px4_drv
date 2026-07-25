@@ -14,6 +14,8 @@ namespace {
 constexpr unsigned int TEST_DURATION_SECONDS = 10;
 /* 進捗が完全に止まってから打ち切るまでの猶予 */
 constexpr unsigned int STALL_TIMEOUT_SECONDS = 5;
+/* 期限の直前に始まったパージが戻らない場合に、回収を打ち切るまでの猶予 */
+constexpr unsigned int JOIN_TIMEOUT_SECONDS = 5;
 constexpr std::size_t CHUNK_SIZE = 188 * 16;
 
 } // namespace
@@ -90,9 +92,33 @@ int main()
 		std::_Exit(1);
 	}
 
+	/*
+	 * 進捗の停止を検出できなかった場合でも、期限の直前に始まったパージが戻らなければ
+	 * join() が永久に返らず、ビルドがそこで止まってしまう
+	 * 回収にも時間を区切り、超えたら停止として扱ってプロセスごと終了する
+	 */
+	std::atomic_bool collected{ false };
+	std::thread watchdog([&collected] {
+		auto join_deadline = std::chrono::steady_clock::now() +
+			std::chrono::seconds(JOIN_TIMEOUT_SECONDS);
+
+		while (std::chrono::steady_clock::now() < join_deadline) {
+			if (collected)
+				return;
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+
+		std::fprintf(stderr, "Purge() did not return while stopping.\n");
+		std::printf("ringbuffer_purge_test: failed\n");
+		std::fflush(nullptr);
+		std::_Exit(1);
+	});
+
 	writer.join();
 	reader.join();
 	purger.join();
+	collected = true;
+	watchdog.join();
 
 	std::printf("ringbuffer_purge_test: passed (purges=%llu)\n",
 		static_cast<unsigned long long>(purge_count.load()));
