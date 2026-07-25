@@ -16,9 +16,15 @@ namespace {
  * 選局を跨いで前チャンネルの TS が届くかを、チャンネル固有の PID で直接測る
  * 同期バイトや連続性カウンターの検査では、前チャンネルの正当な TS を検出できない
  */
-std::set<std::uint16_t> CollectPids(IBonDriver2 *bon_driver, unsigned int milliseconds)
+
+/*
+ * TS ストリームを一定時間読み、188バイト境界で切り出した各パケットを handler へ渡す
+ * PID の収集側と混入の測定側で走査条件がずれると偽陰性になるため、走査は共通化する
+ */
+template <typename PacketHandler>
+void ScanTsPackets(IBonDriver2 *bon_driver, unsigned int milliseconds,
+		   PacketHandler handler)
 {
-	std::set<std::uint16_t> pids;
 	auto deadline = std::chrono::steady_clock::now() +
 		std::chrono::milliseconds(milliseconds);
 
@@ -31,20 +37,35 @@ std::set<std::uint16_t> CollectPids(IBonDriver2 *bon_driver, unsigned int millis
 			if (!bon_driver->GetTsStream(&buffer, &size, &remain) || !buffer)
 				break;
 
-			for (DWORD offset = 0; offset + 188 <= size; offset += 188) {
-				const BYTE *packet = buffer + offset;
-				if (packet[0] != 0x47 || (packet[1] & 0x80))
-					continue;
-
-				std::uint16_t pid = static_cast<std::uint16_t>(
-					((packet[1] & 0x1f) << 8) | packet[2]);
-				/* 全チャンネル共通の PID は判別に使えないため除く */
-				if (pid <= 0x0030 || pid == 0x1fff)
-					continue;
-				pids.insert(pid);
-			}
+			for (DWORD offset = 0; offset + 188 <= size; offset += 188)
+				handler(buffer + offset);
 		}
 	}
+}
+
+/* 同期バイトと transport error indicator を確かめてから PID を取り出す */
+bool ExtractPid(const BYTE *packet, std::uint16_t &pid)
+{
+	if (packet[0] != 0x47 || (packet[1] & 0x80))
+		return false;
+
+	pid = static_cast<std::uint16_t>(((packet[1] & 0x1f) << 8) | packet[2]);
+	return true;
+}
+
+std::set<std::uint16_t> CollectPids(IBonDriver2 *bon_driver, unsigned int milliseconds)
+{
+	std::set<std::uint16_t> pids;
+
+	ScanTsPackets(bon_driver, milliseconds, [&pids](const BYTE *packet) {
+		std::uint16_t pid;
+		if (!ExtractPid(packet, pid))
+			return;
+		/* 全チャンネル共通の PID は判別に使えないため除く */
+		if (pid <= 0x0030 || pid == 0x1fff)
+			return;
+		pids.insert(pid);
+	});
 
 	return pids;
 }
@@ -60,35 +81,19 @@ LeakMetrics MeasureLeak(IBonDriver2 *bon_driver, unsigned int milliseconds,
 			const std::set<std::uint16_t> &foreign_pids)
 {
 	LeakMetrics metrics;
-	auto deadline = std::chrono::steady_clock::now() +
-		std::chrono::milliseconds(milliseconds);
 
-	while (std::chrono::steady_clock::now() < deadline) {
-		bon_driver->WaitTsStream(200);
-		while (bon_driver->GetReadyCount()) {
-			BYTE *buffer = nullptr;
-			DWORD size = 0;
-			DWORD remain = 0;
-			if (!bon_driver->GetTsStream(&buffer, &size, &remain) || !buffer)
-				break;
+	ScanTsPackets(bon_driver, milliseconds,
+		      [&metrics, &foreign_pids](const BYTE *packet) {
+		metrics.packets++;
 
-			for (DWORD offset = 0; offset + 188 <= size; offset += 188) {
-				const BYTE *packet = buffer + offset;
-				metrics.packets++;
-				if (packet[0] != 0x47 || (packet[1] & 0x80))
-					continue;
+		std::uint16_t pid;
+		if (!ExtractPid(packet, pid) || !foreign_pids.count(pid))
+			return;
 
-				std::uint16_t pid = static_cast<std::uint16_t>(
-					((packet[1] & 0x1f) << 8) | packet[2]);
-				if (!foreign_pids.count(pid))
-					continue;
-
-				if (!metrics.foreign_packets)
-					metrics.first_foreign_offset = metrics.packets;
-				metrics.foreign_packets++;
-			}
-		}
-	}
+		if (!metrics.foreign_packets)
+			metrics.first_foreign_offset = metrics.packets;
+		metrics.foreign_packets++;
+	});
 
 	return metrics;
 }
@@ -132,7 +137,11 @@ int wmain(int argc, wchar_t **argv)
 	};
 	unsigned int cycles = wcstoul(argv[5], nullptr, 10);
 
-	/* 各チャンネルに固有の PID を先に集め、相手側にしか現れない PID だけを残す */
+	/*
+	 * 各チャンネルに固有の PID を先に集め、相手側にしか現れない PID だけを残す
+	 * SetChannel() が選局後にパージまで行うため、試験側の追加パージは行わず、
+	 * アプリケーションが選局だけを行う通常経路をそのまま測る
+	 */
 	std::set<std::uint16_t> pids[2];
 	for (int index = 0; index < 2; index++) {
 		if (!bon_driver->SetChannel(space, channels[index])) {
@@ -142,7 +151,6 @@ int wmain(int argc, wchar_t **argv)
 			FreeLibrary(module);
 			return 6;
 		}
-		bon_driver->PurgeTsStream();
 		pids[index] = CollectPids(bon_driver, 3000);
 	}
 
@@ -168,6 +176,7 @@ int wmain(int argc, wchar_t **argv)
 	std::uint64_t total_foreign = 0;
 	unsigned int failed_tunes = 0;
 	unsigned int measured_cycles = 0;
+	unsigned int empty_cycles = 0;
 
 	for (unsigned int cycle = 0; cycle < cycles; cycle++) {
 		int index = cycle % 2;
@@ -178,19 +187,20 @@ int wmain(int argc, wchar_t **argv)
 			failed_tunes++;
 			continue;
 		}
-		bon_driver->PurgeTsStream();
 		CollectPids(bon_driver, 2000);
 
 		if (!bon_driver->SetChannel(space, channels[index])) {
 			failed_tunes++;
 			continue;
 		}
-		bon_driver->PurgeTsStream();
 
 		/* 切り替え直後に、前チャンネル固有の PID が届かないことを確かめる */
 		LeakMetrics metrics = MeasureLeak(bon_driver, 2000, unique_pids[previous]);
 		total_foreign += metrics.foreign_packets;
 		measured_cycles++;
+		/* 選局後に TS が止まる退行は混入0のまま通ってしまうため、空受信も失敗に数える */
+		if (!metrics.packets)
+			empty_cycles++;
 		std::printf(
 			"cycle=%u channel=%lu packets=%llu foreign=%llu first_at=%llu\n",
 			cycle, channels[index],
@@ -199,13 +209,13 @@ int wmain(int argc, wchar_t **argv)
 			static_cast<unsigned long long>(metrics.first_foreign_offset));
 	}
 
-	std::printf("total cycles=%u measured=%u failed_tunes=%u foreign_packets=%llu\n",
-		cycles, measured_cycles, failed_tunes,
+	std::printf("total cycles=%u measured=%u failed_tunes=%u empty=%u foreign_packets=%llu\n",
+		cycles, measured_cycles, failed_tunes, empty_cycles,
 		static_cast<unsigned long long>(total_foreign));
 
 	bon_driver->CloseTuner();
 	bon_driver->Release();
 	FreeLibrary(module);
-	/* 選局に失敗して測れなかった周期があれば、混入0でも成功にしない */
-	return (!total_foreign && !failed_tunes && measured_cycles == cycles) ? 0 : 1;
+	/* 選局に失敗して測れなかった周期や TS が届かなかった周期があれば、混入0でも成功にしない */
+	return (!total_foreign && !failed_tunes && !empty_cycles && measured_cycles == cycles) ? 0 : 1;
 }
