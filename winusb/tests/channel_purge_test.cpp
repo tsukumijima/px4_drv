@@ -100,6 +100,21 @@ LeakMetrics MeasureLeak(IBonDriver2 *bon_driver, unsigned int milliseconds,
 	return metrics;
 }
 
+/*
+ * 数値として解釈できない引数を黙って0として扱うと、意図しない空間やチャンネルを
+ * 選局したまま試験が進むため、末尾の余分な文字と符号まで確かめる
+ */
+bool ParseNumber(const wchar_t *text, unsigned long &value)
+{
+	errno = 0;
+
+	wchar_t *end = nullptr;
+
+	value = wcstoul(text, &end, 10);
+	return errno != ERANGE && end != text && *end == L'\0' &&
+		text[0] >= L'0' && text[0] <= L'9';
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t **argv)
@@ -110,12 +125,19 @@ int wmain(int argc, wchar_t **argv)
 		return 2;
 	}
 
-	errno = 0;
-	wchar_t *cycles_end = nullptr;
-	unsigned long cycles_value = wcstoul(argv[5], &cycles_end, 10);
-	/* 測定を1周期も行わず成功する状態と、数値として解釈できない入力を受け付けない */
-	if (errno == ERANGE || cycles_end == argv[5] || *cycles_end != L'\0' ||
-		argv[5][0] < L'0' || argv[5][0] > L'9' || cycles_value == 0 ||
+	unsigned long space_value = 0;
+	unsigned long channel_values[2] = {};
+	if (!ParseNumber(argv[2], space_value) ||
+		!ParseNumber(argv[3], channel_values[0]) ||
+		!ParseNumber(argv[4], channel_values[1])) {
+		std::fprintf(stderr,
+			"Space and channels must be non-negative integers.\n");
+		return 2;
+	}
+
+	unsigned long cycles_value = 0;
+	/* 測定を1周期も行わないまま成功する状態も受け付けない */
+	if (!ParseNumber(argv[5], cycles_value) || !cycles_value ||
 		cycles_value > UINT_MAX) {
 		std::fprintf(stderr, "Cycles must be a positive integer.\n");
 		return 2;
@@ -144,10 +166,10 @@ int wmain(int argc, wchar_t **argv)
 		return 5;
 	}
 
-	DWORD space = wcstoul(argv[2], nullptr, 10);
+	DWORD space = static_cast<DWORD>(space_value);
 	DWORD channels[] = {
-		wcstoul(argv[3], nullptr, 10),
-		wcstoul(argv[4], nullptr, 10),
+		static_cast<DWORD>(channel_values[0]),
+		static_cast<DWORD>(channel_values[1]),
 	};
 
 	/*
