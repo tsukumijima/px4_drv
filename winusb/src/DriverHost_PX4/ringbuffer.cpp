@@ -73,6 +73,22 @@ void RingBuffer::Stop() noexcept
 	state_ = 0;
 }
 
+void RingBuffer::NotifyIdle() noexcept
+{
+	if (--rw_count_ || !wait_)
+		return;
+
+	/*
+	 * Purge() は wait_lock_ を保持したまま利用者数を確かめ、0 でなければ待機へ入る
+	 * 同じロックを取らずに通知すると、その確認から待機に入るまでの間に通知が消え、
+	 * 以降は wait_ により Read() と Write() が即座に戻るため誰も通知しなくなる
+	 * Linux 版の wait_event() は待機列へ登録してから条件を確かめるためこの穴がない
+	 */
+	std::lock_guard<std::mutex> lock(wait_lock_);
+
+	wait_cond_.notify_all();
+}
+
 bool RingBuffer::Read(void *buf, std::size_t &size) noexcept
 {
 #if 0
@@ -81,12 +97,18 @@ bool RingBuffer::Read(void *buf, std::size_t &size) noexcept
 	state_.compare_exchange_strong(expected_state, 2);
 #endif
 
+	/*
+	 * 退避要求を確かめてから利用者数を増やすと、その隙に Purge() が初期化を終えてしまい、
+	 * 初期化前の位置と残量で読み書きして actual_size_ が桁借りする
+	 * 先に利用者として数えてから確かめれば、Purge() は必ずどちらかを見る
+	 */
+	++rw_count_;
+
 	if (wait_) {
+		NotifyIdle();
 		size = 0;
 		return true;
 	}
-
-	++rw_count_;
 
 	std::size_t actual_size = actual_size_;
 	std::intptr_t head = head_;
@@ -109,8 +131,7 @@ bool RingBuffer::Read(void *buf, std::size_t &size) noexcept
 		actual_size_ -= read_size;
 	}
 
-	if (!--rw_count_ && wait_)
-		wait_cond_.notify_all();
+	NotifyIdle();
 
 	size = read_size;
 
@@ -129,12 +150,14 @@ bool RingBuffer::Write(const void *buf, std::size_t &size) noexcept
 	}
 #endif
 
+	/* 読み出し側と同じ理由で、利用者として数えてから退避要求を確かめる */
+	++rw_count_;
+
 	if (wait_) {
+		NotifyIdle();
 		size = 0;
 		return true;
 	}
-
-	++rw_count_;
 
 	std::size_t actual_size = actual_size_;
 	std::intptr_t tail = tail_;
@@ -157,8 +180,7 @@ bool RingBuffer::Write(const void *buf, std::size_t &size) noexcept
 		actual_size_ += write_size;
 	}
 
-	if (!--rw_count_ && wait_)
-		wait_cond_.notify_all();
+	NotifyIdle();
 
 	bool ret = (size == write_size);
 

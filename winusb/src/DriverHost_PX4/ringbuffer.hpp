@@ -28,6 +28,8 @@ public:
 	std::size_t GetWritableSize() const noexcept { return buf_size_ - actual_size_; }
 
 private:
+	void NotifyIdle() noexcept;
+
 	std::atomic_int state_;
 	std::uint8_t *buf_;
 	std::size_t buf_size_;
