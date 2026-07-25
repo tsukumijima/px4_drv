@@ -89,10 +89,14 @@ bool PipeServer::Accept(const std::wstring &name, const PipeServerConfig &config
 			DWORD res, t;
 
 			res = WaitForMultipleObjects((cancel_event) ? 2 : 1, handles, FALSE, INFINITE);
-			if (res == WAIT_OBJECT_0 && GetOverlappedResult(pipe_handle, &ol, &t, TRUE))
+			if (res == WAIT_OBJECT_0 && GetOverlappedResult(pipe_handle, &ol, &t, TRUE)) {
 				ret = true;
-			else
+			} else {
+				/* 接続待ちが残ったまま抜けると、スタック上の OVERLAPPED へ後から書き込まれる */
+				if (res != WAIT_OBJECT_0)
+					CancelPendingIo(pipe_handle, ol);
 				error_.assign(err, std::system_category());
+			}
 		} else if (err == ERROR_PIPE_CONNECTED) {
 			ret = true;
 		} else {

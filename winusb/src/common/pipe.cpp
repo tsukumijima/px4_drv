@@ -34,15 +34,20 @@ bool Pipe::Read(void *buf, std::size_t size, std::size_t &return_size) noexcept
 
 void Pipe::CancelPendingIo(OVERLAPPED &ol) noexcept
 {
+	CancelPendingIo(handle_, ol);
+}
+
+void Pipe::CancelPendingIo(HANDLE handle, OVERLAPPED &ol) noexcept
+{
 	/*
 	 * 保留中の I/O を残したまま戻ると、スタック上の OVERLAPPED と呼び出し元の
 	 * バッファへ後からカーネルが書き込むため、取り消しの完了までここで待つ
 	 */
-	CancelIoEx(handle_, &ol);
+	CancelIoEx(handle, &ol);
 
 	DWORD transferred = 0;
 
-	GetOverlappedResult(handle_, &ol, &transferred, TRUE);
+	GetOverlappedResult(handle, &ol, &transferred, TRUE);
 }
 
 bool Pipe::Read(void *buf, std::size_t size, std::size_t &return_size, HANDLE cancel_event) noexcept
