@@ -43,6 +43,10 @@ public:
 		read_queue.clear();
 		/* セッション再構築でカード側の N(S) も初期値へ戻る */
 		response_sequence = 0;
+		/* 前のセッションの応答を、再送要求で送り直してしまわないよう捨てる */
+		last_response_pcb = 0;
+		last_response.clear();
+		final_response_lost = false;
 		if (malformed_atr_resets) {
 			malformed_atr_resets--;
 			read_queue.insert(read_queue.end(), malformed_atr_bytes.begin(),
@@ -150,25 +154,35 @@ public:
 				(last_response_pcb & 0x40) ? 0x10 : 0x00;
 
 			if ((pcb & 0x10) == expected_sequence) {
+				cached_resend_count++;
 				QueueBlock(last_response_pcb, last_response.data(),
 					last_response.size());
 				return 0;
 			}
+		}
+		/*
+		 * 応答を落とした後に同じ I ブロックが再送されてきた状態
+		 * カードは受理済みなので連番を進めず、受理を示す R ブロックだけを返す
+		 */
+		if (final_response_lost) {
+			final_response_lost = false;
+			const std::uint8_t next_sequence = (pcb & 0x40) ? 0 : 0x10;
+			QueueBlock(static_cast<std::uint8_t>(0x80 | next_sequence),
+				buffer, 0);
+			return 0;
 		}
 		/* I ブロック応答はカード側の N(S) を交互に進める */
 		const std::uint8_t response_pcb = response_sequence ? 0x40 : 0x00;
 		response_sequence ^= 1;
 		if (lose_final_response) {
 			lose_final_response = false;
+			final_response_lost = true;
 			/*
 			 * カードは I ブロックを受理して応答を作ったが、それが届かなかった状態を作る
-			 * 再送された I ブロックには受理済みを示す R ブロックが返る
+			 * 何も返さないため、ホストは待機時間を使い切って I ブロックを再送する
 			 */
 			last_response_pcb = response_pcb;
 			last_response = { 0x90, 0x00 };
-			const std::uint8_t next_sequence = (pcb & 0x40) ? 0 : 0x10;
-			QueueBlock(static_cast<std::uint8_t>(0x80 | next_sequence),
-				buffer, 0);
 			return 0;
 		}
 		if (large_duplicate_response) {
@@ -265,6 +279,8 @@ public:
 	bool large_duplicate_response = false;
 	bool max_duplicate_response = false;
 	bool lose_final_response = false;
+	bool final_response_lost = false;
+	unsigned int cached_resend_count = 0;
 	std::uint8_t response_sequence = 0;
 	std::uint8_t last_response_pcb = 0;
 	std::vector<std::uint8_t> last_response;
@@ -429,15 +445,17 @@ int main()
 		"WTX timeout did not invalidate the session.") && succeeded;
 
 	/*
-	 * 最後の I ブロックへの応答を取りこぼすと、再送した I ブロックには
+	 * 最後の I ブロックへの応答を取りこぼすと、待機時間の経過後に I ブロックが再送され、
 	 * 受理済みを示す R ブロックが返る
 	 * ここからカード側 I ブロックの再送を要求して応答を回収できることを確かめる
+	 * 通常の応答経路で成功していないことを、再送回数でも確かめる
 	 */
 	device->lose_final_response = true;
+	device->cached_resend_count = 0;
 	response_length = sizeof(response);
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
 		response_length) == 0 && response_length == 2 &&
-		device->reset_count == 6,
+		device->cached_resend_count == 1 && device->reset_count == 6,
 		"A lost final I-block response was not recovered.") && succeeded;
 
 	/*
