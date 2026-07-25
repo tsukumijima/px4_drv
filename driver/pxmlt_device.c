@@ -1011,6 +1011,11 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 
 	for (i = 0; i < pxmlt->chrdevm_num; i++) {
 		chrdev_config[i].ops = &pxmlt_chrdev_ops;
+		/*
+		 * CXD2856ER のロック判定はレジスタを1回読むだけで整定を待たないため、
+		 * 復調が安定する前の TS がそのまま流れて選局直後に同期エラーが出る
+		 * 他機種と同じくロック後の待機を入れ、地上波の TS を配信する前に整定させる
+		 */
 		chrdev_config[i].options = PTX_CHRDEV_SAT_SET_STREAM_ID_BEFORE_TUNE |
 					   PTX_CHRDEV_WAIT_AFTER_LOCK_TC_T;
 		chrdev_config[i].ringbuf_size = 188 * px4_device_params.tsdev_max_packets;

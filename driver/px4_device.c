@@ -1298,6 +1298,11 @@ int px4_device_init(struct px4_device *px4, struct device *dev,
 	 * it930x_init_warm() leaves the tuner board powered,
 	 * so keep it off until a receiver is opened
 	 */
+	/*
+	 * 2基連動モデルも含めてここで停止させ、共有管理へ登録する時点の電源を
+	 * 通電なしへ揃える
+	 * 登録前に通電したままだと、相方の利用状況から決まる電源状態と食い違う
+	 */
 	ret = it930x_write_gpio(it930x, 2, false);
 	if (ret)
 		goto fail_device;
