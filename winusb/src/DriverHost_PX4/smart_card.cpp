@@ -28,7 +28,10 @@ constexpr unsigned int ATR_TIMEOUT_MS = 1000;
 /* 通常応答は約70msで返るため、取りこぼしを500msで再送処理へ移す */
 constexpr unsigned int BLOCK_TIMEOUT_MS = 500;
 constexpr unsigned int MAX_RETRIES = 3;
-/* 連結応答の読み捨ては UART FIFO 1杯分あれば足りる */
+/*
+ * 読み捨てる残余は直前の要求への遅延応答に限られ、ブロックの再送は3回で
+ * 打ち切るため、すべて連結しても最大3フレームに収まり4回の読み出しで足りる
+ */
 constexpr unsigned int MAX_DISCARD_CHUNKS = 4;
 /* USB と UART が競合した実機でも応答を待ちつつ、連続する WTX は3秒で打ち切る */
 constexpr unsigned int OPERATION_TIMEOUT_MS = 3000;

@@ -394,6 +394,24 @@ int main()
 		response_length) == 0 && device->reset_count == 6,
 		"WTX timeout did not invalidate the session.") && succeeded;
 
+	/*
+	 * 応答を読み終えた後から遅延した重複応答が届くと、読み捨ての対象にならず
+	 * 次の APDU の先頭で読まれるが、直前の応答で受信連番が進んでいるため
+	 * 必ず連番不一致で失敗し、古い応答が正しい応答として通る経路はない
+	 * ここではその失敗が1回で済み、次の APDU で再初期化して回復することを確かめる
+	 */
+	const std::uint8_t stale_response[] = { 0x90, 0x00 };
+	device->QueueBlock(device->response_sequence ? 0x00 : 0x40,
+		stale_response, sizeof(stale_response));
+	response_length = sizeof(response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == -EPROTO,
+		"A stale delayed response was not rejected.") && succeeded;
+	response_length = sizeof(response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == 0 && device->reset_count == 7,
+		"A stale delayed response did not recover on the next APDU.") && succeeded;
+
 	/* UART の残留バイトで ATR が壊れた場合だけ、カード全体を1回再初期化する */
 	auto retry_device = std::make_shared<MockCardDevice>();
 	retry_device->is_present = true;
