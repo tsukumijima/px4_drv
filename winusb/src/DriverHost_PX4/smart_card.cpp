@@ -482,9 +482,12 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 	if (frame.size() > expected_length || read_filled_chunk) {
 		/*
 		 * 遅延した旧フレームが新フレームと連結された極端な場合、切り詰めで
-		 * 新フレームの一部を捨てるが、採用した旧フレームは受信連番が進んだ後の
-		 * ものなので TransmitInitialized() の N(S) 検査で必ず -EPROTO になる
-		 * 古い応答を正しい応答として通す経路がないことが、この切り詰めの前提となる
+		 * 新フレームの一部を捨てることになる
+		 * 採用した旧フレームがまだ処理していない応答であれば、期待する N(S) と
+		 * 一致するため、再送された正当な応答として受理される
+		 * 既に処理して受信連番が進んだ後の応答であれば N(S) が食い違い、
+		 * TransmitInitialized() の検査で -EPROTO となってセッションを作り直す
+		 * どちらの場合も、古い応答を別の応答として取り違える経路はない
 		 */
 		frame.resize(expected_length);
 		/*

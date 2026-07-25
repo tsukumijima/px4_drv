@@ -141,12 +141,19 @@ public:
 		}
 		/*
 		 * 応答を取りこぼしたホストは R ブロックで再送を要求する
-		 * カードは連番を進めず、直前と同じ I ブロックをそのまま送り直す
+		 * 要求された N(R) が保留中の応答の N(S) と一致するときだけ、連番を進めず
+		 * 直前と同じ I ブロックを送り直す
+		 * 一致しない要求は再送とみなさず、連番の食い違いをホスト側に検出させる
 		 */
 		if ((pcb & 0xc0) == 0x80 && !last_response.empty()) {
-			QueueBlock(last_response_pcb, last_response.data(),
-				last_response.size());
-			return 0;
+			const std::uint8_t expected_sequence =
+				(last_response_pcb & 0x40) ? 0x10 : 0x00;
+
+			if ((pcb & 0x10) == expected_sequence) {
+				QueueBlock(last_response_pcb, last_response.data(),
+					last_response.size());
+				return 0;
+			}
 		}
 		/* I ブロック応答はカード側の N(S) を交互に進める */
 		const std::uint8_t response_pcb = response_sequence ? 0x40 : 0x00;
