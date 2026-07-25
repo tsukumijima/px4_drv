@@ -50,9 +50,15 @@ int main()
 			buffer.Read(data.data(), size);
 		}
 	});
-	std::thread purger([&buffer, &stop, &purge_count] {
+	/*
+	 * 上限を設けた待機が正常時に空振りしていないかも同時に見る
+	 * 空振りすると前チャンネルの TS が残るため、1回でも失敗すれば試験を落とす
+	 */
+	std::atomic_uint64_t purge_failures{ 0 };
+	std::thread purger([&buffer, &stop, &purge_count, &purge_failures] {
 		while (!stop) {
-			buffer.Purge();
+			if (!buffer.Purge())
+				purge_failures++;
 			purge_count++;
 		}
 	});
@@ -119,6 +125,13 @@ int main()
 	purger.join();
 	collected = true;
 	watchdog.join();
+
+	if (purge_failures) {
+		std::fprintf(stderr, "Purge() gave up %llu times.\n",
+			static_cast<unsigned long long>(purge_failures.load()));
+		std::printf("ringbuffer_purge_test: failed\n");
+		return 1;
+	}
 
 	std::printf("ringbuffer_purge_test: passed (purges=%llu)\n",
 		static_cast<unsigned long long>(purge_count.load()));

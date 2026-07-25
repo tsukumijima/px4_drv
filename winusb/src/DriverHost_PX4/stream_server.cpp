@@ -78,7 +78,10 @@ void StreamServer::StreamConnection::Worker() noexcept
 			if (!receiver)
 				break;
 
-			receiver->GetStreamBuffer()->Purge();
+			/* 初期化を諦めた場合は前チャンネルの TS が残るため、記録に残す */
+			if (!receiver->GetStreamBuffer()->Purge())
+				msg_err("px4::StreamServer::StreamConnection::Worker: Purge() failed.\n");
+
 			break;
 
 		default:

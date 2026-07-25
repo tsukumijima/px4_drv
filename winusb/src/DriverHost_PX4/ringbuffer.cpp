@@ -2,11 +2,23 @@
 
 #include "ringbuffer.hpp"
 
+#include <chrono>
 #include <cstring>
 
 #include <windows.h>
 
 namespace px4 {
+
+namespace {
+
+/*
+ * 利用者が抜けるのは通常なら数マイクロ秒で終わる
+ * それでも待ち続ける状態が生じると受信機ごと止まってしまうため、
+ * 通常時から大きく離れたこの上限で初期化を諦める
+ */
+constexpr unsigned int PURGE_TIMEOUT_MS = 1000;
+
+} // namespace
 
 RingBuffer::RingBuffer(std::size_t size)
 	: state_(0),
@@ -196,20 +208,28 @@ bool RingBuffer::Purge() noexcept
 		if (!wait_.compare_exchange_strong(expected, true))
 			return false;
 
+		bool quiesced;
+
 		{
 			std::unique_lock<std::mutex> lock(wait_lock_);
-			wait_cond_.wait(lock, [this] {
-				return (rw_count_ == 0);
-			});
+			quiesced = wait_cond_.wait_for(lock,
+				std::chrono::milliseconds(PURGE_TIMEOUT_MS), [this] {
+					return (rw_count_ == 0);
+				});
 		}
 
-		Reset();
+		/*
+		 * 諦めた場合に初期化まで行うと、読み書きの最中に位置と残量を書き換える
+		 * 前チャンネルの TS が残る代わりに、内容はそのままにして失敗を返す
+		 */
+		if (quiesced)
+			Reset();
+
 		wait_ = false;
+		return quiesced;
 	} catch (...) {
 		return false;
 	}
-
-	return true;
 }
 
 } // namespace px4
