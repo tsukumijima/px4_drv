@@ -139,9 +139,31 @@ public:
 				return 0;
 			}
 		}
+		/*
+		 * 応答を取りこぼしたホストは R ブロックで再送を要求する
+		 * カードは連番を進めず、直前と同じ I ブロックをそのまま送り直す
+		 */
+		if ((pcb & 0xc0) == 0x80 && !last_response.empty()) {
+			QueueBlock(last_response_pcb, last_response.data(),
+				last_response.size());
+			return 0;
+		}
 		/* I ブロック応答はカード側の N(S) を交互に進める */
 		const std::uint8_t response_pcb = response_sequence ? 0x40 : 0x00;
 		response_sequence ^= 1;
+		if (lose_final_response) {
+			lose_final_response = false;
+			/*
+			 * カードは I ブロックを受理して応答を作ったが、それが届かなかった状態を作る
+			 * 再送された I ブロックには受理済みを示す R ブロックが返る
+			 */
+			last_response_pcb = response_pcb;
+			last_response = { 0x90, 0x00 };
+			const std::uint8_t next_sequence = (pcb & 0x40) ? 0 : 0x10;
+			QueueBlock(static_cast<std::uint8_t>(0x80 | next_sequence),
+				buffer, 0);
+			return 0;
+		}
 		if (large_duplicate_response) {
 			large_duplicate_response = false;
 			/* 2フレームの合計が1回の読み出し上限255バイトを超える長さにする */
@@ -159,6 +181,8 @@ public:
 			return 0;
 		}
 		const std::uint8_t response[] = { 0x90, 0x00 };
+		last_response_pcb = response_pcb;
+		last_response.assign(response, response + sizeof(response));
 		QueueBlock(response_pcb, response, sizeof(response));
 		if (duplicate_next_response) {
 			duplicate_next_response = false;
@@ -233,7 +257,10 @@ public:
 	bool duplicate_next_response = false;
 	bool large_duplicate_response = false;
 	bool max_duplicate_response = false;
+	bool lose_final_response = false;
 	std::uint8_t response_sequence = 0;
+	std::uint8_t last_response_pcb = 0;
+	std::vector<std::uint8_t> last_response;
 	bool drop_first_ifs = false;
 	bool read_called_before_ready = false;
 	bool read_allowed = false;
@@ -393,6 +420,18 @@ int main()
 	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
 		response_length) == 0 && device->reset_count == 6,
 		"WTX timeout did not invalidate the session.") && succeeded;
+
+	/*
+	 * 最後の I ブロックへの応答を取りこぼすと、再送した I ブロックには
+	 * 受理済みを示す R ブロックが返る
+	 * ここからカード側 I ブロックの再送を要求して応答を回収できることを確かめる
+	 */
+	device->lose_final_response = true;
+	response_length = sizeof(response);
+	succeeded = Check(card.Transmit(apdu, sizeof(apdu), response,
+		response_length) == 0 && response_length == 2 &&
+		device->reset_count == 6,
+		"A lost final I-block response was not recovered.") && succeeded;
 
 	/*
 	 * 応答を読み終えた後から遅延した重複応答が届くと、読み捨ての対象にならず

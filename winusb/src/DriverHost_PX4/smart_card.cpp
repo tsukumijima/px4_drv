@@ -480,6 +480,12 @@ int SmartCard::ReceiveBlock(std::uint8_t &pcb, std::vector<std::uint8_t> &data,
 	 * 続きが FIFO に残っていることがあるため、余りの有無によらず捨てる
 	 */
 	if (frame.size() > expected_length || read_filled_chunk) {
+		/*
+		 * 遅延した旧フレームが新フレームと連結された極端な場合、切り詰めで
+		 * 新フレームの一部を捨てるが、採用した旧フレームは受信連番が進んだ後の
+		 * ものなので TransmitInitialized() の N(S) 検査で必ず -EPROTO になる
+		 * 古い応答を正しい応答として通す経路がないことが、この切り詰めの前提となる
+		 */
 		frame.resize(expected_length);
 		/*
 		 * 連結された応答が1回の ReadCardData() で読み切れないと FIFO へ残りが留まり、
