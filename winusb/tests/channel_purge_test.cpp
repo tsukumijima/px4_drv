@@ -1,5 +1,7 @@
 #include <array>
+#include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -108,6 +110,18 @@ int wmain(int argc, wchar_t **argv)
 		return 2;
 	}
 
+	errno = 0;
+	wchar_t *cycles_end = nullptr;
+	unsigned long cycles_value = wcstoul(argv[5], &cycles_end, 10);
+	/* 測定を1周期も行わず成功する状態と、数値として解釈できない入力を受け付けない */
+	if (errno == ERANGE || cycles_end == argv[5] || *cycles_end != L'\0' ||
+		argv[5][0] < L'0' || argv[5][0] > L'9' || cycles_value == 0 ||
+		cycles_value > UINT_MAX) {
+		std::fprintf(stderr, "Cycles must be a positive integer.\n");
+		return 2;
+	}
+	unsigned int cycles = static_cast<unsigned int>(cycles_value);
+
 	HMODULE module = LoadLibraryW(argv[1]);
 	if (!module) {
 		std::fprintf(stderr, "Failed to load BonDriver. error: %lu\n", GetLastError());
@@ -135,7 +149,6 @@ int wmain(int argc, wchar_t **argv)
 		wcstoul(argv[3], nullptr, 10),
 		wcstoul(argv[4], nullptr, 10),
 	};
-	unsigned int cycles = wcstoul(argv[5], nullptr, 10);
 
 	/*
 	 * 各チャンネルに固有の PID を先に集め、相手側にしか現れない PID だけを残す
