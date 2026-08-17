@@ -16,7 +16,7 @@
 #include "px4_usb.h"
 #include "firmware.h"
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,12,0)
 static int __init m_init(void)
 #else
 int init_module(void)
@@ -52,7 +52,7 @@ int init_module(void)
 	return 0;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,12,0)
 static void __exit m_cleanup(void)
 #else
 void cleanup_module(void)
@@ -61,7 +61,7 @@ void cleanup_module(void)
 	px4_usb_unregister();
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,4)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,12,0)
 module_init(m_init);
 module_exit(m_cleanup);
 #endif
