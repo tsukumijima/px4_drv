@@ -1,0 +1,44 @@
+;
+; e-Better DTV02A-5TS-P WinUSB
+;
+[Version]
+Signature="$Windows NT$"
+Class=Media
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%AuthorName%
+DriverVer=05/01/2021,21.05.01.00
+CatalogFile=px4_drv_winusb.cat
+
+[Manufacturer]
+%AuthorName%=DTV02A5TSP_WinUSB,ntx86,ntamd64,ntarm64
+
+[DTV02A5TSP_WinUSB.ntx86]
+%DTV02A5TSP_WinUSB.DeviceDesc%=DTV02A5TSP_WinUSB.DeviceInstall,USB\VID_0511&PID_924E
+
+[DTV02A5TSP_WinUSB.ntamd64]
+%DTV02A5TSP_WinUSB.DeviceDesc%=DTV02A5TSP_WinUSB.DeviceInstall,USB\VID_0511&PID_924E
+
+[DTV02A5TSP_WinUSB.ntarm64]
+%DTV02A5TSP_WinUSB.DeviceDesc%=DTV02A5TSP_WinUSB.DeviceInstall,USB\VID_0511&PID_924E
+
+[DTV02A5TSP_WinUSB.DeviceInstall]
+Include=winusb.inf
+Needs=WINUSB.NT
+AddProperty=DTV02A5TSP_WinUSB.DeviceSetup.AddProperty
+
+[DTV02A5TSP_WinUSB.DeviceInstall.Services]
+Include=winusb.inf
+Needs=WINUSB.NT.Services
+
+[DTV02A5TSP_WinUSB.DeviceInstall.HW]
+AddReg=DTV02A5TSP_WinUSB.DeviceSetup.AddReg
+
+[DTV02A5TSP_WinUSB.DeviceSetup.AddReg]
+HKR,,DeviceInterfaceGUIDs,0x00010000,"{eeb8e93b-1007-4e3e-8ce9-4f7ebdf3aba1}"
+
+[DTV02A5TSP_WinUSB.DeviceSetup.AddProperty]
+{afd97640-86a3-4210-b67c-289c41aabe55},3,0x00000011,,0   ;DEVPKEY_Device_SafeRemovalRequiredOverride=FALSE
+
+[Strings]
+AuthorName="nns779"
+DTV02A5TSP_WinUSB.DeviceDesc="e-Better DTV02A-5TS-P ISDB-T/S Receiver Device (WinUSB)"

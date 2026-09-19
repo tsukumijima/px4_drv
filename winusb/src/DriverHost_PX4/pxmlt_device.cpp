@@ -47,7 +47,9 @@ PxMltDevice::PxMltDevice(const std::wstring &path, const px4::DeviceDefinition &
 		model_ = PxMltDeviceModel::PXMLT5U;
 		break;
 
-	case 0x24e:
+	/* DTV02A-5TS-P は PX-MLT5PE のリブランド品で、PID の差異以外は同一デバイス */
+	case 0x024e:
+	case 0x924e:
 		model_ = PxMltDeviceModel::PXMLT5PE;
 		break;
 
