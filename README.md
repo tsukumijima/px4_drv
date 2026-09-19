@@ -15,6 +15,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - BS/CS の ChSet に2024年10月～2025年1月に行われた BS トランスポンダ再編後の物理チャンネル情報を反映
 - [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV02A-1T1S-U / DTV03A-1TU / PX-M1UR / PX-S1UR に対応
 - PX-Q3PE5 の inf ファイルを追加
+- PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応し、inf ファイルを追加
 - inf ファイルをより分かりやすい名前に変更
 - inf ファイルを ARM 版 Windows でもインストールできるようにする
   - 実機がないので試せていないけど、おそらくインストールできるはず
@@ -46,6 +47,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の更新を取り込み、PX-M1UR / PX-S1UR に対応
 - [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の更新を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
 - [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV03A-1TU に対応
+- PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応
 - https://github.com/tsukumijima/px4_drv/pull/33 をマージし、Linux カーネル 6.15 系以降の API 変更に対応
 - https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
 - https://github.com/tsukumijima/px4_drv/pull/3 をマージし、`ctrl_timeout` をモジュールパラメーターに追加
@@ -75,6 +77,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	  - チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U にも対応しています。  
 	  手元の実機では問題なく動作していますが、長期間の動作テストは行えていないため、未知の不具合があるかもしれません。
 	- DTV02A-4TS-P
+	- DTV02A-5TS-P (PX-MLT5PE のリブランド品)
 	- DTV03A-1TU (実験的)
 	  - チップ構成が大幅に変更された、ロット番号 2021-11 以降の個体のみ対応しています。
 
@@ -83,6 +86,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 > 
 > - PLEX PX-M1UR
 > - PLEX PX-S1UR
+> - e-Better DTV02A-5TS-P (PX-MLT5PE のリブランド品)
 > - e-Better DTV02A-1T1S-U / Digibest ISDB2056 (Windows 版ドライバを新規追加)
 > - e-Better DTV02A-1T1S-U (ロット番号 2309 以降) / Digibest ISDB2056N
 > - e-Better DTV03A-1TU / Digibest ISDBT2071 (ロット番号 2021-11 以降)
@@ -124,7 +128,7 @@ certutil.exe -addstore TrustedPublisher ".\px4_drv_winusb.cer"
 チューナーの機種に応じた BonDriver を配置します。
 
 - PX4/PX5 シリーズの機種: `BonDriver_PX4`
-- PX-MLT シリーズの機種・DTV02A-4TS-P: `BonDriver_PX-MLT`
+- PX-MLT シリーズの機種・DTV02A-4TS-P・DTV02A-5TS-P: `BonDriver_PX-MLT`
 - DTV02A-1T1S-U: `BonDriver_ISDB2056`
 - DTV02A-1T1S-U (ロット番号 2309 以降): `BonDriver_ISDB2056N`
 - DTV03A-1TU: `BonDriver_ISDBT2071`
@@ -278,7 +282,7 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 チューナーは、`px4video0` から ISDB-S, ISDB-S, ISDB-T, ISDB-T, ISDB-S, ISDB-S, ISDB-T, ISDB-T というように、S と T が2つずつ交互に割り当てられます。
 
-##### PLEX PX-MLT5PE を接続した場合
+##### PLEX PX-MLT5PE / e-Better DTV02A-5TS-P を接続した場合
 
 	$ ls /dev/pxmlt5video*
 	/dev/pxmlt5video0  /dev/pxmlt5video2  /dev/pxmlt5video4
@@ -414,6 +418,10 @@ Windows では、BonDriver_PX4-S.ini に記載の `LNBPower=0` を `LNBPower=1` 
 
 対応していると思われます。
 
+### e-Better DTV02A-5TS-P
+
+ハードウェア上 PX-MLT5PE と同一機種であることから、LNB 電源の動作も PX-MLT5PE と共通です。
+
 ## 備考
 
 ### 内蔵カードリーダーやリモコンについて
@@ -433,7 +441,7 @@ e-better DTV02A-1T1S-U は、DTV02-1T1S-U に存在した上記の不具合が�
 
 ### デバイスの構成
 
-PX-W3PE4/Q3PE4/MLT5PE/MLT8PE, e-Better DTV02A-4TS-P は、電源の供給を PCIe スロットから受け、データのやり取りを USB を介して行います。  
+PX-W3PE4/Q3PE4/MLT5PE/MLT8PE, e-Better DTV02A-4TS-P/DTV02A-5TS-P は、電源の供給を PCIe スロットから受け、データのやり取りを USB を介して行います。  
 PX-W3PE5/Q3PE5 は、PX-W3PE4/Q3PE4 相当の基板に PCIe→USB ブリッジチップを追加し、USB ケーブルを不要とした構造となっています。  
 PX-Q3U4/Q3PE4 は、PX-W3U4/W3PE4 相当のデバイスが USB ハブを介して2つぶら下がる構造となっています。
 
@@ -469,7 +477,7 @@ PX-Q3U4/Q3PE4 は、PX-W3U4/W3PE4 相当のデバイスが USB ハブを介し�
 
 PX-MLT8PE は、同一基板上に PX-MLT5PE 相当のデバイスと、3チャンネル分のチューナーを持つデバイスが実装されている構造となっています。
 
-- PX-MLT5PE/MLT8PE5
+- PX-MLT5PE/MLT8PE5 / DTV02A-5TS-P
 
 	- USB Bridge: ITE IT9305E
 	- ISDB-T/S Demodulator: Sony CXD2856ER (x5)
