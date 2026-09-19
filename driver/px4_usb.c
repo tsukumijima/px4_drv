@@ -159,7 +159,9 @@ static int px4_usb_probe(struct usb_interface *intf,
 		case USB_PID_PX_MLT5U:
 			pxmlt5_model = PXMLT5U_MODEL;
 			fallthrough;
+		/* DTV02A-5TS-P は PX-MLT5PE のリブランド品で、PID の差異以外は同一デバイス */
 		case USB_PID_PX_MLT5PE:
+		case USB_PID_EBETTER_DTV02A_5TS_P:
 			ret = px4_usb_init_bridge(dev, usb_dev,
 						  &ctx->ctx.pxmlt.it930x);
 			if (ret)
@@ -361,6 +363,7 @@ static const struct usb_device_id px4_usb_ids[] = {
 	{ USB_DEVICE(0x0511, USB_PID_PX_Q3PE5) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_MLT5U) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_MLT5PE) },
+	{ USB_DEVICE(0x0511, USB_PID_EBETTER_DTV02A_5TS_P) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_MLT8PE3) },
 	{ USB_DEVICE(0x0511, USB_PID_PX_MLT8PE5) },
 	{ USB_DEVICE(0x0511, USB_PID_DIGIBEST_ISDB2056) },
