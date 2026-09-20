@@ -28,10 +28,10 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Sign driver catalog
         working-directory: winusb/pkg/signing-tools
@@ -222,7 +222,7 @@ jobs:
           Write-Host "Driver INF file count: $driver_inf_file_count"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: px4_drv_winusb
           path: winusb/dist/
