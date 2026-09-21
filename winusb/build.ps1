@@ -32,6 +32,9 @@ if ((Get-Command msbuild -ErrorAction SilentlyContinue) -eq $null) {
     throw 'MSBuild was not found. Install Visual Studio 2022 with MSBuild.'
 }
 
+# カタログファイルと INF の不一致をビルド前に検出し、署名対象と異なるドライバーパッケージの生成を防ぐ
+& 'pkg/signing-tools/verify.ps1' -DriverPath 'pkg/inf'
+
 # MSBuild を使用してソリューションをビルド
 $build_platforms = @('x86', 'x64')
 foreach ($build_platform in $build_platforms) {
@@ -215,6 +218,9 @@ Get-ChildItem dist/ -Directory -Filter 'BonDriver_*' | ForEach-Object {
 
 # inf ファイルをコピー
 Copy-Item -Recurse pkg/inf/ dist/Driver
+
+# コピー後の最終配布物も再度検査
+& 'pkg/signing-tools/verify.ps1' -DriverPath 'dist/Driver'
 
 Write-Host '    '
 Write-Host '    '

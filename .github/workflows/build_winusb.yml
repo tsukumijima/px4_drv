@@ -33,6 +33,10 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v3
 
+      - name: Verify committed driver catalog
+        working-directory: winusb/pkg/signing-tools
+        run: ./verify.ps1 -DriverPath ../inf
+
       - name: Sign driver catalog
         working-directory: winusb/pkg/signing-tools
         run: ./sign.ps1
