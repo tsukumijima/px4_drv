@@ -17,7 +17,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - BS/CS の ChSet に2024年10月～2025年1月に行われた BS トランスポンダ再編後の物理チャンネル情報を反映
 - [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV02A-1T1S-U / DTV03A-1TU / PX-M1UR / PX-S1UR に対応
 - PX-Q3PE5 に対応し、inf ファイルを追加
-- PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応し、inf ファイルを追加 (v0.6.0 以降)
+- PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応し、inf ファイルを追加 (v0.6.1 以降)
 - inf ファイルをより分かりやすい名前に変更
 - inf ファイルを ARM 版 Windows でもインストールできるようにする
   - 実機がないので試せていないけど、おそらくインストールできるはず
@@ -212,17 +212,17 @@ BonDriver と同じフォルダに DriverHost_PX4.exe / DriverHost_PX4.ini / it9
 Debian パッケージを使用してインストールすると依存パッケージも自動インストールされるほか、DKMS のソースコード管理も透過的に行われます。  
 Ubuntu / Debian 環境では Debian パッケージを使用してインストールすることを強く推奨します。
 
-	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.0/px4-drv-dkms_0.6.0_all.deb
-	$ sudo apt install -y ./px4-drv-dkms_0.6.0_all.deb
+	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-dkms_0.6.1_all.deb
+	$ sudo apt install -y ./px4-drv-dkms_0.6.1_all.deb
 
 上記コマンドで、px4_drv の Debian パッケージをインストールできます。
 
 > [!TIP]
 手動で Debian パッケージを生成することもできます。  
-> `./build_deb.sh` を実行すると、`./build_deb.sh` の一つ上層のディレクトリに `px4-drv-dkms_0.6.0_all.deb` という名前の Debian パッケージが生成されます。  
+> `./build_deb.sh` を実行すると、`./build_deb.sh` の一つ上層のディレクトリに `px4-drv-dkms_0.6.1_all.deb` という名前の Debian パッケージが生成されます。  
 > ```
 > $ ./build_deb.sh
-> $ sudo apt install -y ../px4-drv-dkms_0.6.0_all.deb
+> $ sudo apt install -y ../px4-drv-dkms_0.6.1_all.deb
 > ```
 > 上記コマンドで、生成した px4_drv の Debian パッケージをインストールできます。
 
@@ -230,9 +230,9 @@ Ubuntu / Debian 環境では Debian パッケージを使用してインスト�
 
 gcc, make, カーネルソース/ヘッダ, dkms がインストールされている必要があります。
 
-	$ sudo cp -a ./ /usr/src/px4_drv-0.6.0
-	$ sudo dkms add px4_drv/0.6.0
-	$ sudo dkms install px4_drv/0.6.0
+	$ sudo cp -a ./ /usr/src/px4_drv-0.6.1
+	$ sudo dkms add px4_drv/0.6.1
+	$ sudo dkms install px4_drv/0.6.1
 
 #### DKMS を使用せずにインストールする
 
@@ -366,8 +366,8 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 #### DKMS を使用してインストールした場合
 
-	$ sudo dkms remove px4_drv/0.6.0 --all
-	$ sudo rm -rf /usr/src/px4_drv-0.6.0
+	$ sudo dkms remove px4_drv/0.6.1 --all
+	$ sudo rm -rf /usr/src/px4_drv-0.6.1
 
 #### DKMS を使用せずにインストールした場合
 
