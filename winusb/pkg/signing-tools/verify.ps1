@@ -1,4 +1,4 @@
-﻿# 指定ディレクトリの INF を、同梱のカタログファイルが署名したバイト列と突き合わせる
+# 指定ディレクトリの INF を、同梱のカタログファイルが署名したバイト列と突き合わせる
 # Windows のカタログファイルは改行を含む INF のバイト列へ署名する
 # 同じ作業ツリーからコピーした原本と配布物のハッシュが一致しても、チェックアウト時の改行変換は検出できないため、各 INF をカタログファイルの収録内容と直接照合する
 # 検査対象は INF と px4_drv_winusb.cat を置いたディレクトリ
@@ -8,25 +8,132 @@ param(
     [string] $DriverPath
 )
 
+# 証明書ストアへカタログファイルを登録せず、指定したカタログファイル自体から INF の収録ハッシュを照合する
+# CryptCATOpen の CRYPTCAT_OPEN_VERIFYSIGHASH は、証明書の信頼チェーンに依存せずカタログファイルの署名ハッシュを検証する
+if ($null -eq ('DriverCatalog' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public static class DriverCatalog
+{
+    private const uint CRYPTCAT_OPEN_VERIFYSIGHASH = 0x10000000;
+    private const uint CRYPTCAT_VERSION_2 = 0x200;
+    private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
+
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CryptCATOpen(
+        string fileName,
+        uint openFlags,
+        IntPtr provider,
+        uint publicVersion,
+        uint encodingType);
+
+    [DllImport("wintrust.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptCATClose(IntPtr catalog);
+
+    [DllImport("wintrust.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptCATAdminCalcHashFromFileHandle(
+        IntPtr file,
+        ref uint hashSize,
+        byte[] hash,
+        uint flags);
+
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CryptCATGetMemberInfo(IntPtr catalog, string referenceTag);
+
+    public static bool ContainsFile(string catalogPath, string filePath)
+    {
+        IntPtr catalog = CryptCATOpen(
+            catalogPath,
+            CRYPTCAT_OPEN_VERIFYSIGHASH,
+            IntPtr.Zero,
+            CRYPTCAT_VERSION_2,
+            0);
+        if (catalog == INVALID_HANDLE_VALUE)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to open or verify the driver catalog signature hash.");
+        }
+
+        try
+        {
+            using (FileStream file = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                uint hashSize = 0;
+                if (!CryptCATAdminCalcHashFromFileHandle(
+                        file.SafeFileHandle.DangerousGetHandle(),
+                        ref hashSize,
+                        null,
+                        0))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to determine the driver INF hash size.");
+                }
+
+                byte[] hash = new byte[hashSize];
+                if (!CryptCATAdminCalcHashFromFileHandle(
+                        file.SafeFileHandle.DangerousGetHandle(),
+                        ref hashSize,
+                        hash,
+                        0))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to calculate the driver INF hash.");
+                }
+
+                string referenceTag = BitConverter.ToString(hash).Replace("-", String.Empty);
+                return CryptCATGetMemberInfo(catalog, referenceTag) != IntPtr.Zero;
+            }
+        }
+        finally
+        {
+            CryptCATClose(catalog);
+        }
+    }
+}
+'@
+}
+
 # 1件でも検査に失敗したら、そこで実行を終える
 $ErrorActionPreference = 'Stop'
 
 # 相対パスでも検査対象を固定するため、実在するディレクトリへ解決する
 $driver_directory = (Resolve-Path -LiteralPath $DriverPath).Path
 $catalog_path = Join-Path $driver_directory 'px4_drv_winusb.cat'
-# 署名時と同じ signtool.exe をこのスクリプトのディレクトリから参照する
-# 検証結果を、実行環境の PATH にある別バージョンではなく、同梱の実装で固定する
-$sign_tool_path = Join-Path $PSScriptRoot 'signtool.exe'
+$signer_certificate_path = Join-Path $PSScriptRoot 'trustedpub.cer'
 
 # 署名対象のカタログファイルが揃っていることを、INF の検査に入る前に確定する
 if ((Test-Path -LiteralPath $catalog_path -PathType Leaf) -eq $false) {
     throw "Driver catalog was not found: $catalog_path"
 }
 
-# 同梱の signtool.exe が実在することを、検証コマンドの実行前に確定する
-if ((Test-Path -LiteralPath $sign_tool_path -PathType Leaf) -eq $false) {
-    throw "SignTool was not found: $sign_tool_path"
+# 署名者の照合に使う公開証明書が揃っていることを、検証に入る前に確定する
+if ((Test-Path -LiteralPath $signer_certificate_path -PathType Leaf) -eq $false) {
+    throw "Driver catalog signer certificate was not found: $signer_certificate_path"
 }
+
+# 自己署名証明書を信頼していない環境では NotTrusted になるが、署名者と署名ハッシュは検証できる
+$expected_signer_certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($signer_certificate_path)
+$catalog_signature = Get-AuthenticodeSignature -LiteralPath $catalog_path
+if ($catalog_signature.Status -in 'NotSigned', 'HashMismatch') {
+    throw "Driver catalog signature is invalid: $($catalog_signature.Status), path: $catalog_path"
+}
+
+if ($null -eq $catalog_signature.SignerCertificate) {
+    throw "Driver catalog signer certificate was not found in the signature: $catalog_path"
+}
+
+if ($catalog_signature.SignerCertificate.Thumbprint -ne $expected_signer_certificate.Thumbprint) {
+    throw "Driver catalog has an unexpected signer certificate: $catalog_path"
+}
+
+if ($catalog_signature.Status -notin 'Valid', 'NotTrusted', 'UnknownError') {
+    throw "Driver catalog has an unexpected signature status: $($catalog_signature.Status), path: $catalog_path"
+}
+
+Write-Host "Driver catalog signature verified: status $($catalog_signature.Status), signer $($catalog_signature.SignerCertificate.Thumbprint)"
 
 # 列挙結果が1件でも配列として扱い、件数を Count で読む
 # 報告順をディレクトリ列挙順から切り離すため、ファイル名順に並べる
@@ -61,11 +168,9 @@ foreach ($inf_file in $inf_files) {
         }
     }
 
-    # /pa は Authenticode の既定ポリシーで検証する
-    # 省略時は Microsoft のクロス証明書を求めるドライバー検証ポリシーになる
-    # このリポジトリの自己署名のカタログファイルを /c で指定し、INF のバイト列が収録されているかを確認する
-    & $sign_tool_path verify /pa /c $catalog_path $inf_file.FullName
-    if ($LASTEXITCODE -ne 0) {
+    # 指定したカタログファイルを直接開き、Windows のカタログ API で計算した INF の参照タグが収録されているかを確認する
+    # 証明書ストアの信頼状態に依存しないため、開発環境とクリーンな CI 環境で同じ内容一致を判定できる
+    if ([DriverCatalog]::ContainsFile($catalog_path, $inf_file.FullName) -eq $false) {
         throw "Driver INF is not included in the catalog with the same byte content: $($inf_file.FullName)"
     }
 
