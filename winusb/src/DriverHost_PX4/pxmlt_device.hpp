@@ -39,7 +39,7 @@ enum class PxMltDeviceModel {
 struct PxMltDeviceConfig final {
 	PxMltDeviceConfig()
 		: usb{ 816, 816, 5, false },
-		device{ 2048, 2000, true }
+		device{ 2048, 2000, true, false, false, false, 0 }
 	{}
 	struct {
 		unsigned int xfer_packets;
@@ -51,6 +51,16 @@ struct PxMltDeviceConfig final {
 		unsigned int receiver_max_packets;
 		int psb_purge_timeout;
 		bool discard_null_packets;
+		/* Requested through DiscardNullPackets=true when the experimental
+		 * ISDB-C path is enabled.  It is applied at the final TS output. */
+		bool discard_null_packets_on_output;
+		/* Requested through DiscardTsmfHeaderPackets.  Enabled only while
+		 * this receiver is tuned to ISDB-C. */
+		bool discard_tsmf_header_packets;
+		/* Explicit opt-in for the unverified CXD2856ER J.83C profile. */
+		bool experimental_isdbc;
+		/* 0: use BonDriver request; 64 or 256: override it for diagnostics. */
+		unsigned int force_isdbc_modulation;
 	} device;
 };
 

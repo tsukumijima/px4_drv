@@ -19,7 +19,10 @@ if ((Get-Command msbuild -ErrorAction SilentlyContinue) -eq $null) {
     $vswhere_path = Join-Path -Path ${env:ProgramFiles(x86)} -ChildPath 'Microsoft Visual Studio\Installer\vswhere.exe'
 
     if ((Test-Path $vswhere_path) -eq $True) {
-        $msbuild_file_path = & $vswhere_path -latest -version '[17.0,18.0)' -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin\MSBuild.exe' | Select-Object -First 1
+        # VS 2022 (17.x) and newer VS releases can build the v143 project
+        # when that toolset is installed.  Do not reject VS 18.x only because
+        # the desktop app happens to have the newer IDE.
+        $msbuild_file_path = & $vswhere_path -latest -version '[17.0,19.0)' -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin\MSBuild.exe' | Select-Object -First 1
 
         if ($msbuild_file_path -ne $null) {
             $msbuild_dir_path = Split-Path $msbuild_file_path -Parent
@@ -29,7 +32,7 @@ if ((Get-Command msbuild -ErrorAction SilentlyContinue) -eq $null) {
 }
 
 if ((Get-Command msbuild -ErrorAction SilentlyContinue) -eq $null) {
-    throw 'MSBuild was not found. Install Visual Studio 2022 with MSBuild.'
+    throw 'MSBuild was not found. Install Visual Studio with MSBuild and the v143 toolset.'
 }
 
 # カタログファイルと INF の不一致をビルド前に検出し、署名対象と異なるドライバーパッケージの生成を防ぐ
@@ -110,6 +113,7 @@ Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-MLT_32bit
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX-MLT.ini dist/BonDriver_PX-MLT_32bit/BonDriver_PX-MLT.ini
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-MLT_32bit/BonDriver_PX4-T.ChSet.txt
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_PX-MLT_32bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-C.ChSet.txt dist/BonDriver_PX-MLT_32bit/BonDriver_PX4-C.ChSet.txt
 Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-MLT_32bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-MLT_32bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-MLT_32bit/it930x-firmware.bin
@@ -119,6 +123,7 @@ Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-MLT_64bit
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX-MLT.ini dist/BonDriver_PX-MLT_64bit/BonDriver_PX-MLT.ini
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-MLT_64bit/BonDriver_PX4-T.ChSet.txt
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_PX-MLT_64bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-C.ChSet.txt dist/BonDriver_PX-MLT_64bit/BonDriver_PX4-C.ChSet.txt
 Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-MLT_64bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-MLT_64bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-MLT_64bit/it930x-firmware.bin

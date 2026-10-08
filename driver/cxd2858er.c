@@ -260,6 +260,7 @@ int cxd2858er_term(struct cxd2858er_tuner *tuner)
 	if (!ret) {
 		switch (tuner->system) {
 		case CXD2858ER_ISDB_T_SYSTEM:
+		case CXD2858ER_ISDB_C_SYSTEM:
 			cxd2858er_stop_t(tuner);
 			break;
 
@@ -402,6 +403,108 @@ int cxd2858er_set_params_t(struct cxd2858er_tuner *tuner,
 		goto exit;
 
 	tuner->system = system;
+
+exit:
+	i2c_comm_master_gate_ctrl(tuner->i2c, false);
+	return ret;
+}
+
+int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
+			   u32 freq, u32 bandwidth)
+{
+	int ret = 0;
+	u8 data[17];
+
+	if (bandwidth != 6)
+		return -EINVAL;
+
+	ret = i2c_comm_master_gate_ctrl(tuner->i2c, true);
+	if (ret)
+		return ret;
+
+	switch (tuner->system) {
+	case CXD2858ER_ISDB_S_SYSTEM:
+		ret = cxd2858er_stop_s(tuner);
+		break;
+
+	default:
+		break;
+	}
+	if (ret)
+		goto exit;
+
+	ret = cxd2858er_write_reg(tuner, 0x01, 0x00);
+	if (ret)
+		goto exit;
+	ret = cxd2858er_write_reg(tuner, 0x74, 0x02);
+	if (ret)
+		goto exit;
+
+	data[0] = 0xc4;
+	data[1] = 0x40;
+	ret = cxd2858er_write_regs(tuner, 0x87, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x16;
+	data[1] = 0x26;
+	ret = cxd2858er_write_regs(tuner, 0x91, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x00;
+	data[1] = 0x00;
+	ret = cxd2858er_write_regs(tuner, 0x9c, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0xee;
+	data[1] = 0x02;
+	data[2] = 0x1e;
+	data[3] = 0x67;
+	data[4] = 0x18;
+	data[5] = 0x1c;
+	data[6] = 0x78;
+	data[7] = 0x08;
+	data[8] = 0x1c;
+	ret = cxd2858er_write_regs(tuner, 0x5e, data, 9);
+	if (ret)
+		goto exit;
+
+	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x00, 0x02);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x00;
+	data[1] = 0x85;
+	data[2] = 0x00;
+	data[3] = 0x02;
+	data[4] = 0x21;
+	data[5] = 0x00;
+	data[6] = 0x1a;
+	data[7] = 0x1c;
+	data[8] = freq & 0xff;
+	data[9] = (freq >> 8) & 0xff;
+	data[10] = (freq >> 16) & 0x0f;
+	data[11] = 0xff;
+	data[12] = 0x01;
+	data[13] = 0xd9;
+	data[14] = 0x0f;
+	data[15] = 0x24;
+	data[16] = 0x87;
+	ret = cxd2858er_write_regs(tuner, 0x68, data, 17);
+	if (ret)
+		goto exit;
+
+	msleep(50);
+	ret = cxd2858er_write_reg(tuner, 0x88, 0x00);
+	if (ret)
+		goto exit;
+	ret = cxd2858er_write_reg(tuner, 0x87, 0xc0);
+	if (ret)
+		goto exit;
+
+	tuner->system = CXD2858ER_ISDB_C_SYSTEM;
 
 exit:
 	i2c_comm_master_gate_ctrl(tuner->i2c, false);
@@ -624,6 +727,7 @@ int cxd2858er_stop(struct cxd2858er_tuner *tuner)
 
 	switch (tuner->system) {
 	case CXD2858ER_ISDB_T_SYSTEM:
+	case CXD2858ER_ISDB_C_SYSTEM:
 		cxd2858er_stop_t(tuner);
 		break;
 

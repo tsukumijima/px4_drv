@@ -13,6 +13,9 @@ enum class SystemType : std::uint32_t {
 	UNSPECIFIED = 0x00,
 	ISDB_T = 0x10,
 	ISDB_S = 0x20,
+	// ISDB-C (ITU-T J.83 Annex C).  The PXMLT implementation keeps the
+	// demodulator register sequence separate from ISDB-T.
+	ISDB_C = 0x40,
 };
 
 constexpr SystemType operator&(SystemType left, SystemType right) noexcept

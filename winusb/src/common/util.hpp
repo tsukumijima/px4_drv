@@ -30,6 +30,22 @@ static std::uint32_t atoui32(const char *str)
 	return value;
 }
 
+static std::int32_t atoi32(const char *str)
+{
+	bool negative = false;
+	std::uint32_t value;
+
+	while (*str == ' ' || *str == '\t')
+		str++;
+	if (*str == '-') {
+		negative = true;
+		str++;
+	}
+	value = atoui32(str);
+
+	return negative ? -static_cast<std::int32_t>(value) : static_cast<std::int32_t>(value);
+}
+
 static std::uint32_t wtoui32(const std::wstring &str)
 {
 	const wchar_t *p = str.c_str();

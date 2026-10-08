@@ -263,6 +263,27 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 			chrdev->params.stream_id = 0;
 			break;
 
+		case PTX_ISDB_C_SYSTEM:
+			/*
+			 * J.83C uses the same 6 MHz CATV/UHF raster as ISDB-T, but has
+			 * no 143 kHz terrestrial centre-frequency offset.  slot keeps the
+			 * established addfreq convention and is a signed correction in kHz.
+			 */
+			if ((freq.freq_no >= 3 && freq.freq_no <= 12) ||
+			    (freq.freq_no >= 22 && freq.freq_no <= 62)) {
+				chrdev->params.freq = 93000 + freq.freq_no * 6000 + freq.slot;
+				if (freq.freq_no == 12)
+					chrdev->params.freq += 2000;
+			} else if (freq.freq_no >= 63 && freq.freq_no <= 112) {
+				chrdev->params.freq = 95000 + freq.freq_no * 6000 + freq.slot;
+			} else {
+				ret = -EINVAL;
+				break;
+			}
+			chrdev->params.bandwidth = 6;
+			chrdev->params.stream_id = 0;
+			break;
+
 		case PTX_UNSPECIFIED_SYSTEM:
 			if (chrdev->system_cap & PTX_ISDB_S_SYSTEM) {
 				if (freq.freq_no < 0) {
@@ -355,7 +376,8 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 			if (ret)
 				break;
 
-			if (chrdev->current_system == PTX_ISDB_T_SYSTEM &&
+			if ((chrdev->current_system == PTX_ISDB_T_SYSTEM ||
+			     chrdev->current_system == PTX_ISDB_C_SYSTEM) &&
 			    (chrdev->options & PTX_CHRDEV_WAIT_AFTER_LOCK_TC_T) &&
 			    i > 265)
 				msleep((i - 265) * 10);
@@ -477,6 +499,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		case PTX_UNSPECIFIED_SYSTEM:
 		case PTX_ISDB_T_SYSTEM:
 		case PTX_ISDB_S_SYSTEM:
+		case PTX_ISDB_C_SYSTEM:
 			if (chrdev->system_cap & mode)
 				chrdev->params.system = mode;
 			else

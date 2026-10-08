@@ -286,6 +286,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\pkg\BonDriver_PX4\BonDriver_PX-MLT.ini" />
+    <None Include="..\..\pkg\BonDriver_PX4\BonDriver_PX-MLT-C.ini" />
     <None Include="..\..\pkg\BonDriver_PX4\BonDriver_PX4-S.ini" />
     <None Include="..\..\pkg\BonDriver_PX4\BonDriver_PX4-T.ini" />
     <None Include="dll.def" />

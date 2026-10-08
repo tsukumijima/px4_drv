@@ -15,10 +15,25 @@ namespace px4 {
 class ChannelSet final {
 public:
 	struct ChannelInfo final {
-		ChannelInfo() noexcept : ptx_ch(0), tsid(0) {}
+		ChannelInfo() noexcept : ptx_ch(0), tsid(0), freq_khz(0), isdbc_freq_offset_khz(0), has_isdbc_freq_offset(false), isdbc_modulation(0), tsmf_relative_stream(0), tsmf_slot_offset(0), tsmf_output_tlv(false), is_tsmf(false) {}
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
+		/* Optional explicit RF centre frequency, used by ISDB-C UHF relays. */
+		std::uint32_t freq_khz;
+		/* Optional signed ISDB-C correction (seventh field); overrides the
+		 * global INI correction while retaining the nominal channel centre. */
+		std::int32_t isdbc_freq_offset_khz;
+		bool has_isdbc_freq_offset;
+		/* Optional ISDB-C modulation: 0 (automatic), 64, or 256 QAM. */
+		std::uint16_t isdbc_modulation;
+		std::uint8_t tsmf_relative_stream;
+		/* Optional ninth field: signed map offset for TSMF diagnostics. */
+		std::int32_t tsmf_slot_offset;
+		/* Optional eleventh field: 1 selects reconstructed raw TLV output.
+		 * Normal TSMF channels keep this false and output MPEG-TS. */
+		bool tsmf_output_tlv;
+		bool is_tsmf;
 	};
 	struct SpaceInfo final {
 		explicit SpaceInfo(px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept : SpaceInfo(L"", system) {}

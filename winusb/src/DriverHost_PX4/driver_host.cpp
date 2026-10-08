@@ -13,7 +13,10 @@ DriverHost::DriverHost()
 	: mutex_(nullptr),
 	startup_event_(nullptr)
 {
-	configs_.Load(px4::util::path::GetFileBase() + L".ini");
+	const std::wstring config_path = px4::util::path::GetFileBase() + L".ini";
+
+	msg_info("DriverHost config: %ls\n", config_path.c_str());
+	configs_.Load(config_path);
 
 	dev_defs_.Load(configs_);
 }

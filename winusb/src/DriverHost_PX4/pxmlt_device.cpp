@@ -107,6 +107,33 @@ void PxMltDevice::LoadConfig()
 	if (configs.Exists(L"DiscardNullPackets"))
 		config_.device.discard_null_packets = px4::util::wtob(configs.Get(L"DiscardNullPackets"));
 
+	if (configs.Exists(L"ExperimentalISDBC"))
+		config_.device.experimental_isdbc = px4::util::wtob(configs.Get(L"ExperimentalISDBC"));
+
+	if (configs.Exists(L"ForceISDBCModulation")) {
+		const auto &raw_value = configs.Get(L"ForceISDBCModulation");
+		const auto value = px4::util::wtoui(raw_value);
+		dev_info(&dev_, "px4::PxMltDevice::LoadConfig: ForceISDBCModulation raw=[%ls], parsed=%u\n",
+			raw_value.c_str(), value);
+		if (value == 0 || value == 64 || value == 256)
+			config_.device.force_isdbc_modulation = value;
+		else
+			dev_warn(&dev_, "px4::PxMltDevice::LoadConfig: ForceISDBCModulation=%u is invalid; using 0.\n", value);
+	}
+
+	if (configs.Exists(L"DiscardTsmfHeaderPackets"))
+		config_.device.discard_tsmf_header_packets = px4::util::wtob(configs.Get(L"DiscardTsmfHeaderPackets"));
+
+	/* A TSMF frame is one header followed by exactly 52 slots.  Filtering
+	 * null packets in the IT930x before StreamBuffer sees them destroys that
+	 * positional relationship.  Reinterpret the existing setting as a request
+	 * for final output-side removal, not as a PID filter. */
+	if (config_.device.experimental_isdbc && config_.device.discard_null_packets) {
+		dev_info(&dev_, "px4::PxMltDevice::LoadConfig: DiscardNullPackets=true will remove null packets at final TS output; keeping the input PID filter disabled.\n");
+		config_.device.discard_null_packets = false;
+		config_.device.discard_null_packets_on_output = true;
+	}
+
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: xfer_packets: %u\n", config_.usb.xfer_packets);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: urb_max_packets: %u\n", config_.usb.urb_max_packets);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: max_urbs: %u\n", config_.usb.max_urbs);
@@ -114,6 +141,10 @@ void PxMltDevice::LoadConfig()
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: receiver_max_packets: %u\n", config_.device.receiver_max_packets);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: psb_purge_timeout: %i\n", config_.device.psb_purge_timeout);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: discard_null_packets: %s\n", (config_.device.discard_null_packets) ? "true" : "false");
+	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: discard_null_packets_on_output: %s\n", (config_.device.discard_null_packets_on_output) ? "true" : "false");
+	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: discard_tsmf_header_packets: %s\n", (config_.device.discard_tsmf_header_packets) ? "true" : "false");
+	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: experimental_isdbc: %s\n", (config_.device.experimental_isdbc) ? "true" : "false");
+	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: force_isdbc_modulation: %uQAM\n", config_.device.force_isdbc_modulation);
 
 	return;
 }
@@ -670,6 +701,9 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	cxd2858er_.config.xtal = 16000;
 	cxd2858er_.config.ter.lna = true;
 	cxd2858er_.config.sat.lna = true;
+
+	GetStreamBuffer()->SetDiscardNullPacketsOnOutput(
+		parent_.config_.device.discard_null_packets_on_output);
 }
 
 PxMltDevice::PxMltReceiver::~PxMltReceiver()
@@ -831,6 +865,12 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	int ret = 0;
 	cxd2856er_system_params demod_params = { 0 };
 	std::unique_lock<std::mutex> lock(lock_);
+	/* TSMF headers must be retained until the TSMF selector has parsed them.
+	 * This filter is then applied only to ISDB-C output; T/S keep their TS
+	 * unchanged even when the device-level option is enabled. */
+	GetStreamBuffer()->SetDiscardTsmfHeaderPacketsOnIsdbCOutput(
+		params_.system == px4::SystemType::ISDB_C &&
+		parent_.config_.device.discard_tsmf_header_packets);
 
 	current_system_ = px4::SystemType::UNSPECIFIED;
 
@@ -850,6 +890,24 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(CXD2856ER_ISDB_S_SYSTEM) failed. (ret: %d)\n", index_, ret);
 
 		break;
+
+	case px4::SystemType::ISDB_C: {
+		const auto modulation = parent_.config_.device.force_isdbc_modulation ?
+			parent_.config_.device.force_isdbc_modulation : params_.modulation;
+		demod_params.isdbc.symbol_rate = params_.symbol_rate;
+		demod_params.isdbc.modulation = modulation;
+		demod_params.isdbc.experimental_profile = parent_.config_.device.experimental_isdbc;
+		dev_info(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): ISDB-C freq=%u kHz, bandwidth=%u MHz, symbol_rate=%u ksym/s, modulation=%uQAM%s, experimental=%s\n",
+			 index_, params_.freq, params_.bandwidth, params_.symbol_rate, modulation,
+			 parent_.config_.device.force_isdbc_modulation ? " (DriverHost override)" : "",
+			 (demod_params.isdbc.experimental_profile) ? "true" : "false");
+
+		ret = cxd2856er_wakeup(&cxd2856er_, CXD2856ER_ISDB_C_SYSTEM, &demod_params);
+		if (ret)
+			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(CXD2856ER_ISDB_C_SYSTEM) failed. (ret: %d)\n", index_, ret);
+
+		break;
+	}
 
 	default:
 		ret = -EINVAL;
@@ -874,6 +932,13 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			ret = cxd2858er_set_params_s(&cxd2858er_, CXD2858ER_ISDB_S_SYSTEM, params_.freq, 28860);
 			if (ret)
 				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_s(%u, 28860) failed. (ret: %d)\n");
+
+			break;
+
+		case px4::SystemType::ISDB_C:
+			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, params_.bandwidth);
+			if (ret)
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_c(%u) failed. (ret: %d)\n", index_, params_.bandwidth, ret);
 
 			break;
 
@@ -918,6 +983,10 @@ int PxMltDevice::PxMltReceiver::CheckLock(bool &locked)
 
 	case px4::SystemType::ISDB_S:
 		ret = cxd2856er_is_ts_locked_isdbs(&cxd2856er_, &locked);
+		break;
+
+	case px4::SystemType::ISDB_C:
+		ret = cxd2856er_is_ts_locked_isdbc(&cxd2856er_, &locked);
 		break;
 
 	default:
@@ -1079,6 +1148,22 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 				}
 			}
 
+			break;
+		}
+
+		case px4::SystemType::ISDB_C:
+		{
+			std::uint16_t val;
+
+			ret = cxd2856er_read_cnr_raw_isdbc(&cxd2856er_, &val);
+			if (ret)
+				break;
+
+			/* QAM 64 C/N estimate: -9.50 * ln(estimate / 24320), in mdB. */
+			if (val) {
+				const double estimate = static_cast<double>((val < 126) ? 126 : val);
+				value = static_cast<std::int32_t>(-9500.0 * std::log(estimate) + 95941.0);
+			}
 			break;
 		}
 

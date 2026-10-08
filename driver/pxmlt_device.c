@@ -10,6 +10,7 @@
 
 #include <linux/kernel.h>
 #include <linux/delay.h>
+#include <linux/moduleparam.h>
 #include <linux/slab.h>
 
 #include "px4_device_params.h"
@@ -18,6 +19,30 @@
 
 #define PXMLT_DEVICE_TS_SYNC_COUNT	4
 #define PXMLT_DEVICE_TS_SYNC_SIZE	(188 * PXMLT_DEVICE_TS_SYNC_COUNT)
+
+/*
+ * The J.83C register profile is validated on a PX-MLT5PE, but has not been
+ * verified on every board using this tuner pair.  Keep the legacy T/S-only
+ * capability unless the installer explicitly opts in when loading the module.
+ */
+static bool experimental_isdbc;
+module_param_named(experimental_isdbc, experimental_isdbc, bool, 0444);
+MODULE_PARM_DESC(experimental_isdbc,
+	"Enable experimental ISDB-C/J.83 Annex C on CXD2856ER/CXD2858ER PXMLT devices");
+
+static bool pxmlt_model_supports_isdbc(enum pxmlt_model model)
+{
+	switch (model) {
+	case PXMLT5PE_MODEL:
+	case PXMLT8PE3_MODEL:
+	case PXMLT8PE5_MODEL:
+	case ISDB6014_4TS_MODEL:
+		return true;
+
+	default:
+		return false;
+	}
+}
 
 struct pxmlt_stream_context {
 	struct ptx_chrdev *chrdev[PXMLT_CHRDEV_MAX_NUM];
@@ -404,6 +429,20 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 
 		break;
 
+	case PTX_ISDB_C_SYSTEM:
+		demod_params.isdbc.symbol_rate = 5274;
+		demod_params.isdbc.modulation = CXD2856ER_ISDBC_64QAM;
+		demod_params.isdbc.experimental_profile = true;
+
+		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
+					       CXD2856ER_ISDB_C_SYSTEM, &demod_params);
+		if (ret)
+			dev_err(pxmlt->dev,
+				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(CXD2856ER_ISDB_C_SYSTEM) failed. (ret: %d)\n",
+				chrdev_group->id, chrdev->id, ret);
+
+		break;
+
 	default:
 		ret = -EINVAL;
 		break;
@@ -434,6 +473,17 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		if (ret)
 			dev_err(pxmlt->dev,
 				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_s(%u, 28860) failed. (ret: %d)\n",
+				chrdev_group->id, chrdev->id,
+				params->freq, ret);
+
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+		ret = cxd2858er_set_params_c(&chrdevm->cxd2858er,
+					     params->freq, 6);
+		if (ret)
+			dev_err(pxmlt->dev,
+				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_c(%u, 6) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id,
 				params->freq, ret);
 
@@ -476,6 +526,10 @@ static int pxmlt_chrdev_check_lock(struct ptx_chrdev *chrdev, bool *locked)
 
 	case PTX_ISDB_S_SYSTEM:
 		ret = cxd2856er_is_ts_locked_isdbs(&chrdevm->cxd2856er, locked);
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+		ret = cxd2856er_is_ts_locked_isdbc(&chrdevm->cxd2856er, locked);
 		break;
 
 	default:
@@ -894,6 +948,8 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		struct pxmlt_chrdev *chrdevm = &pxmlt->chrdevm[i];
 
 		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM;
+		if (experimental_isdbc && pxmlt_model_supports_isdbc(model))
+			chrdev_config[i].system_cap |= PTX_ISDB_C_SYSTEM;
 
 		input->enable = true;
 		input->is_parallel = false;

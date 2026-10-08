@@ -30,7 +30,8 @@ struct cxd2858er_config {
 enum cxd2858er_system {
 	CXD2858ER_UNSPECIFIED_SYSTEM = 0,
 	CXD2858ER_ISDB_T_SYSTEM,
-	CXD2858ER_ISDB_S_SYSTEM
+	CXD2858ER_ISDB_S_SYSTEM,
+	CXD2858ER_ISDB_C_SYSTEM
 };
 
 struct cxd2858er_tuner {
@@ -49,6 +50,8 @@ int cxd2858er_term(struct cxd2858er_tuner *tuner);
 
 int cxd2858er_set_params_t(struct cxd2858er_tuner *tuner,
 			   enum cxd2858er_system system,
+			   u32 freq, u32 bandwidth);
+int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 			   u32 freq, u32 bandwidth);
 int cxd2858er_set_params_s(struct cxd2858er_tuner *tuner,
 			   enum cxd2858er_system system,

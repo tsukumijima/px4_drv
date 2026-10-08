@@ -32,7 +32,13 @@ enum cxd2856er_state {
 enum cxd2856er_system {
 	CXD2856ER_UNSPECIFIED_SYSTEM = 0,
 	CXD2856ER_ISDB_T_SYSTEM,
-	CXD2856ER_ISDB_S_SYSTEM
+	CXD2856ER_ISDB_S_SYSTEM,
+	CXD2856ER_ISDB_C_SYSTEM
+};
+
+enum cxd2856er_isdbc_modulation {
+	CXD2856ER_ISDBC_64QAM = 64,
+	CXD2856ER_ISDBC_256QAM = 256,
 };
 
 enum cxd2856er_i2c_target {
@@ -42,6 +48,11 @@ enum cxd2856er_i2c_target {
 
 union cxd2856er_system_params {
 	u32 bandwidth;
+	struct {
+		u32 symbol_rate;
+		u32 modulation;
+		bool experimental_profile;
+	} isdbc;
 };
 
 struct cxd2856er_demod {
@@ -55,6 +66,9 @@ struct cxd2856er_demod {
 	struct cxd2856er_config config;
 	enum cxd2856er_state state;
 	enum cxd2856er_system system;
+	/* Tune diagnostics only: reset on each tune and used to rate-limit log. */
+	u32 isdbt_lock_checks;
+	u32 isdbc_lock_checks;
 };
 
 #ifdef __cplusplus
@@ -145,8 +159,10 @@ int cxd2856er_set_tsid_isdbs(struct cxd2856er_demod *demod, u16 tsid);
 int cxd2856er_is_ts_locked_isdbt(struct cxd2856er_demod *demod,
 				 bool *locked, bool *unlocked);
 int cxd2856er_is_ts_locked_isdbs(struct cxd2856er_demod *demod, bool *locked);
+int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked);
 int cxd2856er_read_cnr_raw_isdbt(struct cxd2856er_demod *demod, u16 *value);
 int cxd2856er_read_cnr_raw_isdbs(struct cxd2856er_demod *demod, u16 *value);
+int cxd2856er_read_cnr_raw_isdbc(struct cxd2856er_demod *demod, u16 *value);
 #ifdef __cplusplus
 }
 #endif

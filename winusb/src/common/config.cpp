@@ -42,7 +42,11 @@ bool Config::Load(const std::wstring &path, const std::wstring &section) noexcep
 			value_len--;
 		}
 
-		values_.emplace(key, value);
+		/* Match normal Windows INI semantics: when a key is written more than
+		 * once in a section, the last occurrence overrides an earlier default.
+		 * emplace() kept the first occurrence, which made a later user setting
+		 * such as ForceISDBCModulation=256 appear as its old value (0). */
+		values_[key] = value;
 
 		p = value + value_len + 1;
 	}

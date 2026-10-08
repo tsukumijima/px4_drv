@@ -20,7 +20,8 @@ bool msg_open_file(const wchar_t *path)
 	if (file_handle != INVALID_HANDLE_VALUE)
 		CloseHandle(file_handle);
 
-	file_handle = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	/* A diagnostic run must not retain stale data from the previous run. */
+	file_handle = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	return (file_handle != INVALID_HANDLE_VALUE) ? true : false;
 }
