@@ -48,7 +48,6 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - PX-MLT 系チューナーで CATV のトランスモジュレーション方式 (ISDB-C / ITU-T J.83 Annex C) を受信できるようにする
   - WinUSB 版: 64QAM / 256QAM の受信、TSMF の Relative stream 抽出、dantto4k 連携用の生 TLV 出力に対応
   - Linux 版: 通常の ISDB-C TS 受信経路のみを実験的に含む (実機未検証)
-  - macOS 版: `px4rec C` による ISDB-C 選局、TSMF ストリーム選択、生 TLV 出力に対応。PX-MLT5PE と 1 つの CATV 回線で、64QAM の通常 TS 受信と、256QAM の TSMF から取り出した生 TLV の出力を確認済み (256QAM では誤りが残る場合があり、長時間受信は未検証)
   - 設定方法や制限事項は [docs/isdbc_winusb_experimental.md](docs/isdbc_winusb_experimental.md) を参照
 
 
