@@ -8,14 +8,14 @@ set -e
 
 NAME=MODULE_NAME
 PACKAGE_NAME=$NAME-dkms
-DEB_NAME=$(echo $PACKAGE_NAME | sed 's,_,-,')
-CVERSION=`dpkg-query -W -f='${Version}' $DEB_NAME | awk -F "-" '{print $1}' | cut -d\: -f2`
-ARCH=`dpkg-architecture -qDEB_BUILD_GNU_CPU`
+# dpkg のパッケージ版をそのまま使うと、/usr/src のモジュール版と一致しない。
+CVERSION=MODULE_VERSION
 
 dkms_configure () {
 	for POSTINST in /usr/lib/dkms/common.postinst "/usr/share/$PACKAGE_NAME/postinst"; do
 		if [ -f "$POSTINST" ]; then
-			"$POSTINST" "$NAME" "$CVERSION" "/usr/share/$PACKAGE_NAME" "$ARCH" "$2"
+			# dpkg-architecture を使うと、導入先にもビルド用の dpkg-dev が必要になる。
+			"$POSTINST" "$NAME" "$CVERSION" "/usr/share/$PACKAGE_NAME" "" "${2:-}"
 			return $?
 		fi
 		echo "WARNING: $POSTINST does not exist." >&2
@@ -29,7 +29,7 @@ dkms_configure () {
 
 case "$1" in
 	configure)
-		dkms_configure
+		dkms_configure "$@"
 	;;
 
 	abort-upgrade|abort-remove|abort-deconfigure)

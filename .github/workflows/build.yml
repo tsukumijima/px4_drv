@@ -7,24 +7,28 @@ on:
 
 jobs:
   build:
-    name: Build and Check Debian Package
+    name: Build and Check Debian Package (Ubuntu ${{ matrix.ubuntu }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['20.04', '24.04']
     container:
-      image: ubuntu:20.04
+      image: ubuntu:${{ matrix.ubuntu }}
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Install DKMS
-        run: apt-get update && apt-get install -y -q --no-install-recommends debhelper devscripts dh-exec dkms dpkg
+      - name: Install build tools
+        run: apt-get update && apt-get install -y -q --no-install-recommends git dkms dpkg
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
 
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Build Debian package
-        run: dkms mkdeb --source-only
+        run: ./build_deb.sh
         shell: bash
 
       - name: Check artifacts
@@ -32,7 +36,7 @@ jobs:
         shell: bash
 
       - name: Check install
-        run: dpkg -i $(ls -1 ../*.deb | head -n 1)
+        run: dpkg -i ../px4-drv-dkms_*_all.deb
         shell: bash
 
       - name: Check dkms install

@@ -1,0 +1,13 @@
+Package: px4-drv-dkms
+Version: @PACKAGE_VERSION@
+Architecture: all
+Section: kernel
+Priority: optional
+Maintainer: Dynamic Kernel Modules Support Team <pkg-dkms-maint@lists.alioth.debian.org>
+Installed-Size: @INSTALLED_SIZE@
+Provides: px4-drv-modules (= @MODULE_VERSION@)
+Depends: dkms (>= 2.1.0.0)
+Homepage: https://github.com/tsukumijima/px4_drv
+Description: px4_drv driver in DKMS format
+ Kernel module sources and firmware for supported PLEX digital TV tuners.
+ DKMS builds the module for installed kernels with available headers.
