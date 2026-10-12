@@ -61,6 +61,8 @@ int SmartCard::Open()
 	if (open_)
 		return -EALREADY;
 
+	device_->SetIoDeadline(std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(OPERATION_TIMEOUT_MS));
 	int ret = device_->OpenCard();
 	if (ret)
 		return ret;
@@ -100,6 +102,8 @@ int SmartCard::GetStatus(bool &present, bool &initialized,
 	if (!open_)
 		return -ENODEV;
 
+	device_->SetIoDeadline(std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(OPERATION_TIMEOUT_MS));
 	int ret = device_->DetectCard(present);
 	if (ret) {
 		InvalidateSession();
@@ -127,6 +131,8 @@ int SmartCard::Reset(std::vector<std::uint8_t> &atr)
 
 	/* 途中で失敗しても以前のカードの通信状態を再利用させない */
 	InvalidateSession();
+	device_->SetIoDeadline(std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(OPERATION_TIMEOUT_MS));
 	bool detected = false;
 	int ret = device_->DetectCard(detected);
 	if (ret)
@@ -138,6 +144,8 @@ int SmartCard::Reset(std::vector<std::uint8_t> &atr)
 	for (unsigned int attempt = 0; attempt < 2; attempt++) {
 		/* 前回の不正 ATR を途中まで解析していても T=1 パラメータを次の試行へ残さない */
 		parameters = AtrParameters{};
+		device_->SetIoDeadline(std::chrono::steady_clock::now() +
+			std::chrono::milliseconds(ATR_TIMEOUT_MS));
 		ret = device_->ResetCard();
 		if (ret)
 			return ret;
@@ -212,6 +220,7 @@ int SmartCard::WaitCardDataReady(const Deadline &deadline)
 {
 	/* RX_LENGTH は受信途中でも増えるため、完成通知だけを期限まで待つ */
 	while (std::chrono::steady_clock::now() < deadline) {
+		device_->SetIoDeadline(deadline);
 		bool ready = false;
 		int ret = device_->IsCardDataReady(ready);
 		if (ret || ready)
@@ -530,6 +539,7 @@ int SmartCard::ExchangeBlock(std::uint8_t pcb, const std::uint8_t *send_data,
 	for (unsigned int retry = 0; retry < max_retries; retry++) {
 		if (std::chrono::steady_clock::now() >= deadline)
 			return -ETIMEDOUT;
+		device_->SetIoDeadline(deadline);
 		int ret = SendBlock(pcb, send_data, send_length);
 		if (ret)
 			return ret;
@@ -545,6 +555,7 @@ int SmartCard::ExchangeBlock(std::uint8_t pcb, const std::uint8_t *send_data,
 				if (recv_data.size() != 1 || recv_data[0] == 0)
 					return -EPROTO;
 				std::uint8_t multiplier = recv_data[0];
+				device_->SetIoDeadline(deadline);
 				ret = SendBlock(T1_S_BLOCK | T1_S_RESPONSE | T1_S_WTX,
 						&multiplier, 1);
 				if (ret)
@@ -571,6 +582,8 @@ int SmartCard::Transmit(const std::uint8_t *send_buf, std::size_t send_len,
 
 	/* 接触不良や抜去を APDU 送信前に検出し、壊れたセッションを即座に破棄する */
 	bool detected = false;
+	device_->SetIoDeadline(std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(OPERATION_TIMEOUT_MS));
 	int status_ret = device_->DetectCard(detected);
 	if (status_ret) {
 		InvalidateSession();

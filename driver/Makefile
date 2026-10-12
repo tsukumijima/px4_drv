@@ -15,6 +15,9 @@ all: modules
 
 modules: px4_drv.ko
 
+check:
+	python3 tests/run_card_regression.py
+
 px4_drv.ko: FORCE revision.h
 	$(cmd_prefix)$(MAKE) -C $(KDIR) M=$(PWD) KBUILD_VERBOSE=$(VERBOSE) px4_drv.ko
 
@@ -68,4 +71,4 @@ uninstall:
 
 FORCE:
 
-.PHONY: clean install uninstall FORCE
+.PHONY: check clean install uninstall FORCE

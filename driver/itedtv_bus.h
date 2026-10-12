@@ -39,6 +39,11 @@ struct itedtv_bus_operations {
 
 struct itedtv_bus {
 	struct device *dev;
+#ifdef __linux__
+	/* 期限をバス全体へ適用すると、別 task の選局までカード側の期限で失敗する。 */
+	struct task_struct *ctrl_deadline_owner;
+	u64 ctrl_deadline_ns;
+#endif
 	enum itedtv_bus_type type;
 	union {
 		struct {
@@ -62,6 +67,10 @@ extern "C" {
 #endif
 int itedtv_bus_init(struct itedtv_bus *bus);
 int itedtv_bus_term(struct itedtv_bus *bus);
+#ifdef __linux__
+void itedtv_bus_set_ctrl_deadline(struct itedtv_bus *bus, u64 deadline_ns);
+void itedtv_bus_clear_ctrl_deadline(struct itedtv_bus *bus);
+#endif
 #ifdef __cplusplus
 }
 #endif

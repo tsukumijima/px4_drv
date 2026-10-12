@@ -44,10 +44,63 @@ struct itedtv_usb_context {
 	atomic_t streaming;
 };
 
+#ifdef __linux__
+void itedtv_bus_set_ctrl_deadline(struct itedtv_bus *bus, u64 deadline_ns)
+{
+	/*
+	 * 並行更新では別要求の期限を読むため、呼び出し側で直列化する。
+	 * owner を残すと同じ task の後続操作にも期限が効くため、要求終了時に clear が必要。
+	 */
+	WRITE_ONCE(bus->ctrl_deadline_ns, deadline_ns);
+	WRITE_ONCE(bus->ctrl_deadline_owner, current);
+}
+
+void itedtv_bus_clear_ctrl_deadline(struct itedtv_bus *bus)
+{
+	WRITE_ONCE(bus->ctrl_deadline_owner, NULL);
+}
+
+static bool itedtv_usb_ctrl_expired(struct itedtv_bus *bus)
+{
+	return READ_ONCE(bus->ctrl_deadline_owner) == current &&
+		ktime_get_ns() >= bus->ctrl_deadline_ns;
+}
+
+static int itedtv_usb_ctrl_timeout(struct itedtv_bus *bus)
+{
+	int timeout = bus->usb.ctrl_timeout;
+
+	if (READ_ONCE(bus->ctrl_deadline_owner) != current)
+		return timeout;
+	/*
+	 * 残り時間で TX/RX を中断すると、送信済み応答が次の要求へ混ざる。
+	 * timeout=0 は無期限なので、カード要求だけは既定値の3秒で区切る。
+	 */
+	return timeout > 0 ? timeout : 3000;
+}
+#else
+static bool itedtv_usb_ctrl_expired(struct itedtv_bus *bus)
+{
+	return false;
+}
+
+static int itedtv_usb_ctrl_timeout(struct itedtv_bus *bus)
+{
+	return bus->usb.ctrl_timeout;
+}
+#endif
+
 static int itedtv_usb_ctrl_tx(struct itedtv_bus *bus, void *buf, int len)
 {
 	int ret = 0, rlen = 0;
 	struct usb_device *dev = bus->usb.dev;
+	int timeout = itedtv_usb_ctrl_timeout(bus);
+
+	/* 呼び出し元での判定だけでは、共通制御ロックの待機中に期限を超過し得る。 */
+	if (itedtv_usb_ctrl_expired(bus))
+		return -ETIMEDOUT;
+	if (timeout < 0)
+		return timeout;
 
 	if (unlikely(!buf || !len))
 		return -EINVAL;
@@ -56,7 +109,7 @@ static int itedtv_usb_ctrl_tx(struct itedtv_bus *bus, void *buf, int len)
 	ret = usb_bulk_msg(dev,
 			   usb_sndbulkpipe(dev, 0x02),
 			   buf, len,
-			   &rlen, bus->usb.ctrl_timeout);
+			   &rlen, timeout);
 
 	if (ret) {
 		dev_err(bus->dev,
@@ -73,6 +126,10 @@ static int itedtv_usb_ctrl_rx(struct itedtv_bus *bus, void *buf, int *len)
 {
 	int ret = 0, rlen = 0;
 	struct usb_device *dev = bus->usb.dev;
+	int timeout = itedtv_usb_ctrl_timeout(bus);
+
+	if (timeout < 0)
+		return timeout;
 
 	if (unlikely(!buf || !len || !*len))
 		return -EINVAL;
@@ -81,7 +138,7 @@ static int itedtv_usb_ctrl_rx(struct itedtv_bus *bus, void *buf, int *len)
 	ret = usb_bulk_msg(dev,
 			   usb_rcvbulkpipe(dev, 0x81),
 			   buf, *len,
-			   &rlen, bus->usb.ctrl_timeout);
+			   &rlen, timeout);
 
 	if (ret) {
 		dev_err(bus->dev,
@@ -92,6 +149,10 @@ static int itedtv_usb_ctrl_rx(struct itedtv_bus *bus, void *buf, int *len)
 	*len = rlen;
 
 	mdelay(1);
+
+	/* RX 前に期限で戻ると、送信済みコマンドの応答が次の要求へ残る。 */
+	if (!ret && itedtv_usb_ctrl_expired(bus))
+		ret = -ETIMEDOUT;
 
 	return ret;
 }
@@ -545,6 +606,11 @@ int itedtv_bus_init(struct itedtv_bus *bus)
 
 	if (!bus)
 		return -EINVAL;
+
+#ifdef __linux__
+	bus->ctrl_deadline_owner = NULL;
+	bus->ctrl_deadline_ns = 0;
+#endif
 
 	switch (bus->type) {
 	case ITEDTV_BUS_USB:
