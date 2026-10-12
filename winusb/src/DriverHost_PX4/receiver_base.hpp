@@ -35,6 +35,12 @@ public:
 
 	class StreamBuffer final {
 	public:
+		struct WriteDiagnostics {
+			std::uint64_t rejected_bytes;
+			std::uint64_t rejected_writes;
+			std::uint64_t purge_write_discarded_bytes;
+			std::uint64_t purge_requests;
+		};
 		StreamBuffer();
 		~StreamBuffer();
 
@@ -55,12 +61,14 @@ public:
 		 * TSMF or output-PID filtering. */
 		void ResetInputPacketCount() noexcept;
 		std::uint64_t GetInputPacketCount() const noexcept;
+		WriteDiagnostics GetWriteDiagnostics() const noexcept;
 		bool Write(const void *buf, std::size_t &size) noexcept;
 		void NotifyWrite() noexcept;
 		void HandleRead(std::size_t buf_size, std::function<bool(const void *buf, std::size_t size)> handler);
 		bool Purge() noexcept;
 
 	private:
+		bool WriteRingBuffer(const void *buf, std::size_t &size) noexcept;
 		bool TsmfSelectPacket(const std::uint8_t *packet) noexcept;
 		bool TsmfParseHeader(const std::uint8_t *packet) noexcept;
 		bool TsmfExtractTlvPacket(const std::uint8_t *packet, std::size_t &output_size) noexcept;
@@ -71,6 +79,10 @@ public:
 		px4::RingBuffer ringbuf_;
 		std::atomic_bool stop_;
 		std::atomic_uint64_t input_packet_count_;
+		std::atomic_uint64_t rejected_bytes_;
+		std::atomic_uint64_t rejected_writes_;
+		std::atomic_uint64_t purge_write_discarded_bytes_;
+		std::atomic_uint64_t purge_requests_;
 		std::condition_variable cond_;
 		std::size_t write_size_;
 		std::size_t threshold_size_;
@@ -133,6 +145,8 @@ public:
 	virtual int ReadStat(px4::command::StatType type, std::int32_t &value) = 0;
 
 protected:
+	/* 機種固有の正規化を自動 QAM 判定より先に行う。既存機種は変更なし。 */
+	virtual int PrepareTune() { return 0; }
 	virtual int SetFrequency() = 0;
 	virtual int SetStreamId() = 0;
 

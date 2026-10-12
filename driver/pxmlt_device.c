@@ -433,6 +433,7 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		demod_params.isdbc.symbol_rate = 5274;
 		demod_params.isdbc.modulation = CXD2856ER_ISDBC_64QAM;
 		demod_params.isdbc.experimental_profile = true;
+		demod_params.isdbc.reference_profile = false;
 
 		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
 					       CXD2856ER_ISDB_C_SYSTEM, &demod_params);
@@ -971,6 +972,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		chrdevm->cxd2858er.i2c = &chrdevm->cxd2856er.i2c_master;
 		chrdevm->cxd2858er.i2c_addr = 0x60;
 		chrdevm->cxd2858er.config.xtal = 16000;
+		chrdevm->cxd2858er.config.isdbc_reference_profile = false;
 		chrdevm->cxd2858er.config.ter.lna = true;
 		chrdevm->cxd2858er.config.sat.lna = true;
 	}

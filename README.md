@@ -43,6 +43,12 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
   - 既定の抽出済みファームウェアで問題なく動作することが知られているため、特段実用性はない
 - README（このページ）に WinUSB 版のインストール方法などを追記
 
+### 変更点 (J.83B 5.6 Msps・実験的)
+
+- Windows WinUSB / PX-MLT 系に、既定無効の J.83 Annex B / 256QAM / 5.6 Msps 受信・内部状態診断を追加
+  - 搬送波ごとの TS 破損や未同期は未解決で、長時間録画・Linux での受信は未検証
+  - 設定方法と検証範囲は [docs/j83b_winusb_experimental.md](docs/j83b_winusb_experimental.md) を参照
+
 ### 変更点 (ISDB-C トラモジ対応・実験的)
 
 - PX-MLT 系チューナーで CATV のトランスモジュレーション方式 (ISDB-C / ITU-T J.83 Annex C) を受信できるようにする

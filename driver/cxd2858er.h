@@ -19,6 +19,9 @@
 
 struct cxd2858er_config {
 	u32 xtal;
+	bool isdbc_reference_profile;
+	/* Sony/TBS HELENE J83B_5_6 行。既定無効、信号で未検証。 */
+	bool experimental_j83b;
 	struct {
 		bool lna;
 	} ter;

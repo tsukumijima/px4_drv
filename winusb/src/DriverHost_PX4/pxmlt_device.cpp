@@ -110,6 +110,14 @@ void PxMltDevice::LoadConfig()
 	if (configs.Exists(L"ExperimentalISDBC"))
 		config_.device.experimental_isdbc = px4::util::wtob(configs.Get(L"ExperimentalISDBC"));
 
+	if (configs.Exists(L"ExperimentalJ83B"))
+		config_.device.experimental_j83b = px4::util::wtob(configs.Get(L"ExperimentalJ83B"));
+	if (configs.Exists(L"ExperimentalJ83BMonitor"))
+		config_.device.experimental_j83b_monitor = px4::util::wtob(configs.Get(L"ExperimentalJ83BMonitor"));
+
+	if (configs.Exists(L"ISDBCReferenceProfile"))
+		config_.device.isdbc_reference_profile = px4::util::wtob(configs.Get(L"ISDBCReferenceProfile"));
+
 	if (configs.Exists(L"ForceISDBCModulation")) {
 		const auto &raw_value = configs.Get(L"ForceISDBCModulation");
 		const auto value = px4::util::wtoui(raw_value);
@@ -699,6 +707,7 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	cxd2858er_.i2c = &cxd2856er_.i2c_master;
 	cxd2858er_.i2c_addr = 0x60;
 	cxd2858er_.config.xtal = 16000;
+	cxd2858er_.config.isdbc_reference_profile = parent_.config_.device.isdbc_reference_profile;
 	cxd2858er_.config.ter.lna = true;
 	cxd2858er_.config.sat.lna = true;
 
@@ -855,6 +864,24 @@ void PxMltDevice::PxMltReceiver::Close()
 	return;
 }
 
+int PxMltDevice::PxMltReceiver::PrepareTune()
+{
+	if (params_.system != px4::SystemType::ISDB_C || !parent_.config_.device.experimental_j83b)
+		return 0;
+	/* J.83B は TSMF を使わない。要求を黙って捨てると別ストリームを返すため、
+	 * 有効な TSMF パラメーターはハードウェア操作前に拒否する。全て0は無効指定。 */
+	if (params_.tsmf_mode || params_.tsmf_relative_stream || params_.tsmf_slot_offset || params_.tsmf_output_tlv) {
+		dev_err(&parent_.dev_, "J.83B 5.6 Msps (experimental, unverified): TSMF parameters are unsupported.\n");
+		return -EINVAL;
+	}
+	/* 公開プロトコルへ正式な系統を足す前の暫定置換。要求の QAM 指定と
+	 * ForceISDBCModulation を無視し、自動64→256再試行の判定前に固定する。 */
+	params_.modulation = 256;
+	params_.symbol_rate = 5600;
+	params_.bandwidth = 6;
+	return 0;
+}
+
 int PxMltDevice::PxMltReceiver::SetFrequency()
 {
 	if (!open_)
@@ -870,6 +897,7 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	 * unchanged even when the device-level option is enabled. */
 	GetStreamBuffer()->SetDiscardTsmfHeaderPacketsOnIsdbCOutput(
 		params_.system == px4::SystemType::ISDB_C &&
+		!parent_.config_.device.experimental_j83b &&
 		parent_.config_.device.discard_tsmf_header_packets);
 
 	current_system_ = px4::SystemType::UNSPECIFIED;
@@ -892,15 +920,21 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 		break;
 
 	case px4::SystemType::ISDB_C: {
-		const auto modulation = parent_.config_.device.force_isdbc_modulation ?
+		const auto modulation = parent_.config_.device.experimental_j83b ? 256 :
+			parent_.config_.device.force_isdbc_modulation ?
 			parent_.config_.device.force_isdbc_modulation : params_.modulation;
+		demod_params.isdbc.experimental_j83b = parent_.config_.device.experimental_j83b;
 		demod_params.isdbc.symbol_rate = params_.symbol_rate;
 		demod_params.isdbc.modulation = modulation;
 		demod_params.isdbc.experimental_profile = parent_.config_.device.experimental_isdbc;
-		dev_info(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): ISDB-C freq=%u kHz, bandwidth=%u MHz, symbol_rate=%u ksym/s, modulation=%uQAM%s, experimental=%s\n",
-			 index_, params_.freq, params_.bandwidth, params_.symbol_rate, modulation,
-			 parent_.config_.device.force_isdbc_modulation ? " (DriverHost override)" : "",
-			 (demod_params.isdbc.experimental_profile) ? "true" : "false");
+		demod_params.isdbc.reference_profile = parent_.config_.device.isdbc_reference_profile;
+		if (demod_params.isdbc.experimental_j83b)
+			dev_info(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): J.83B 5.6 Msps (experimental, unverified), freq=%u kHz, 256QAM\n", index_, params_.freq);
+		else
+			dev_info(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): ISDB-C freq=%u kHz, bandwidth=%u MHz, symbol_rate=%u ksym/s, modulation=%uQAM%s, experimental=%s\n",
+				 index_, params_.freq, params_.bandwidth, params_.symbol_rate, modulation,
+				 parent_.config_.device.force_isdbc_modulation ? " (DriverHost override)" : "",
+				 (demod_params.isdbc.experimental_profile) ? "true" : "false");
 
 		ret = cxd2856er_wakeup(&cxd2856er_, CXD2856ER_ISDB_C_SYSTEM, &demod_params);
 		if (ret)
@@ -936,6 +970,8 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			break;
 
 		case px4::SystemType::ISDB_C:
+			cxd2858er_.config.experimental_j83b = parent_.config_.device.experimental_j83b;
+			cxd2858er_.config.isdbc_reference_profile = parent_.config_.device.isdbc_reference_profile;
 			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, params_.bandwidth);
 			if (ret)
 				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_c(%u) failed. (ret: %d)\n", index_, params_.bandwidth, ret);
@@ -1071,6 +1107,15 @@ int PxMltDevice::PxMltReceiver::SetCapture(bool capture)
 			stream_buf_->Start();
 		} else {
 			stream_buf_->Stop();
+			if (parent_.config_.device.experimental_isdbc && params_.system == px4::SystemType::ISDB_C) {
+				const auto diagnostics = stream_buf_->GetWriteDiagnostics();
+				dev_info(&parent_.dev_, "TS output diagnostics input=%u freq=%u receiver_max_packets=%u rejected_bytes=%llu rejected_writes=%llu purge_write_discarded_bytes=%llu purge_requests=%llu (capture interval, rejection may include inactive output)\n",
+					index_, params_.freq, parent_.config_.device.receiver_max_packets,
+					static_cast<unsigned long long>(diagnostics.rejected_bytes),
+					static_cast<unsigned long long>(diagnostics.rejected_writes),
+					static_cast<unsigned long long>(diagnostics.purge_write_discarded_bytes),
+					static_cast<unsigned long long>(diagnostics.purge_requests));
+			}
 		}
 		streaming_ = capture;
 	}
@@ -1154,6 +1199,28 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 		case px4::SystemType::ISDB_C:
 		{
 			std::uint16_t val;
+			/* 既存の64QAM換算を J.83B 256QAM に流用する根拠がないため、
+			 * C/N 数値は未対応とする。ロックは別の共通ステータスで判定する。 */
+			if (parent_.config_.device.experimental_j83b) {
+				if (parent_.config_.device.experimental_j83b_monitor) {
+					cxd2856er_j83b_monitor monitor;
+					ret = cxd2856er_read_j83b_monitor(&cxd2856er_, &monitor);
+					if (ret)
+						break;
+					dev_info(&parent_.dev_, "J83B monitor input=%u freq=%u QAMraw=%u CNRraw=%u IFAGCraw=%u (uncalibrated)\n",
+						index_, params_.freq, monitor.qam, monitor.cnr_raw, monitor.if_agc_raw);
+					dev_info(&parent_.dev_, "J83B stages input=%u freq=%u ARraw=%u TSraw=%u VQraw=%u ICWvalid=%u INTERraw=%u IQREVraw=%u OffsetRaw=%d TrialSRraw=%u TLFraw=%d TSMraw=%u BERvalid=%u BERerrors=%u BERexp=%u PERvalid=%u PERerrors=%u PERexp=%u RSvalid=%u RSerrors=%u\n",
+						index_, params_.freq, monitor.ar_status_raw, monitor.ts_status_raw,
+						monitor.vq_status_raw, monitor.interleave_valid, monitor.interleave_raw,
+						monitor.spectrum_raw, monitor.carrier_offset_raw, monitor.trial_symbol_rate_raw,
+						monitor.timing_integral_raw, monitor.sampling_rate_mode_raw,
+						monitor.ber_valid, monitor.ber_bit_errors, monitor.ber_period_exp,
+						monitor.per_valid, monitor.per_packet_errors, monitor.per_period_exp,
+						monitor.rs_valid, monitor.rs_packet_errors);
+				}
+				ret = -ENOSYS;
+				break;
+			}
 
 			ret = cxd2856er_read_cnr_raw_isdbc(&cxd2856er_, &val);
 			if (ret)
