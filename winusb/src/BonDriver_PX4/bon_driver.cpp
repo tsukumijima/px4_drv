@@ -11,6 +11,7 @@
 #include <shlwapi.h>
 
 #include "bon_driver.hpp"
+#include "bon_ts_copy.hpp"
 #include "config.hpp"
 #include "chset.hpp"
 #include "security_attributes.hpp"
@@ -470,7 +471,7 @@ const BOOL BonDriver::GetTsStream(BYTE *pDst, DWORD *pdwSize, DWORD *pdwRemain)
 
 	std::size_t size, remain;
 
-	if (!ioq_->Read(pDst, size, remain, false))
+	if (!ReadBonTsCopy(*ioq_, pDst, size, remain))
 		return FALSE;
 
 	*pdwSize = static_cast<::DWORD>(size);
