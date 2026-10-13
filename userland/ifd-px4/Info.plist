@@ -30,12 +30,18 @@
 		<string>0x0511</string>
 		<string>0x0511</string>
 		<string>0x0511</string>
+		<string>0x0511</string>
+		<string>0x0511</string>
+		<string>0x0511</string>
 	</array>
 
 	<key>ifdProductID</key>
 	<array>
 		<string>0x924e</string>
 		<string>0x024e</string>
+		<string>0x084e</string>
+		<string>0x0253</string>
+		<string>0x0254</string>
 		<string>0x083f</string>
 		<string>0x084a</string>
 		<string>0x023f</string>
@@ -53,6 +59,9 @@
 	<array>
 		<string>e-Better DTV02A-5TS-P</string>
 		<string>PLEX PX-MLT5PE</string>
+		<string>PLEX PX-MLT5U</string>
+		<string>PLEX PX-MLT8PE</string>
+		<string>e-Better DTV02A-4TS-P</string>
 		<string>PLEX PX-W3U4</string>
 		<string>PLEX PX-Q3U4</string>
 		<string>PLEX PX-W3PE4</string>

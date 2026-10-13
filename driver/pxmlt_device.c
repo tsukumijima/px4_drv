@@ -1110,7 +1110,8 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 
 	atomic_set(&pxmlt->available, 1);
 
-	if (model == PXMLT5PE_MODEL) {
+	/* PX-MLT8PE は5チューナー側と3チューナー側の2つの USB デバイスで構成され、カードスロットは5チューナー側だけにある */
+	if (model != PXMLT8PE3_MODEL) {
 		struct px4_card_backend card_backend = {
 			.it930x = it930x,
 			.lock = &pxmlt->lock,
