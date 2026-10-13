@@ -183,9 +183,6 @@ BonDriver と同じフォルダに DriverHost_PX4.exe / DriverHost_PX4.ini / it9
 
 ## インストール (Linux)
 
-DTV02A-5TS-P / PX-MLT5PE の内蔵カードリーダーには、内蔵カード対応版のカーネルモジュールに加えて `libifd-px4` と `pcscd` が必要です。
-導入方法は [Linux 用 IFD ハンドラー](userland/ifd-px4/README.md)を参照してください。
-
 ### 1. ファームウェアの抽出とインストール (手動インストール時のみ)
 
 > [!IMPORTANT]  
@@ -348,6 +345,12 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 すべてのチューナーにおいて、ISDB-T と ISDB-S のどちらも受信可能です。
 
+### 4. 内蔵 B-CAS カードリーダーの利用
+
+内蔵カードリーダーを持つ機種では、カードリーダーごとに `/dev/px4cardN` が作られます。  
+このデバイスファイルを pcsc-lite (pcscd) から使うためのドライバー (IFD ハンドラー) を導入すると、PC/SC に対応したアプリケーションから外付けのカードリーダーと同じように利用できます。  
+導入方法と対応機種は、[内蔵カードリーダー用 IFD ハンドラー](userland/ifd-px4/README.md) を参照してください。
+
 ## アンインストール (Windows)
 
 ### 1. ドライバのアンインストール
@@ -435,7 +438,7 @@ Windows では、BonDriver_PX4-S.ini に記載の `LNBPower=0` を `LNBPower=1` 
 
 ### 内蔵カードリーダーやリモコンについて
 
-WinUSB 版は、各種対応デバイスに内蔵されているカードリーダーを利用できます。Linux 版では DTV02A-5TS-P / PX-MLT5PE の内蔵カードリーダーを利用できます。リモコンの操作には対応していません。
+WinUSB 版と Linux 版のどちらでも、各種対応デバイスに内蔵されているカードリーダーを利用できます (Linux 版は pcsc-lite 用の [IFD ハンドラー](userland/ifd-px4/README.md) の導入が必要です)。リモコンの操作には対応していません。
 
 ### e-Better DTV02-1T1S-U について
 
