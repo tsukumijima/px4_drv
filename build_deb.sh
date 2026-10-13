@@ -77,7 +77,12 @@ mkdir -p "$control_dir" "$source_dir" "$doc_dir"
 
 # HEAD のアーカイブでは未コミットの修正や追加が欠けるため、作業ツリーから収録する。
 git -C "$repo_dir" ls-files --cached --others --exclude-standard -z -- \
-    driver include etc dkms dkms.conf LICENSE | sort -zu > "$source_list"
+    driver include etc dkms dkms.conf LICENSE |
+    while IFS= read -r -d '' path; do
+        if [[ -e "$repo_dir/$path" || -L "$repo_dir/$path" ]]; then
+            printf '%s\0' "$path"
+        fi
+    done | sort -zu > "$source_list"
 tar -C "$repo_dir" --null --verbatim-files-from -T "$source_list" -cf - |
     tar -C "$source_dir" --no-same-owner -xf -
 
