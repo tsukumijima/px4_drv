@@ -26,6 +26,8 @@
 enum isdb2056_model {
 	ISDB2056_MODEL = 0,
 	ISDB2056N_MODEL,
+	/* PX-M1UR は ISDB2056 と同じ構成 (復調器・チューナー・GPIO) で、デバイスファイル名だけが異なる */
+	PXM1UR_MODEL,
 };
 
 struct isdb2056_chrdev {

@@ -25,7 +25,6 @@
 #include "pxmlt_device.h"
 #include "isdb2056_device.h"
 #include "s1ur_device.h"
-#include "m1ur_device.h"
 
 #ifndef PX4_USB_MAX_DEVICE
 #define PX4_USB_MAX_DEVICE	16
@@ -55,7 +54,7 @@
 #ifndef PXM1UR_USB_MAX_DEVICE
 #define PXM1UR_USB_MAX_DEVICE	64
 #endif
-#define PXM1UR_USB_MAX_CHRDEV	(PXM1UR_USB_MAX_DEVICE * M1UR_CHRDEV_NUM)
+#define PXM1UR_USB_MAX_CHRDEV	(PXM1UR_USB_MAX_DEVICE * ISDB2056_CHRDEV_NUM)
 
 #ifndef PXS1UR_USB_MAX_DEVICE
 #define PXS1UR_USB_MAX_DEVICE	64
@@ -75,7 +74,6 @@ struct px4_usb_context {
 		struct px4_device px4;
 		struct pxmlt_device pxmlt;
 		struct isdb2056_device isdb2056;
-		struct m1ur_device m1ur;
 		struct s1ur_device s1ur;
 	} ctx;
 };
@@ -229,12 +227,13 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 		case USB_PID_PX_M1UR:
 			ret = px4_usb_init_bridge(dev, usb_dev,
-						  &ctx->ctx.m1ur.it930x);
+						  &ctx->ctx.isdb2056.it930x);
 			if (ret)
 				break;
 
+			/* ISDB2056 と同じ処理で動かし、デバイスファイル名 (pxm1urvideo) だけを分ける */
 			ctx->type = PXM1UR_USB_DEVICE;
-			ret = m1ur_device_init(&ctx->ctx.m1ur, dev,
+			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev, PXM1UR_MODEL,
 						   px4_usb_chrdev_ctx[PXM1UR_USB_DEVICE],
 						   &ctx->quit_completion);
 			break;
@@ -319,12 +318,8 @@ static void px4_usb_disconnect(struct usb_interface *intf)
 		break;
 
 	case ISDB2056_USB_DEVICE:
-		isdb2056_device_term(&ctx->ctx.isdb2056);
-		wait_for_completion(&ctx->quit_completion);
-		break;
-
 	case PXM1UR_USB_DEVICE:
-		m1ur_device_term(&ctx->ctx.m1ur);
+		isdb2056_device_term(&ctx->ctx.isdb2056);
 		wait_for_completion(&ctx->quit_completion);
 		break;
 

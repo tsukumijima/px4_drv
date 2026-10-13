@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * PTX driver for Digibest ISDB2056 device (isdb2056_device.c)
+ * PTX driver for Digibest ISDB2056 and PLEX PX-M1UR device (isdb2056_device.c)
  *
  * Copyright (c) 2018-2021 nns779
  */
@@ -545,6 +545,7 @@ static int isdb2056_chrdev_tune(struct ptx_chrdev *chrdev,
 
 		switch (isdb2056->isdb2056_model) {
 		case ISDB2056_MODEL:
+		case PXM1UR_MODEL:
 			ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x07, 0x77);
 			break;
 		case ISDB2056N_MODEL:
@@ -560,6 +561,7 @@ static int isdb2056_chrdev_tune(struct ptx_chrdev *chrdev,
 
 		switch (isdb2056->isdb2056_model) {
 		case ISDB2056_MODEL:
+		case PXM1UR_MODEL:
 			ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x08, 0x10);
 			break;
 		case ISDB2056N_MODEL:
@@ -946,6 +948,7 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 	chrdev2056->tc90522_s.i2c = &it930x->i2c_master[2];
 	switch (isdb2056->isdb2056_model) {
 	case ISDB2056_MODEL:
+	case PXM1UR_MODEL:
 		// ISDB2056 TS demodulator: Toshiba TC90532XBG
 		chrdev2056->tc90522_s.i2c_addr = 0x11;
 		chrdev2056->tc90522_s.is_secondary = false;
