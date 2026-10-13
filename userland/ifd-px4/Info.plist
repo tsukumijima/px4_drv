@@ -1,13 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  pcsc-lite は string 要素を行単位で読むため、配列の要素も1行に1つずつ書く
+  同じ行に複数の string 要素を並べると、行全体が1つの値として読まれ、2つ目以降の機種が登録されない
+-->
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>PX4CARD</string>
-  <key>CFBundleExecutable</key><string>libifd-px4.so</string>
-  <key>CFBundleIdentifier</key><string>org.px4-drv.ifd-px4</string>
-  <key>ifdVendorID</key><array><string>0x0511</string><string>0x0511</string></array>
-  <key>ifdProductID</key><array><string>0x924e</string><string>0x024e</string></array>
-  <key>ifdFriendlyName</key><array><string>e-Better DTV02A-5TS-P</string><string>PLEX PX-MLT5PE</string></array>
-  <key>ifdCapabilities</key><string>0x00000000</string>
+	<key>CFBundleName</key>
+	<string>PX4CARD</string>
+	<key>CFBundleExecutable</key>
+	<string>libifd-px4.so</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.px4-drv.ifd-px4</string>
+	<key>ifdCapabilities</key>
+	<string>0x00000000</string>
+
+	<key>ifdVendorID</key>
+	<array>
+		<string>0x0511</string>
+		<string>0x0511</string>
+	</array>
+
+	<key>ifdProductID</key>
+	<array>
+		<string>0x924e</string>
+		<string>0x024e</string>
+	</array>
+
+	<key>ifdFriendlyName</key>
+	<array>
+		<string>e-Better DTV02A-5TS-P</string>
+		<string>PLEX PX-MLT5PE</string>
+	</array>
 </dict>
 </plist>
