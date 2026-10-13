@@ -1,0 +1,48 @@
+name: Build and Check IFD Packages
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  ifd:
+    name: IFD (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # 古い libc を基準に作成し、同じ deb を新しいディストリビューションでも検証する。
+      - name: Build package and run card tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/ifd-packages" "$RUNNER_TEMP/ifd-tests"
+          docker run --rm -e PX4_ISOLATED_TEST=1 \
+            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/ifd-packages:/packages" \
+            -v "$RUNNER_TEMP/ifd-tests:/ifd-tests" \
+            -w /src ubuntu:20.04 bash .github/scripts/build-ifd-package.sh
+
+      # 同じ試験バイナリで各 OS の pcscd と連携し、環境ごとの再ビルドを避ける。
+      - name: Check package and PC/SC integration in clean runtime containers
+        run: |
+          for image in ubuntu:20.04 ubuntu:24.04 debian:bookworm-slim; do
+            docker run --rm -e PX4_ISOLATED_TEST=1 \
+              -v "$PWD:/src:ro" -v "$RUNNER_TEMP/ifd-packages:/packages:ro" \
+              -v "$RUNNER_TEMP/ifd-tests:/ifd-tests:ro" \
+              -w /src "$image" bash .github/scripts/test-ifd-package.sh
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-ifd-${{ matrix.arch }}
+          path: ${{ runner.temp }}/ifd-packages/libifd-px4_*_${{ matrix.arch }}.deb
+          if-no-files-found: error

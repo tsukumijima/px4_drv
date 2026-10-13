@@ -6,6 +6,9 @@ on:
       - "*"
 
 jobs:
+  ifd:
+    uses: ./.github/workflows/build_ifd.yml
+
   build_and_release:
     name: Build and Release Debian Package
     runs-on: ubuntu-24.04
@@ -32,7 +35,7 @@ jobs:
         shell: bash
 
       - name: Check install
-        run: dpkg -i $(ls -1 ../*.deb | head -n 1)
+        run: dpkg -i ../px4-drv-dkms_*_all.deb
         shell: bash
 
       - name: Check dkms install
@@ -43,9 +46,28 @@ jobs:
         run: ls -l /lib/modules/*/updates/dkms/px4_drv.ko*
         shell: bash
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-dkms
+          path: ../px4-drv-dkms_*_all.deb
+          if-no-files-found: error
+
+  release:
+    needs: [build_and_release, ifd]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: deb-*
+          path: packages
+          merge-multiple: true
+
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
-            ../*.deb
+            packages/*.deb
+          fail_on_unmatched_files: true
