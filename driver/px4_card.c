@@ -149,7 +149,6 @@ static const struct file_operations px4_card_fops = {
 	.compat_ioctl = compat_ptr_ioctl,
 #endif
 	.poll = px4_card_poll,
-	.llseek = no_llseek,
 };
 
 int px4_card_register(struct device *parent,
