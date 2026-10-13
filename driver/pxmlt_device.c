@@ -927,120 +927,21 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 	return 0;
 }
 
-static int pxmlt_card_power(struct pxmlt_device *pxmlt, bool on)
+static int pxmlt_card_set_power(void *context, bool on)
 {
+	struct pxmlt_device *pxmlt = context;
 	int ret = 0;
 
-	if (pxmlt->card_powered == on)
-		return 0;
-	if (on) {
-		if (!pxmlt->open_count) {
-			ret = pxmlt_backend_set_power(pxmlt, true);
-			if (ret)
-				goto fail_power_on;
-		}
-		ret = it930x_bcas_init(&pxmlt->it930x);
-		if (ret)
-			goto fail_power_on;
-		pxmlt->card_powered = true;
-	} else {
-		/*
-		 * カードを閉じるたびに基板電源を落とすと、受信中のチューナーも停止する。
-		 * 停止失敗でカード参照を残すと、所有者がいないまま電源を保持してしまう。
-		 */
-		pxmlt->card_powered = false;
-		if (atomic_read(&pxmlt->available)) {
-			ret = it930x_set_gpio_mode(&pxmlt->it930x, 14, IT930X_GPIO_OUT, true);
-			if (!ret)
-				ret = it930x_write_gpio(&pxmlt->it930x, 14, false);
-		}
-		if (!pxmlt->open_count)
-			pxmlt_backend_set_power(pxmlt, false);
-	}
-	return ret;
-
-fail_power_on:
+	/* 受信中のチューナーがあれば、基板の電源はチューナー側の参照で入ったままになっている */
 	if (!pxmlt->open_count)
-		pxmlt_backend_set_power(pxmlt, false);
+		ret = pxmlt_backend_set_power(pxmlt, on);
+
+	/* 停止は成否にかかわらず停止済みとして記録し、投入は成功したときだけ記録する */
+	if (!on || !ret)
+		pxmlt->card_powered = on;
+
 	return ret;
 }
-
-static int pxmlt_card_request(void *context, unsigned int command,
-			      struct px4_card_io *io)
-{
-	struct pxmlt_device *pxmlt = context;
-	struct it930x_bridge *bridge = &pxmlt->it930x;
-	enum it930x_uart_baudrate baudrate;
-	bool value = false;
-	u8 length = io->length;
-	int ret;
-
-	if (mutex_lock_interruptible(&pxmlt->lock))
-		return -ERESTARTSYS;
-	if (!atomic_read(&pxmlt->available)) {
-		ret = -ENODEV;
-		goto out;
-	}
-	if (command != PX4_CARD_POWER && command != PX4_CARD_DETECT &&
-	    !pxmlt->card_powered) {
-		ret = -EHOSTDOWN;
-		goto out;
-	}
-	switch (command) {
-	case PX4_CARD_POWER:
-		ret = io->value > 1 ? -EINVAL : pxmlt_card_power(pxmlt, io->value);
-		break;
-	case PX4_CARD_DETECT:
-		/* 検出だけで電源を取得すると、pcscd の状態監視が基板を通電させ続ける。 */
-		ret = it930x_set_gpio_mode(bridge, 6, IT930X_GPIO_IN, true);
-		if (!ret)
-			ret = it930x_bcas_detect_card(bridge, &value);
-		io->value = value;
-		break;
-	case PX4_CARD_RESET:
-		ret = it930x_bcas_reset_card(bridge);
-		break;
-	case PX4_CARD_SET_BAUDRATE:
-		switch (io->value) {
-		case 9600: baudrate = IT930X_UART_BAUDRATE_9600; break;
-		case 19200: baudrate = IT930X_UART_BAUDRATE_19200; break;
-		case 38400: baudrate = IT930X_UART_BAUDRATE_38400; break;
-		default: ret = -EINVAL; goto out;
-		}
-		ret = it930x_bcas_set_baudrate(bridge, baudrate);
-		break;
-	case PX4_CARD_RX_READY:
-		ret = it930x_bcas_check_ready(bridge, &value);
-		io->value = value;
-		break;
-	case PX4_CARD_READ:
-		ret = it930x_bcas_get_data(bridge, io->data, &length);
-		io->length = length;
-		break;
-	case PX4_CARD_WRITE:
-		ret = it930x_bcas_send_data(bridge, io->data, length);
-		break;
-	default:
-		ret = -ENOTTY;
-	}
-out:
-	mutex_unlock(&pxmlt->lock);
-	return ret;
-}
-
-static void pxmlt_card_close(void *context)
-{
-	struct pxmlt_device *pxmlt = context;
-
-	mutex_lock(&pxmlt->lock);
-	pxmlt_card_power(pxmlt, false);
-	mutex_unlock(&pxmlt->lock);
-}
-
-static const struct px4_card_operations pxmlt_card_ops = {
-	.request = pxmlt_card_request,
-	.close = pxmlt_card_close,
-};
 
 int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 		      enum pxmlt_model model,
@@ -1208,10 +1109,18 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 	}
 
 	atomic_set(&pxmlt->available, 1);
-	/* 電源・GPIO 手順を未検証の機種へ適用しないよう、PX-MLT5PE 系に限定する。 */
+
 	if (model == PXMLT5PE_MODEL) {
-		ret = px4_card_register(dev, &pxmlt_card_ops, pxmlt, &pxmlt->card);
-		/* カード層の登録失敗で既存の受信機を使えなくしない。 */
+		struct px4_card_backend card_backend = {
+			.it930x = it930x,
+			.lock = &pxmlt->lock,
+			.available = &pxmlt->available,
+			.set_power = pxmlt_card_set_power,
+			.context = pxmlt,
+		};
+
+		/* カードリーダーを登録できなくても、チューナーは使えるようにする */
+		ret = px4_card_register(dev, &card_backend, &pxmlt->card);
 		if (ret)
 			dev_warn(dev, "Card reader registration failed: %d\n", ret);
 	}

@@ -53,7 +53,7 @@ struct pxmlt_device {
 	struct device *dev;
 	struct completion *quit_completion;
 	unsigned int open_count;
-	/* チューナー利用数だけで管理すると、カード使用中でも最後のチューナーが電源を切る。 */
+	/* 内蔵カードリーダーが基板の電源を使っているか (最後のチューナーを閉じても、カードの使用中は電源を切らない) */
 	bool card_powered;
 	struct px4_card *card;
 	unsigned int lnb_power_count;
