@@ -10,7 +10,6 @@
 #include <limits>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <time.h>
 #include <unistd.h>
 
 namespace px4 {
@@ -44,26 +43,12 @@ void LinuxCardDevice::Disconnect() noexcept
 		close(fd_);
 		fd_ = -1;
 	}
-	deadline_ns_ = 0;
-}
-
-void LinuxCardDevice::SetIoDeadline(std::chrono::steady_clock::time_point deadline)
-{
-	/* steady_clock の epoch を直接使うと、カーネル側と期限の基準がずれる可能性がある。 */
-	const auto remaining = deadline - std::chrono::steady_clock::now();
-	timespec now{};
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
-	deadline_ns_ = std::uint64_t(now.tv_sec) * 1000000000ULL + now.tv_nsec;
-	if (ns > 0)
-		deadline_ns_ += std::uint64_t(ns);
 }
 
 int LinuxCardDevice::Request(unsigned long command, px4_card_io &io)
 {
 	if (fd_ < 0)
 		return -ENODEV;
-	io.deadline_ns = deadline_ns_;
 	/* EINTR 時の再実行は、完了済みの USB 操作を二重に発行する恐れがある。 */
 	return ioctl(fd_, command, &io) < 0 ? -errno : 0;
 }
@@ -77,8 +62,6 @@ int LinuxCardDevice::OpenCard()
 
 int LinuxCardDevice::PowerOff()
 {
-	/* 通信失敗時の期限を流用すると、電源解放の ioctl も期限切れで拒否される。 */
-	SetIoDeadline(std::chrono::steady_clock::now() + std::chrono::seconds(3));
 	px4_card_io io{};
 	return Request(PX4_CARD_POWER, io);
 }

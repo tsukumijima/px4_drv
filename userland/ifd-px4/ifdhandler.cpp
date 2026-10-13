@@ -80,7 +80,6 @@ RESPONSECODE WithReader(DWORD lun, Function function)
 
 int CheckPresence(Reader &reader, bool &present)
 {
-	reader.device->SetIoDeadline(std::chrono::steady_clock::now() + std::chrono::seconds(3));
 	int ret = reader.device->DetectCard(present);
 	if (ret || !present)
 		reader.Invalidate();

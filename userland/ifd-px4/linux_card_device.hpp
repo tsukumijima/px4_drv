@@ -12,7 +12,6 @@ public:
 	~LinuxCardDevice() override;
 	int Connect(const std::string &path);
 	void Disconnect() noexcept;
-	void SetIoDeadline(std::chrono::steady_clock::time_point deadline) override;
 	int OpenCard() override;
 	void CloseCard() override;
 	int PowerOff();
@@ -26,7 +25,6 @@ public:
 private:
 	int Request(unsigned long command, px4_card_io &io);
 	int fd_ = -1;
-	std::uint64_t deadline_ns_ = 0;
 };
 
 /* VID/PID だけでは同型機を区別できないため、sysfs の親 USB 機器まで照合する。 */

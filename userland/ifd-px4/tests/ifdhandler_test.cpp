@@ -116,12 +116,6 @@ extern "C" int __wrap_ioctl(int fd, unsigned long command, ...)
 		return 0;
 	}
 	auto &io = *static_cast<px4_card_io *>(argument);
-	timespec now{};
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	const auto now_ns = std::uint64_t(now.tv_sec) * 1000000000ULL + now.tv_nsec;
-	if (io.deadline_ns <= now_ns)
-		return Failure(ETIMEDOUT);
-	assert(io.deadline_ns < now_ns + 4000000000ULL);
 	assert(io.reserved == 0);
 	if (command == PX4_CARD_POWER) {
 		device->powered = io.value != 0;
@@ -203,8 +197,8 @@ static void TestResolver()
 
 int main()
 {
-	static_assert(sizeof(px4_card_io) == 272, "UAPI layout changed");
-	static_assert(offsetof(px4_card_io, data) == 16, "UAPI layout changed");
+	static_assert(sizeof(px4_card_io) == 264, "UAPI layout changed");
+	static_assert(offsetof(px4_card_io, data) == 8, "UAPI layout changed");
 	static_assert(sizeof(px4_card_info) == 16, "UAPI layout changed");
 	TestResolver();
 	char path0[] = "/dev/px4card-test0", path1[] = "/dev/px4card-test1";

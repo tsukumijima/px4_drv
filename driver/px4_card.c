@@ -3,7 +3,6 @@
 #include <linux/fs.h>
 #include <linux/idr.h>
 #include <linux/kref.h>
-#include <linux/ktime.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -94,8 +93,7 @@ static long px4_card_ioctl(struct file *file, unsigned int command,
 	case PX4_CARD_WRITE:
 		if (copy_from_user(&input, ptr, sizeof(input)))
 			return -EFAULT;
-		if (input.reserved || !input.deadline_ns ||
-		    input.deadline_ns > S64_MAX || input.length > PX4_CARD_MAX_FRAME)
+		if (input.reserved || input.length > PX4_CARD_MAX_FRAME)
 			return -EINVAL;
 		if (command != PX4_CARD_POWER && command != PX4_CARD_SET_BAUDRATE && input.value)
 			return -EINVAL;
@@ -105,7 +103,6 @@ static long px4_card_ioctl(struct file *file, unsigned int command,
 		} else if (input.length) {
 			return -EINVAL;
 		}
-		output.deadline_ns = input.deadline_ns;
 		output.value = input.value;
 		output.length = input.length;
 		if (command == PX4_CARD_WRITE)
@@ -121,8 +118,6 @@ static long px4_card_ioctl(struct file *file, unsigned int command,
 		ret = -ENODEV;
 	else if (command == PX4_CARD_GET_INFO)
 		ret = copy_to_user(ptr, &info, sizeof(info)) ? -EFAULT : 0;
-	else if (ktime_get_ns() >= output.deadline_ns)
-		ret = -ETIMEDOUT;
 	else {
 		ret = card->ops->request(card->context, command, &output);
 		if (!ret && (_IOC_DIR(command) & _IOC_READ))
