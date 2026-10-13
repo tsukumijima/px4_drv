@@ -25,6 +25,8 @@
 		<string>0x0511</string>
 		<string>0x0511</string>
 		<string>0x0511</string>
+		<string>0x0511</string>
+		<string>0x0511</string>
 	</array>
 
 	<key>ifdProductID</key>
@@ -37,6 +39,8 @@
 		<string>0x024a</string>
 		<string>0x073f</string>
 		<string>0x074a</string>
+		<string>0x004b</string>
+		<string>0x084b</string>
 	</array>
 
 	<key>ifdFriendlyName</key>
@@ -49,6 +53,8 @@
 		<string>PLEX PX-Q3PE4</string>
 		<string>PLEX PX-W3PE5</string>
 		<string>PLEX PX-Q3PE5</string>
+		<string>e-Better DTV02A-1T1S-U</string>
+		<string>e-Better DTV02A-1T1S-U</string>
 	</array>
 </dict>
 </plist>

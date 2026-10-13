@@ -15,6 +15,7 @@
 #include <linux/device.h>
 
 #include "ptx_chrdev.h"
+#include "px4_card.h"
 #include "it930x.h"
 #include "tc90522.h"
 #include "r850.h"
@@ -38,7 +39,13 @@ struct isdb2056_chrdev {
 
 struct isdb2056_device {
 	struct kref kref;
+	/* チューナーと内蔵カードリーダーで共有する基板電源の状態を守る */
+	struct mutex lock;
 	atomic_t available;
+	bool tuner_open;
+	/* 内蔵カードリーダーが基板の電源を使っているか (チューナーを閉じても、カードの使用中は電源を切らない) */
+	bool card_powered;
+	struct px4_card *card;
 	struct device *dev;
 	enum isdb2056_model isdb2056_model;
 	struct completion *quit_completion;
