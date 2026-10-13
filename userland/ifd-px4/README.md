@@ -1,97 +1,103 @@
-# Linux 内蔵カードリーダー用 IFD ハンドラー
+# 内蔵カードリーダー用 IFD ハンドラー (Linux)
 
-DTV02A-5TS-P / PX-MLT5PE の内蔵カードリーダーを、PC/SC 対応アプリケーションから利用するためのドライバーです。
-外付け CCID リーダーは従来の `libccid` と併用でき、使用するリーダーはアプリケーション側で選択します。
+チューナーに内蔵された B-CAS カードリーダーを、pcsc-lite (pcscd) を通して PC/SC 対応のアプリケーションから使うためのドライバーです。  
+pcscd が USB の接続を検出するとこのドライバーを読み込み、内蔵カードリーダーが外付けのカードリーダーと同じように一覧へ並びます。  
+外付けのカードリーダーは従来どおり `libccid` で使えるため、どちらのカードリーダーを使うかはアプリケーション側で選びます。
 
-## Debian パッケージでの導入
+## 対応機種
 
-内蔵カードリーダーには、次のパッケージが必要です。
+内蔵カードリーダーを持つ次の機種に対応しています。
 
-| パッケージ | 内容 | 配置先 |
-|---|---|---|
-| `px4-drv-dkms` | 内蔵カード対応カーネルモジュール、ファームウェア、udev 規則 | ホスト |
-| `libifd-px4` | 内蔵カードリーダー用の PC/SC ドライバー | pcscd が動く環境 |
-| `pcscd` | PC/SC の接続とカードの共有管理 | ホストまたはコンテナ |
+| 系統 | 機種 |
+|---|---|
+| PX4 系 | PLEX PX-W3U4、PX-Q3U4、PX-W3PE4、PX-Q3PE4、PX-W3PE5、PX-Q3PE5 |
+| PXMLT 系 | PLEX PX-MLT5U、PX-MLT5PE、PX-MLT8PE、e-Better DTV02A-5TS-P、DTV02A-4TS-P |
+| ISDB2056 系 | e-Better DTV02A-1T1S-U、PLEX PX-M1UR |
+| ISDBT2071 系 | PLEX PX-S1UR、e-Better DTV03A-1TU |
 
-内蔵カード対応版の `px4-drv-dkms` と、同じ版の `libifd-px4` を用意してください。
-`libifd-px4` は CPU ごとのパッケージなので、利用先の `dpkg --print-architecture` と一致するファイルを選びます。
-配布版 `v0.6.1` には内蔵カード対応が含まれません。必要な配布物がない場合は、[ソースからの deb 生成手順](DEVELOPMENT.md#deb-パッケージの生成と配布)を参照してください。
+PX-Q3U4・PX-Q3PE4・PX-Q3PE5 と PX-MLT8PE は、1つの筐体が2つの USB デバイスとして見える機種で、カードスロットがあるのは片方だけです。  
+カードスロットのない側の USB デバイスでも pcscd がこのドライバーを読み込みますが、カードリーダーは見つからないまま終わります (接続時に3秒ほどかかります)。
 
-ホストで pcscd を動かす場合は、利用する版・CPU の2つの deb だけを置いたディレクトリで実行します。
+実機で動作を確かめた機種と条件は、[実機確認の記録](../../docs/20261014_linux_card_reader_validation.md)にまとめています。
 
-```sh
-sudo apt install ./px4-drv-dkms_*_all.deb ./libifd-px4_*.deb pcscd
+## 導入
+
+内蔵カードリーダーを使うには、カードリーダーに対応した版のカーネルモジュールと、このドライバー、pcscd が必要です。  
+カーネルモジュールと udev 規則は、[Linux の導入手順](../../README.md#インストール-linux)で導入されます。
+
+このドライバーのビルドには、C++17 に対応したコンパイラー、make、pkg-config、pcsc-lite の開発用ファイルが必要です。  
+Debian / Ubuntu では次のパッケージで揃います。
+
+```bash
+sudo apt install build-essential pkg-config libpcsclite-dev pcscd
 ```
 
-カーネルモジュールの導入・入れ替えは [Linux の導入手順](../../README.md#インストール-linux)を参照してください。
-IFD の導入・更新後は pcscd の再起動が必要です。カード利用中の再起動は復号を中断するため、録画・視聴を停止できる保守時間に実行してください。
+リポジトリのルートでビルドし、pcsc-lite のドライバーの配置先へインストールします。
 
-```sh
+```bash
+make -C userland/ifd-px4
+sudo make -C userland/ifd-px4 install
+```
+
+配置先は `pkg-config --variable=usbdropdir libpcsclite` で決まり、次の2つのファイルが置かれます。
+
+```text
+<配置先>/ifd-px4.bundle/Contents/Info.plist
+<配置先>/ifd-px4.bundle/Contents/Linux/libifd-px4.so
+```
+
+導入や更新の後は、pcscd を再起動すると読み込まれます。  
+カードを使っている最中に再起動すると復号が途切れるため、録画や視聴をしていないときに実行してください。
+
+```bash
 sudo systemctl restart pcscd
 ```
 
-## Docker で pcscd を動かしている場合
+## Docker で pcscd を動かす場合
 
-`px4-drv-dkms` はホストへ、`libifd-px4` と `pcscd` はコンテナへ配置します。
-Debian / Ubuntu ベースのコンテナでは、利用する CPU 向けの IFD deb を1つだけビルドコンテキストへ置き、Dockerfile へ次を追加できます。
+カーネルモジュールはホストへ、このドライバーと pcscd はコンテナへ導入します。  
+コンテナの中でも上と同じ手順でビルドとインストールができます。
 
-```dockerfile
-COPY libifd-px4_*.deb /tmp/ifd-package/
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends pcscd /tmp/ifd-package/*.deb \
-    && rm -rf /tmp/ifd-package /var/lib/apt/lists/*
-```
-
-pcscd の起動はコンテナの既存の起動処理で行ってください。
-手動配置した IFD を同じパスへ bind mount している場合は、そのマウントがイメージ内の deb の内容を隠すため、パッケージ導入へ移行する際に外す必要があります。
-コンテナには既存のチューナーデバイスに加えて、カードデバイスへのアクセスを渡します。
+コンテナには、チューナーのデバイスファイルに加えて、カードリーダーのデバイスファイル (`/dev/px4cardN`) を渡します。
 
 ```yaml
 devices:
   - /dev/px4card0:/dev/px4card0
 ```
 
-これは追加する設定の抜粋です。番号は対象機器の sysfs 親情報と照合してください。
-USB の再接続で minor 番号やカードデバイス名が変わる場合は、Docker のデバイス割り当ても見直す必要があります。
-コンテナ内の USB 自動検出には、親 USB 機器と `/sys/class/misc/px4cardN/device` が同じ機器として参照できる sysfs の可視性が必要です。
-設定の反映には、録画・視聴を停止できる保守時間にイメージを再ビルドし、コンテナを再作成してください。
+pcscd は、USB デバイスと `/sys/class/misc/px4cardN` の対応を sysfs でたどってカードリーダーを見つけるため、コンテナからホストの sysfs と USB デバイスの情報が見える必要があります。  
+USB を抜き差しするとカードリーダーの番号が変わることがあるので、そのときはコンテナへ渡すデバイスファイルも見直してください。
 
-## リーダーの認識確認
+## 認識の確認
 
-カードを挿入し、pcscd が動く環境で `pcsc-tools` の `pcsc_scan` を実行すると、リーダーとカードの認識状態を確認できます。
-リーダー名には `e-Better DTV02A-5TS-P` または `PLEX PX-MLT5PE` が表示されます。確認後は Ctrl+C で終了します。
+`pcsc-tools` の `pcsc_scan` で、カードリーダーとカードを認識しているかを確かめられます。
 
-```sh
+```bash
 sudo apt install pcsc-tools
 pcsc_scan
 ```
 
-リーダーが表示されない場合は、次を確認してください。
+`PLEX PX-W3U4 (シリアル番号) 00 00` のように、機種名の付いたカードリーダーが表示されます。  
+表示されない場合は、次の順に確かめてください。
 
-- ホストに `/dev/px4cardN` があること。存在しない場合は、機種とロード中のカーネルモジュールが内蔵カード対応かを確認します。
-- pcscd が動く環境に IFD が導入され、導入後に pcscd を再起動していること。
-- Docker では、コンテナからカードデバイスと USB・sysfs の情報を参照できること。
-- pcscd を非 root で起動する場合は、そのサービスの利用者がカードデバイスを開けること。デバイスの権限は `root:video`、`0660` です。
+- ホストに `/dev/px4cardN` があるか (ない場合は、カーネルモジュールがカードリーダーに対応した版かを確かめます)
+- pcscd を動かす環境にこのドライバーを導入し、その後で pcscd を再起動したか
+- Docker で動かす場合は、コンテナへカードリーダーのデバイスファイルを渡し、sysfs が見えるようになっているか
+- pcscd を root 以外で動かす場合は、そのユーザーが `/dev/px4cardN` を開けるか (権限は `root:video` の `0660`)
 
-## 固定設定が必要な場合
+## 設定ファイルで固定する場合
 
-通常は libudev を有効にした pcsc-lite による USB 自動検出を利用できます。
-固定設定が必要な環境では、`reader.conf.d` へ次のような設定を配置できます。
-`LIBPATH` は実際の配置先へ合わせてください。USB 自動検出と固定設定を同じリーダーへ重複適用すると、排他的 open が衝突します。
+通常は pcscd が USB の接続を検出して自動で読み込むため、設定ファイルは不要です。  
+USB の検出を使えない環境では、`/etc/reader.conf.d/` に次のような設定を置いて固定できます。
 
 ```text
-FRIENDLYNAME "DTV02A-5TS-P internal reader"
+FRIENDLYNAME "PX4 internal card reader"
 DEVICENAME /dev/px4card0
 LIBPATH /usr/lib/pcsc/drivers/ifd-px4.bundle/Contents/Linux/libifd-px4.so
 CHANNELID 0
 ```
 
-udev 規則は、`ID_PATH` が得られる場合に `/dev/px4card/by-path/` に接続位置からのリンクを作成します。
-固定設定のリーダーを USB 切断後に再登録する方法は pcsc-lite の設定再読み込み方式に依存するため、ホットプラグには USB 自動検出を優先してください。
+同じカードリーダーを USB の検出と設定ファイルの両方で登録すると、片方がデバイスファイルを開けずに失敗します。  
+udev 規則は、接続位置から作ったリンク (`/dev/px4card/by-path/`) も作るので、固定する場合はそちらを指定すると USB の差し直しで番号が変わっても追従できます。
 
-## 確認範囲と制限
-
-DTV02A-5TS-P の内蔵カードを使い、Mirakurun で地上波・BS を同時に30秒間受信・復号した試験では、同期エラー・TEI・連続性エラー・スクランブル残りはすべて0でした（2026-10-13）。
-長時間録画、カード挿抜、USB の抜き差し、複数台や PX-MLT5PE での動作は未確認です。条件と結果は [実機確認記録](DEVELOPMENT.md#mirakurun-での同時復号確認-2026-10-13)を参照してください。
-
-実装の構成、ソースからのビルド、ABI、自動試験については [開発者向け文書](DEVELOPMENT.md)にまとめています。
+開発者向けの構成・ioctl の仕様・試験は、[開発者向けの文書](DEVELOPMENT.md)を参照してください。
