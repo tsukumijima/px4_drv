@@ -1,14 +1,19 @@
 #pragma once
 
 #include <cstdint>
+#include <cerrno>
+#include <chrono>
 
-#include "it930x.h"
+#include "it930x_uart.h"
 
 namespace px4 {
 
 class CardDevice {
 public:
 	virtual ~CardDevice() = default;
+
+	/* 純粋仮想にすると、期限非対応のバックエンドにも空の実装が必要になる。 */
+	virtual void SetIoDeadline(std::chrono::steady_clock::time_point) {}
 
 	virtual int OpenCard() = 0;
 	virtual void CloseCard() = 0;

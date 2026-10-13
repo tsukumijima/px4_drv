@@ -183,6 +183,9 @@ BonDriver と同じフォルダに DriverHost_PX4.exe / DriverHost_PX4.ini / it9
 
 ## インストール (Linux)
 
+DTV02A-5TS-P / PX-MLT5PE の内蔵カードリーダーには、内蔵カード対応版のカーネルモジュールに加えて `libifd-px4` と `pcscd` が必要です。
+導入方法は [Linux 用 IFD ハンドラー](userland/ifd-px4/README.md)を参照してください。
+
 ### 1. ファームウェアの抽出とインストール (手動インストール時のみ)
 
 > [!IMPORTANT]  
@@ -432,7 +435,7 @@ Windows では、BonDriver_PX4-S.ini に記載の `LNBPower=0` を `LNBPower=1` 
 
 ### 内蔵カードリーダーやリモコンについて
 
-WinUSB 版は、各種対応デバイスに内蔵されているカードリーダーを利用できます。Linux 版とリモコンの操作には対応していません。
+WinUSB 版は、各種対応デバイスに内蔵されているカードリーダーを利用できます。Linux 版では DTV02A-5TS-P / PX-MLT5PE の内蔵カードリーダーを利用できます。リモコンの操作には対応していません。
 
 ### e-Better DTV02-1T1S-U について
 

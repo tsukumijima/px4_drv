@@ -17,6 +17,7 @@
 
 #include "itedtv_bus.h"
 #include "i2c_comm.h"
+#include "it930x_uart.h"
 
 #define IT930X_CMD_REG_READ		0x00
 #define IT930X_CMD_REG_WRITE		0x01
@@ -29,12 +30,6 @@
 #define IT930X_CMD_UART_WRITE		0x34
 #define IT930X_CMD_UART_SET_BAUDRATE	0x35
 #define IT930X_CMD_UART_SET_MODE	0x37
-
-enum it930x_uart_baudrate {
-	IT930X_UART_BAUDRATE_9600 = 0,
-	IT930X_UART_BAUDRATE_19200 = 1,
-	IT930X_UART_BAUDRATE_38400 = 2,
-};
 
 enum it930x_gpio_mode {
 	IT930X_GPIO_UNDEFINED = 0,

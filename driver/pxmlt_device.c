@@ -224,7 +224,7 @@ static int pxmlt_chrdev_open(struct ptx_chrdev *chrdev)
 
 	mutex_lock(&pxmlt->lock);
 
-	if (!pxmlt->open_count) {
+	if (!pxmlt->open_count && !pxmlt->card_powered) {
 		ret = pxmlt_backend_set_power(pxmlt, true);
 		if (ret) {
 			dev_err(pxmlt->dev,
@@ -319,7 +319,7 @@ fail_tuner_init:
 	cxd2856er_term(&chrdevm->cxd2856er);
 
 fail_demod_init:
-	if (!pxmlt->open_count)
+	if (!pxmlt->open_count && !pxmlt->card_powered)
 		pxmlt_backend_set_power(pxmlt, false);
 
 fail_backend_power:
@@ -355,7 +355,7 @@ static int pxmlt_chrdev_release(struct ptx_chrdev *chrdev)
 	cxd2856er_term(&chrdevm->cxd2856er);
 
 	pxmlt->open_count--;
-	if (!pxmlt->open_count)
+	if (!pxmlt->open_count && !pxmlt->card_powered)
 		pxmlt_backend_set_power(pxmlt, false);
 
 	if (kref_put(&pxmlt->kref, pxmlt_device_release))
@@ -927,6 +927,121 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 	return 0;
 }
 
+static int pxmlt_card_power(struct pxmlt_device *pxmlt, bool on)
+{
+	int ret = 0;
+
+	if (pxmlt->card_powered == on)
+		return 0;
+	if (on) {
+		if (!pxmlt->open_count) {
+			ret = pxmlt_backend_set_power(pxmlt, true);
+			if (ret)
+				goto fail_power_on;
+		}
+		ret = it930x_bcas_init(&pxmlt->it930x);
+		if (ret)
+			goto fail_power_on;
+		pxmlt->card_powered = true;
+	} else {
+		/*
+		 * カードを閉じるたびに基板電源を落とすと、受信中のチューナーも停止する。
+		 * 停止失敗でカード参照を残すと、所有者がいないまま電源を保持してしまう。
+		 */
+		pxmlt->card_powered = false;
+		if (atomic_read(&pxmlt->available)) {
+			ret = it930x_set_gpio_mode(&pxmlt->it930x, 14, IT930X_GPIO_OUT, true);
+			if (!ret)
+				ret = it930x_write_gpio(&pxmlt->it930x, 14, false);
+		}
+		if (!pxmlt->open_count)
+			pxmlt_backend_set_power(pxmlt, false);
+	}
+	return ret;
+
+fail_power_on:
+	if (!pxmlt->open_count)
+		pxmlt_backend_set_power(pxmlt, false);
+	return ret;
+}
+
+static int pxmlt_card_request(void *context, unsigned int command,
+			      struct px4_card_io *io)
+{
+	struct pxmlt_device *pxmlt = context;
+	struct it930x_bridge *bridge = &pxmlt->it930x;
+	enum it930x_uart_baudrate baudrate;
+	bool value = false;
+	u8 length = io->length;
+	int ret;
+
+	if (mutex_lock_interruptible(&pxmlt->lock))
+		return -ERESTARTSYS;
+	if (!atomic_read(&pxmlt->available)) {
+		ret = -ENODEV;
+		goto out;
+	}
+	if (command != PX4_CARD_POWER && command != PX4_CARD_DETECT &&
+	    !pxmlt->card_powered) {
+		ret = -EHOSTDOWN;
+		goto out;
+	}
+	switch (command) {
+	case PX4_CARD_POWER:
+		ret = io->value > 1 ? -EINVAL : pxmlt_card_power(pxmlt, io->value);
+		break;
+	case PX4_CARD_DETECT:
+		/* 検出だけで電源を取得すると、pcscd の状態監視が基板を通電させ続ける。 */
+		ret = it930x_set_gpio_mode(bridge, 6, IT930X_GPIO_IN, true);
+		if (!ret)
+			ret = it930x_bcas_detect_card(bridge, &value);
+		io->value = value;
+		break;
+	case PX4_CARD_RESET:
+		ret = it930x_bcas_reset_card(bridge);
+		break;
+	case PX4_CARD_SET_BAUDRATE:
+		switch (io->value) {
+		case 9600: baudrate = IT930X_UART_BAUDRATE_9600; break;
+		case 19200: baudrate = IT930X_UART_BAUDRATE_19200; break;
+		case 38400: baudrate = IT930X_UART_BAUDRATE_38400; break;
+		default: ret = -EINVAL; goto out;
+		}
+		ret = it930x_bcas_set_baudrate(bridge, baudrate);
+		break;
+	case PX4_CARD_RX_READY:
+		ret = it930x_bcas_check_ready(bridge, &value);
+		io->value = value;
+		break;
+	case PX4_CARD_READ:
+		ret = it930x_bcas_get_data(bridge, io->data, &length);
+		io->length = length;
+		break;
+	case PX4_CARD_WRITE:
+		ret = it930x_bcas_send_data(bridge, io->data, length);
+		break;
+	default:
+		ret = -ENOTTY;
+	}
+out:
+	mutex_unlock(&pxmlt->lock);
+	return ret;
+}
+
+static void pxmlt_card_close(void *context)
+{
+	struct pxmlt_device *pxmlt = context;
+
+	mutex_lock(&pxmlt->lock);
+	pxmlt_card_power(pxmlt, false);
+	mutex_unlock(&pxmlt->lock);
+}
+
+static const struct px4_card_operations pxmlt_card_ops = {
+	.request = pxmlt_card_request,
+	.close = pxmlt_card_close,
+};
+
 int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 		      enum pxmlt_model model,
 		      struct ptx_chrdev_context *chrdev_ctx,
@@ -952,6 +1067,8 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 	pxmlt->dev = dev;
 	pxmlt->quit_completion = quit_completion;
 	pxmlt->open_count = 0;
+	pxmlt->card_powered = false;
+	pxmlt->card = NULL;
 	pxmlt->lnb_power_count = 0;
 	pxmlt->streaming_count = 0;
 	mutex_init(&pxmlt->tuner_lock[0]);
@@ -1091,6 +1208,13 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 	}
 
 	atomic_set(&pxmlt->available, 1);
+	/* 電源・GPIO 手順を未検証の機種へ適用しないよう、PX-MLT5PE 系に限定する。 */
+	if (model == PXMLT5PE_MODEL) {
+		ret = px4_card_register(dev, &pxmlt_card_ops, pxmlt, &pxmlt->card);
+		/* カード層の登録失敗で既存の受信機を使えなくしない。 */
+		if (ret)
+			dev_warn(dev, "Card reader registration failed: %d\n", ret);
+	}
 	return 0;
 
 fail_chrdev:
@@ -1138,7 +1262,11 @@ void pxmlt_device_term(struct pxmlt_device *pxmlt)
 {
 	dev_dbg(pxmlt->dev, "pxmlt_device_term\n");
 
+	mutex_lock(&pxmlt->lock);
 	atomic_xchg(&pxmlt->available, 0);
+	mutex_unlock(&pxmlt->lock);
+	px4_card_unregister(pxmlt->card);
+	pxmlt->card = NULL;
 	ptx_chrdev_group_destroy(pxmlt->chrdev_group);
 
 	kref_put(&pxmlt->kref, pxmlt_device_release);

@@ -16,6 +16,7 @@
 #include <linux/device.h>
 
 #include "ptx_chrdev.h"
+#include "px4_card.h"
 #include "it930x.h"
 #include "cxd2856er.h"
 #include "cxd2858er.h"
@@ -52,6 +53,9 @@ struct pxmlt_device {
 	struct device *dev;
 	struct completion *quit_completion;
 	unsigned int open_count;
+	/* チューナー利用数だけで管理すると、カード使用中でも最後のチューナーが電源を切る。 */
+	bool card_powered;
+	struct px4_card *card;
 	unsigned int lnb_power_count;
 	unsigned int streaming_count;
 	struct mutex tuner_lock[2];
