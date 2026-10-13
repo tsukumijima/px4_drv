@@ -2,7 +2,7 @@
 #ifndef __IT930X_UART_H__
 #define __IT930X_UART_H__
 
-/* it930x.h を直接共有すると、ユーザー空間の状態機械にもカーネル依存が入る。 */
+/* ユーザー空間の IFD ハンドラーと共有する T=1 の実装が、カーネル向けの it930x.h に依存しないよう分けている */
 enum it930x_uart_baudrate {
 	IT930X_UART_BAUDRATE_9600 = 0,
 	IT930X_UART_BAUDRATE_19200 = 1,

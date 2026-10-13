@@ -2,7 +2,7 @@
 set -eu
 ulimit -c 0
 
-# ホストの既存 pcscd に接続しないよう、専用コンテナ以外での実行を拒否する。
+# ホストで動いている pcscd へ接続しないよう、試験専用のコンテナの中でだけ実行する
 test "${PX4_ISOLATED_TEST:-}" = 1
 test -f /.dockerenv
 test ! -e /run/pcscd/pcscd.comm
@@ -17,7 +17,7 @@ done
 test ! -e /dev/bus/usb
 test ! -e /dev/px4card-test0
 build_dir=$(cd "${BUILD:-build}" && pwd)
-# pcscd は設定の読み込み時に DEVICENAME の存在を検査する。I/O は模擬 IFD が処理する。
+# pcscd は設定の読み込み時に DEVICENAME のファイルがあるかを確かめるので、空のファイルを置く (I/O は模擬の IFD ハンドラーが処理する)
 : > /dev/px4card-test0
 stage=$(mktemp -d /tmp/px4-pcsc-test.XXXXXX)
 pcsc_pid=
@@ -38,7 +38,7 @@ LIBPATH $build_dir/libifd-px4-test.so
 CHANNELID 0
 EOF
 set -- --foreground --config "$stage/readers"
-# Polkit 有効の pcscd は、D-Bus のない隔離コンテナで試験クライアントの接続を拒否する。
+# Polkit を有効にした pcscd は、D-Bus のないコンテナでは試験用のクライアントの接続を拒否する
 if pcscd --help | grep -q -- --disable-polkit; then
     set -- "$@" --disable-polkit
 fi

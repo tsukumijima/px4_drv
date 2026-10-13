@@ -18,8 +18,8 @@ extern "C" {
 #include "linux_card_device.hpp"
 
 /*
- * 公開 IFD API から実際の Linux アダプターまで通し、システムコール境界だけを
- * 模擬する。T=1 の再送等は共用の smart_card_state_test で別途検証する。
+ * IFD ハンドラーの関数から LinuxCardDevice までは実物を通し、open・close・ioctl のシステムコールだけを模擬する
+ * T=1 の再送などの状態遷移は、Windows 版と共有する smart_card_state_test で試験する
  */
 namespace {
 struct Device {

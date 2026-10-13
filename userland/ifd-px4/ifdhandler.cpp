@@ -54,7 +54,7 @@ RESPONSECODE MapError(int error)
 template<class Function>
 RESPONSECODE WithReader(DWORD lun, Function function)
 {
-	/* 一覧ロックを I/O 中も保持すると、別リーダーの通信や抜去処理まで待たせる。 */
+	/* 一覧のロックを I/O の間も保持すると、別のリーダーの通信や抜去の処理まで待たせてしまう */
 	std::shared_ptr<Reader> reader;
 	try {
 		{
@@ -105,7 +105,7 @@ extern "C" RESPONSECODE IFDHCreateChannelByName(DWORD Lun, LPSTR DeviceName)
 				break;
 			if (DeviceName[0] == '/')
 				break;
-			/* USB の add 通知がカーネルの probe 完了より先に届く場合を待つ。 */
+			/* pcscd への USB の接続通知は、カーネルがカードデバイスを登録し終える前に届くことがある */
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		} while (std::chrono::steady_clock::now() < deadline);
 		if (ret)
@@ -207,7 +207,7 @@ extern "C" RESPONSECODE IFDHPowerICC(DWORD Lun, DWORD Action, PUCHAR Atr, PDWORD
 	*AtrLength = 0;
 	return WithReader(Lun, [&](Reader &reader) -> RESPONSECODE {
 		if (Action == IFD_POWER_DOWN) {
-			/* SmartCard の close は戻り値を持たないため、明示操作の失敗をここで返す。 */
+			/* SmartCard::Close() は失敗を返さないため、電源の停止を先に実行して結果を pcscd へ返す */
 			int ret = reader.device->PowerOff();
 			reader.Invalidate();
 			return MapError(ret);
@@ -249,7 +249,7 @@ extern "C" RESPONSECODE IFDHSetProtocolParameters(DWORD Lun, DWORD Protocol,
 	return WithReader(Lun, [&](Reader &reader) -> RESPONSECODE {
 		if (Protocol != SCARD_PROTOCOL_T1)
 			return IFD_PROTOCOL_NOT_SUPPORTED;
-		/* Flags を無視して成功を返すと、実行していない PPS 交渉が成立した扱いになる。 */
+		/* PPS の交渉には対応していないため、Flags で要求されたら成功を返さずに失敗させる */
 		if (Flags)
 			return IFD_ERROR_PTS_FAILURE;
 		if (!reader.powered)
@@ -268,7 +268,7 @@ extern "C" RESPONSECODE IFDHTransmitToICC(DWORD Lun, SCARD_IO_HEADER SendPci,
 	const DWORD capacity = *RxLength;
 	*RxLength = 0;
 	return WithReader(Lun, [&](Reader &reader) -> RESPONSECODE {
-		/* SendPci は T の番号なので、ビットマスクの SCARD_PROTOCOL_T1 と比較すると誤判定になる。 */
+		/* SendPci.Protocol はプロトコルの番号 (T=1 なら 1) で、ビットマスクの SCARD_PROTOCOL_T1 とは値が異なる */
 		if (SendPci.Protocol != 1 || reader.protocol != SCARD_PROTOCOL_T1)
 			return IFD_PROTOCOL_NOT_SUPPORTED;
 		if (!reader.powered || !TxBuffer || !TxLength || !RxBuffer || !capacity)
@@ -281,7 +281,7 @@ extern "C" RESPONSECODE IFDHTransmitToICC(DWORD Lun, SCARD_IO_HEADER SendPci,
 		}
 		*RxLength = length;
 		if (RecvPci) {
-			/* 返却値は上位へそのまま渡るため、送信側と同じ 1 を返すと T=0 と解釈される。 */
+			/* RecvPci はアプリケーションへそのまま渡り、ビットマスクとして読まれるため、番号の 1 を返すと T=0 と解釈される */
 			RecvPci->Protocol = SCARD_PROTOCOL_T1;
 			RecvPci->Length = sizeof(*RecvPci);
 		}

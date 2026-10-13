@@ -27,7 +27,7 @@ private:
 	int fd_ = -1;
 };
 
-/* VID/PID だけでは同型機を区別できないため、sysfs の親 USB 機器まで照合する。 */
+/* 同じ機種を複数台つないだときに VID と PID だけでは区別できないため、sysfs で USB のバス番号とデバイス番号まで照合する */
 int ResolveCardDevice(const std::string &name, std::string &path,
 		      const std::string &sysfs = "/sys/class/misc",
 		      const std::string &devdir = "/dev");

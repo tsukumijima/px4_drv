@@ -39,7 +39,7 @@ int LinuxCardDevice::Connect(const std::string &path)
 void LinuxCardDevice::Disconnect() noexcept
 {
 	if (fd_ >= 0) {
-		/* close の EINTR 後に再試行すると、別の fd を閉じる可能性がある。 */
+		/* Linux の close() は EINTR でも記述子を解放済みなので、再試行すると別の記述子を閉じてしまう */
 		close(fd_);
 		fd_ = -1;
 	}
@@ -49,7 +49,7 @@ int LinuxCardDevice::Request(unsigned long command, px4_card_io &io)
 {
 	if (fd_ < 0)
 		return -ENODEV;
-	/* EINTR 時の再実行は、完了済みの USB 操作を二重に発行する恐れがある。 */
+	/* EINTR で再実行すると、完了済みの USB 操作を二重に発行するおそれがあるため、失敗として返す */
 	return ioctl(fd_, command, &io) < 0 ? -errno : 0;
 }
 

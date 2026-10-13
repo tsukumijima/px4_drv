@@ -6,7 +6,7 @@
 #include <chrono>
 #include <thread>
 
-/* 専用の pcscd と模擬 IFD を起動した隔離環境でのみ実行する。 */
+/* run-pcsc-integration.sh が専用の pcscd と模擬の IFD ハンドラーを起動した環境でだけ実行する */
 int main()
 {
 	SCARDCONTEXT context = 0;
