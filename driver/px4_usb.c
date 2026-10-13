@@ -127,6 +127,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 	switch (id->idVendor) {
 	case 0x0511:
 	{
+		bool px4_multi_device = false;
 		bool px4_use_mldev = false;
 		enum pxmlt_model pxmlt5_model = PXMLT5PE_MODEL;
 		enum pxmlt_model pxmlt8_model = PXMLT8PE5_MODEL;
@@ -135,6 +136,7 @@ static int px4_usb_probe(struct usb_interface *intf,
 		case USB_PID_PX_Q3U4:
 		case USB_PID_PX_Q3PE4:
 		case USB_PID_PX_Q3PE5:
+			px4_multi_device = true;
 			if (!px4_device_params.disable_multi_device_power_control)
 				px4_use_mldev = true;
 
@@ -151,7 +153,8 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 			ctx->type = PX4_USB_DEVICE;
 			ret = px4_device_init(&ctx->ctx.px4, dev,
-					      usb_dev->serial, px4_use_mldev,
+					      usb_dev->serial, px4_multi_device,
+					      px4_use_mldev,
 					      px4_usb_chrdev_ctx[PX4_USB_DEVICE],
 					      &ctx->quit_completion);
 			break;

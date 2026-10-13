@@ -16,6 +16,7 @@
 #include <linux/device.h>
 
 #include "px4_mldev.h"
+#include "px4_card.h"
 #include "ptx_chrdev.h"
 #include "it930x.h"
 #include "tc90522.h"
@@ -51,6 +52,9 @@ struct px4_device {
 	struct px4_mldev *mldev;
 	struct completion *quit_completion;
 	unsigned int open_count;
+	/* 内蔵カードリーダーが基板の電源を使っているか (最後のチューナーを閉じても、カードの使用中は電源を切らない) */
+	bool card_powered;
+	struct px4_card *card;
 	unsigned int lnb_power_count;
 	unsigned int streaming_count;
 	struct ptx_chrdev_group *chrdev_group;
@@ -59,8 +63,12 @@ struct px4_device {
 	void *stream_ctx;
 };
 
+/*
+ * multi_device は、2つの USB デバイスで1つの筐体を構成する機種 (PX-Q3U4・PX-Q3PE4・PX-Q3PE5) かを表す
+ * use_mldev は、その2つの基板電源を連動させる共有管理を使うかを表す (モジュールのパラメーターで無効にできる)
+ */
 int px4_device_init(struct px4_device *px4, struct device *dev,
-		    const char *dev_serial, bool use_mldev,
+		    const char *dev_serial, bool multi_device, bool use_mldev,
 		    struct ptx_chrdev_context *chrdev_ctx,
 		    struct completion *quit_completion);
 void px4_device_term(struct px4_device *px4);

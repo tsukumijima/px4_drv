@@ -293,12 +293,15 @@ static int px4_chrdev_open(struct ptx_chrdev *chrdev)
 			goto fail_backend_power;
 		}
 	} else if (!px4->open_count) {
-		ret = px4_backend_set_power(px4, true);
-		if (ret) {
-			dev_err(px4->dev,
-				"px4_chrdev_open %u:%u: px4_backend_set_power(true) failed. (ret: %d)\n",
-				chrdev_group->id, chrdev->id, ret);
-			goto fail_backend_power;
+		/* カードが基板の電源を使っている場合は入れ直さず、受信回路の初期化だけを行う */
+		if (!px4->card_powered) {
+			ret = px4_backend_set_power(px4, true);
+			if (ret) {
+				dev_err(px4->dev,
+					"px4_chrdev_open %u:%u: px4_backend_set_power(true) failed. (ret: %d)\n",
+					chrdev_group->id, chrdev->id, ret);
+				goto fail_backend_power;
+			}
 		}
 		need_init = true;
 	}
@@ -514,7 +517,7 @@ fail_backend:
 fail_backend_init:
 	if (px4->mldev)
 		px4_mldev_set_power(px4->mldev, px4, chrdev->id, false, NULL);
-	else if (!px4->open_count)
+	else if (!px4->open_count && !px4->card_powered)
 		px4_backend_set_power(px4, false);
 
 fail_backend_power:
@@ -547,7 +550,7 @@ static int px4_chrdev_release(struct ptx_chrdev *chrdev)
 	px4->open_count--;
 	if (!px4->open_count) {
 		px4_backend_term(px4);
-		if (!px4->mldev)
+		if (!px4->mldev && !px4->card_powered)
 			px4_backend_set_power(px4, false);
 	} else if (atomic_read(&px4->available)) {
 		/* sleep tuners */
@@ -1168,8 +1171,26 @@ static int px4_device_load_config(struct px4_device *px4,
 	return 0;
 }
 
+static int px4_device_set_card_power(void *context, bool on)
+{
+	struct px4_device *px4 = context;
+	int ret = 0;
+
+	/* 2基連動モデルでは、相方の受信状態も含めて共有管理が電源を決める */
+	if (px4->mldev)
+		ret = px4_mldev_set_card_power(px4->mldev, px4, on);
+	else if (!px4->open_count)
+		ret = px4_backend_set_power(px4, on);
+
+	/* 停止は成否にかかわらず停止済みとして記録し、投入は成功したときだけ記録する */
+	if (!on || !ret)
+		px4->card_powered = on;
+
+	return ret;
+}
+
 int px4_device_init(struct px4_device *px4, struct device *dev,
-		    const char *dev_serial, bool use_mldev,
+		    const char *dev_serial, bool multi_device, bool use_mldev,
 		    struct ptx_chrdev_context *chrdev_ctx,
 		    struct completion *quit_completion)
 {
@@ -1196,6 +1217,8 @@ int px4_device_init(struct px4_device *px4, struct device *dev,
 	px4->mldev = NULL;
 	px4->quit_completion = quit_completion;
 	px4->open_count = 0;
+	px4->card_powered = false;
+	px4->card = NULL;
 	px4->lnb_power_count = 0;
 	px4->streaming_count = 0;
 
@@ -1373,6 +1396,22 @@ int px4_device_init(struct px4_device *px4, struct device *dev,
 	}
 
 	atomic_set(&px4->available, 1);
+
+	/* 2つの USB デバイスで1つの筐体を構成する機種では、物理的なカードスロットは dev_id 1 の側だけにある */
+	if (!multi_device || px4->serial.dev_id == 1) {
+		struct px4_card_backend card_backend = {
+			.it930x = it930x,
+			.lock = &px4->lock,
+			.available = &px4->available,
+			.set_power = px4_device_set_card_power,
+			.context = px4,
+		};
+
+		/* カードリーダーを登録できなくても、チューナーは使えるようにする */
+		ret = px4_card_register(dev, &card_backend, &px4->card);
+		if (ret)
+			dev_warn(dev, "Card reader registration failed: %d\n", ret);
+	}
 	return 0;
 
 fail_chrdev:
@@ -1422,7 +1461,13 @@ void px4_device_term(struct px4_device *px4)
 	dev_dbg(px4->dev,
 		"px4_device_term: kref count: %u\n", kref_read(&px4->kref));
 
+	/* カードの操作と並行しても、登録の解除後にハードウェアへ触れないよう機種のロックの下で切り替える */
+	mutex_lock(&px4->lock);
 	atomic_xchg(&px4->available, 0);
+	mutex_unlock(&px4->lock);
+
+	px4_card_unregister(px4->card);
+	px4->card = NULL;
 	ptx_chrdev_group_destroy(px4->chrdev_group);
 
 	kref_put(&px4->kref, px4_device_release);
