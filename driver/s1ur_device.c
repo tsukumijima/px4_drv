@@ -297,7 +297,7 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(s1ur->dev,
 			"s1ur_chrdev_open %u: tc90522_enable_ts_pins_t(false) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	/* wake up */
@@ -306,7 +306,7 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(s1ur->dev,
 			"s1ur_chrdev_open %u: tc90522_sleep_t(true) failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	ret = r850_wakeup(&chrdevs1ur->r850);
@@ -314,7 +314,7 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(s1ur->dev,
 			"s1ur_chrdev_tune %u: r850_wakeup() failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	sys.system = R850_SYSTEM_ISDB_T;
@@ -326,7 +326,7 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		dev_err(s1ur->dev,
 			"s1ur_chrdev_open %u: r850_set_system() failed. (ret: %d)\n",
 			chrdev_group->id, ret);
-		return ret;
+		goto fail_backend;
 	}
 
 	switch (s1ur->s1ur_model) {
@@ -338,7 +338,7 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 			dev_err(s1ur->dev,
 				"s1ur_chrdev_open %u: tc90522_enable_ts_pins_s(false) failed. (ret: %d)\n",
 				chrdev_group->id, ret);
-			return ret;
+			goto fail_backend;
 		}
 
 		/* sleep */
@@ -347,7 +347,7 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 			dev_err(s1ur->dev,
 				"s1ur_chrdev_open %u: tc90522_sleep_s(true) failed. (ret: %d)\n",
 				chrdev_group->id, ret);
-			return ret;
+			goto fail_backend;
 		}
 		break;
 
