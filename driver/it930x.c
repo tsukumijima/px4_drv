@@ -890,21 +890,25 @@ int it930x_set_gpio_mode(struct it930x_bridge *it930x,
 
 	mutex_lock(&priv->gpio_lock);
 
-	if (priv->status[gpio].mode == mode)
-		goto exit;
+	/*
+	 * キャッシュは書き込みに成功した後でだけ更新する
+	 * 失敗時に先に更新すると、次回の同じ設定がキャッシュ一致で読み飛ばされ、
+	 * 抜き差しするまでレジスタが未設定のまま残る
+	 */
+	if (priv->status[gpio].mode != mode) {
+		ret = it930x_write_reg(it930x, gpio_en_regs[gpio], val);
+		if (ret)
+			goto exit;
 
-	priv->status[gpio].mode = mode;
-
-	ret = it930x_write_reg(it930x, gpio_en_regs[gpio], val);
-	if (ret)
-		goto exit;
+		priv->status[gpio].mode = mode;
+	}
 
 	if (!enable || priv->status[gpio].enable)
 		goto exit;
 
-	priv->status[gpio].enable = true;
-
 	ret = it930x_write_reg(it930x, gpio_en_regs[gpio] + 1, 1);
+	if (!ret)
+		priv->status[gpio].enable = true;
 
 exit:
 	mutex_unlock(&priv->gpio_lock);
@@ -947,9 +951,9 @@ int it930x_enable_gpio(struct it930x_bridge *it930x, int gpio, bool enable)
 	    (priv->status[gpio].enable && enable))
 		goto exit;
 
-	priv->status[gpio].enable = (enable) ? true : false;
-
 	ret = it930x_write_reg(it930x, gpio_on_regs[gpio], (enable) ? 1 : 0);
+	if (!ret)
+		priv->status[gpio].enable = (enable) ? true : false;
 
 exit:
 	mutex_unlock(&priv->gpio_lock);
