@@ -255,12 +255,17 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 	dev_dbg(s1ur->dev,
 		"s1ur_chrdev_open %u\n", chrdev_group->id);
 
-	ret = s1ur_backend_set_power(s1ur, true);
-	if (ret) {
-		dev_err(s1ur->dev,
-			"s1ur_chrdev_open %u: s1ur_backend_set_power(true) failed. (ret: %d)\n",
-			chrdev_group->id, ret);
-		goto fail_backend_power;
+	mutex_lock(&s1ur->lock);
+
+	/* カードが基板の電源を使っている場合は入れ直さず、受信回路の初期化だけを行う */
+	if (!s1ur->card_powered) {
+		ret = s1ur_backend_set_power(s1ur, true);
+		if (ret) {
+			dev_err(s1ur->dev,
+				"s1ur_chrdev_open %u: s1ur_backend_set_power(true) failed. (ret: %d)\n",
+				chrdev_group->id, ret);
+			goto fail_backend_power;
+		}
 	}
 
 	ret = s1ur_backend_init(s1ur);
@@ -355,16 +360,21 @@ static int s1ur_chrdev_open(struct ptx_chrdev *chrdev)
 		break;
 	}
 
+	s1ur->tuner_open = true;
 	kref_get(&s1ur->kref);
+
+	mutex_unlock(&s1ur->lock);
 	return 0;
 
 fail_backend:
 	s1ur_backend_term(s1ur);
 
 fail_backend_init:
-	s1ur_backend_set_power(s1ur, false);
+	if (!s1ur->card_powered)
+		s1ur_backend_set_power(s1ur, false);
 
 fail_backend_power:
+	mutex_unlock(&s1ur->lock);
 	return ret;
 }
 
@@ -380,8 +390,14 @@ static int s1ur_chrdev_release(struct ptx_chrdev *chrdev)
 		"s1ur_chrdev_release %u: kref count: %u\n",
 		chrdev_group->id, kref_read(&s1ur->kref));
 
+	mutex_lock(&s1ur->lock);
+
 	s1ur_backend_term(s1ur);
-	s1ur_backend_set_power(s1ur, false);
+	s1ur->tuner_open = false;
+	if (!s1ur->card_powered)
+		s1ur_backend_set_power(s1ur, false);
+
+	mutex_unlock(&s1ur->lock);
 
 	kref_put(&s1ur->kref, s1ur_device_release);
 	return 0;
@@ -776,6 +792,22 @@ static int s1ur_device_load_config(struct s1ur_device *s1ur,
 	return 0;
 }
 
+static int s1ur_device_set_card_power(void *context, bool on)
+{
+	struct s1ur_device *s1ur = context;
+	int ret = 0;
+
+	/* 受信中のチューナーがあれば、基板の電源はチューナー側で入ったままになっている */
+	if (!s1ur->tuner_open)
+		ret = s1ur_backend_set_power(s1ur, on);
+
+	/* 停止は成否にかかわらず停止済みとして記録し、投入は成功したときだけ記録する */
+	if (!on || !ret)
+		s1ur->card_powered = on;
+
+	return ret;
+}
+
 int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
 			enum s1ur_model s1ur_model,
 			struct ptx_chrdev_context *chrdev_ctx,
@@ -797,6 +829,10 @@ int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
 	get_device(dev);
 
 	kref_init(&s1ur->kref);
+	mutex_init(&s1ur->lock);
+	s1ur->tuner_open = false;
+	s1ur->card_powered = false;
+	s1ur->card = NULL;
 	s1ur->dev = dev;
 	s1ur->s1ur_model = s1ur_model;
 	s1ur->quit_completion = quit_completion;
@@ -889,6 +925,21 @@ int s1ur_device_init(struct s1ur_device *s1ur, struct device *dev,
 	stream_ctx->chrdev = &chrdev_group->chrdev[0];
 
 	atomic_set(&s1ur->available, 1);
+
+	{
+		struct px4_card_backend card_backend = {
+			.it930x = it930x,
+			.lock = &s1ur->lock,
+			.available = &s1ur->available,
+			.set_power = s1ur_device_set_card_power,
+			.context = s1ur,
+		};
+
+		/* カードリーダーを登録できなくても、チューナーは使えるようにする */
+		ret = px4_card_register(dev, &card_backend, &s1ur->card);
+		if (ret)
+			dev_warn(dev, "Card reader registration failed: %d\n", ret);
+	}
 	return 0;
 
 fail_chrdev:
@@ -903,6 +954,7 @@ fail_bus:
 	kfree(s1ur->stream_ctx);
 
 fail:
+	mutex_destroy(&s1ur->lock);
 	put_device(dev);
 	return ret;
 }
@@ -919,6 +971,7 @@ static void s1ur_device_release(struct kref *kref)
 	itedtv_bus_term(&s1ur->it930x.bus);
 
 	kfree(s1ur->stream_ctx);
+	mutex_destroy(&s1ur->lock);
 	put_device(s1ur->dev);
 
 	complete(s1ur->quit_completion);
@@ -931,7 +984,13 @@ void s1ur_device_term(struct s1ur_device *s1ur)
 		"s1ur_device_term: kref count: %u\n",
 		kref_read(&s1ur->kref));
 
+	/* カードの操作と並行しても、登録の解除後にハードウェアへ触れないよう、ロックの下で切り替える */
+	mutex_lock(&s1ur->lock);
 	atomic_xchg(&s1ur->available, 0);
+	mutex_unlock(&s1ur->lock);
+
+	px4_card_unregister(s1ur->card);
+	s1ur->card = NULL;
 	ptx_chrdev_group_destroy(s1ur->chrdev_group);
 
 	kref_put(&s1ur->kref, s1ur_device_release);
