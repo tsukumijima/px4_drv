@@ -42,3 +42,44 @@ jobs:
       - name: Check dkms result
         run: ls -l /lib/modules/*/updates/dkms/px4_drv.ko*
         shell: bash
+
+  build_ifd:
+    name: Build and Check IFD Package (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ubuntu:20.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: apt-get update && apt-get install -y -q --no-install-recommends g++ make pkg-config libpcsclite-dev binutils dpkg python3
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Check IFD handler
+        run: make -C userland/ifd-px4 check LDFLAGS="-static-libstdc++ -static-libgcc"
+
+      - name: Build IFD Debian package
+        run: bash build_ifd_deb.sh
+
+      - name: Check package and install
+        run: |
+          test "$(dpkg --print-architecture)" = "${{ matrix.arch }}"
+          dpkg-deb -c ../px4-drv-ifd_*_${{ matrix.arch }}.deb
+          dpkg-deb -f ../px4-drv-ifd_*_${{ matrix.arch }}.deb Depends
+          dpkg -i ../px4-drv-ifd_*_${{ matrix.arch }}.deb
+          python3 -c 'import ctypes; ctypes.CDLL("/usr/lib/pcsc/drivers/ifd-px4.bundle/Contents/Linux/libifd-px4.so")'
