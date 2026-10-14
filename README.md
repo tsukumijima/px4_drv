@@ -347,9 +347,86 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 ### 4. 内蔵 B-CAS カードリーダーの利用
 
-内蔵カードリーダーを持つ機種では、カードリーダーごとに `/dev/px4cardN` が作られます。  
-このデバイスファイルを pcsc-lite (pcscd) から使うためのドライバー (IFD ハンドラー) を導入すると、PC/SC に対応したアプリケーションから外付けのカードリーダーと同じように利用できます。  
-導入方法と対応機種は、[内蔵カードリーダー用 IFD ハンドラー](userland/ifd-px4/README.md) を参照してください。
+内蔵カードリーダーを持つ機種では、カードリーダーごとに `/dev/px4card/<ID>` が作られます。  
+pcsc-lite (pcscd) 用のドライバー (IFD ハンドラー) を導入すると、PC/SC に対応したアプリケーションから、外付けのカードリーダーと同じように利用できます。  
+**内蔵カードリーダーを使わない場合は、この手順は不要です。**
+
+内蔵カードリーダーを持つ機種は次のとおりです。
+
+- PLEX PX-W3U4 / PX-Q3U4 / PX-W3PE4 / PX-Q3PE4 / PX-W3PE5 / PX-Q3PE5
+- PLEX PX-MLT5U / PX-MLT5PE / PX-MLT8PE
+- e-Better DTV02A-5TS-P / DTV02A-4TS-P / DTV02A-1T1S-U / DTV03A-1TU
+- PLEX PX-M1UR / PX-S1UR
+
+PX-Q3U4 / PX-Q3PE4 / PX-Q3PE5 / PX-MLT8PE は、1つの筐体に USB デバイスが2つ入った構成の機種で、カードリーダーのデバイスファイルは片方にだけ作られます。
+
+#### IFD ハンドラーのインストール
+
+Releases から、CPU のアーキテクチャに合った IFD ハンドラーの Debian パッケージ (amd64 か arm64) をダウンロードしてインストールします。  
+glibc 2.17 以降の Debian 系のディストリビューション (Debian / Ubuntu など) であれば、種類やバージョンを問わずインストールできます。
+
+	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-ifd_0.6.1_amd64.deb
+	$ sudo apt install -y ./px4-drv-ifd_0.6.1_amd64.deb pcscd
+
+インストールや更新の後は、pcscd を再起動すると読み込まれます。  
+カードを使っている最中に再起動すると復号が途切れるため、録画や視聴をしていないときに実行してください。
+
+	$ sudo systemctl restart pcscd
+
+> [!TIP]
+> ソースからビルドしてインストールすることもできます。C++17 に対応したコンパイラー、make 、pkg-config 、pcsc-lite の開発用ファイル (Debian / Ubuntu では `libpcsclite-dev`) が必要です。  
+> ```
+> $ make -C userland/ifd-px4
+> $ sudo make -C userland/ifd-px4 install
+> ```
+
+#### 認識の確認
+
+`pcsc-tools` の `pcsc_scan` で、カードリーダーとカードを認識しているかを確かめられます。
+
+	$ sudo apt install -y pcsc-tools
+	$ pcsc_scan
+
+`PLEX PX-W3U4 Smart Card Reader (000001711009061) 00 00` のように、機種名とシリアル番号の付いたカードリーダーが表示されます。  
+括弧の中は USB のシリアル番号で、デバイスファイル名とは異なります。  
+デバイスファイル名には Windows 版のリーダー名に表示される大文字16桁の ID を使い、この PX-W3U4 の例では `/dev/px4card/CD65353E4231AA77` になります。  
+Windows 版のリーダー名と Linux 版のデバイスファイルは、この ID で対応づけられます。
+
+Windows 版の INF がない PX-MLT5U は、GUID を省いたパスから ID を計算します。  
+同じ ID の機器を複数台つないだ場合は、2台目以降のデバイスファイル名に `-1` などが付きます。  
+シリアル番号が使えない機器では、`usb-<USB の接続位置>` がデバイスファイル名になります。
+
+カードリーダーが表示されない場合は、次を確かめてください。
+
+- `/dev/px4card/` の下にデバイスファイルがあるか (ない場合は、カーネルモジュールがカードリーダーに対応した版かを確かめます)
+- pcscd を動かす環境に IFD ハンドラーをインストールし、その後で pcscd を再起動したか
+- pcscd を root 以外のユーザーで動かす場合は、そのユーザーがデバイスファイルを開けるか (権限は `root:video` の `0660`)
+
+#### Docker で pcscd を動かす場合
+
+カーネルモジュールはホストへ、IFD ハンドラーと pcscd はコンテナへインストールします。  
+コンテナには、チューナーのデバイスファイルに加えて、`/dev/px4card` のディレクトリを渡します。
+
+```yaml
+network_mode: host
+volumes:
+  - /dev/px4card:/dev/px4card
+  - /run/udev:/run/udev:ro
+device_cgroup_rules:
+  - 'c 10:* rw'
+```
+
+コンテナ内の pcscd は、udev の情報とその通知からカードリーダーの接続と切断を知るため、ホストの `/run/udev` を共有し、ネットワークをホストと同じにします。  
+udev の通知はネットワーク名前空間ごとに届くため、`network_mode: host` がないと、起動時につないでいたカードリーダーは使えても、USB を抜き差しした後は pcscd を再起動するまで使えなくなります。  
+`c 10:* rw` は、カードリーダーのデバイスファイル (misc デバイス、メジャー番号 10) の読み書きを許可する設定です。  
+デバイスファイルはホストから渡すので、コンテナ内でデバイスファイルを作る権限 (`m`) は不要です。
+
+ホストの `/dev/px4card` は、カーネルモジュールのインストール時に systemd-tmpfiles で作られ、すべてのチューナーを外しても残ります。  
+カーネルに任せると、最後のカードリーダーを外したときにディレクトリごと消え、コンテナに渡したディレクトリが再接続後に見えなくなるためです。  
+インストールの時点でカードリーダーがつながっていて、カーネルがディレクトリを作り済みの場合は、次にホストを再起動した後からこの状態になります。
+
+Ubuntu などの pcscd は、接続してきたプログラムの権限を polkit で確かめます。  
+コンテナの中では polkit を使えずにすべての接続が拒否されるため、コンテナ内の pcscd は `pcscd --disable-polkit` のように起動します。
 
 ## アンインストール (Windows)
 
