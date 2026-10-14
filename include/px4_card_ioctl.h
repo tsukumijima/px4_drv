@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note
 /*
- * 内蔵カードリーダーのデバイスファイル (/dev/px4cardN) の ioctl 定義
+ * 内蔵カードリーダーのデバイスファイル (/dev/px4card/<ID>) の ioctl 定義
  *
  * カーネル側はカード検出・電源・UART の送受信だけを提供し、ATR の解析と T=1 はユーザー空間の IFD ハンドラーが担当する
  * 32bit のユーザー空間からも同じ配置で使えるよう、構造体は固定幅の型だけで構成する

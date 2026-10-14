@@ -8,8 +8,7 @@ KERNEL=="pxs1urvideo*", GROUP="video", MODE="0664"
 KERNEL=="isdbt2071video*", GROUP="video", MODE="0664"
 
 # 内蔵カードリーダーは読み取り専用で開いても ioctl で電源と UART を操作できるため、video グループ以外には読み取りも許可しない
-SUBSYSTEM=="misc", KERNEL=="px4card[0-9]*", GROUP="video", MODE="0660", IMPORT{builtin}="path_id"
-SUBSYSTEM=="misc", KERNEL=="px4card[0-9]*", ENV{ID_PATH}=="?*", SYMLINK+="px4card/by-path/$env{ID_PATH}"
+SUBSYSTEM=="misc", KERNEL=="px4card[0-9]*", GROUP="video", MODE="0660"
 
 # Digibest 製チューナーに常に USB 電源を供給し、チューナーが不安定にならないようにする
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0511", ACTION=="add", TEST=="power/control", ATTR{power/control}="on"

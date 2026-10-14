@@ -29,6 +29,7 @@ $(BUILD)/ifdhandler_test: tests/ifdhandler_test.cpp $(SOURCES) $(HEADERS) | $(BU
 check: $(BUILD)/smart_card_state_test $(BUILD)/ifdhandler_test
 	$(BUILD)/smart_card_state_test
 	$(BUILD)/ifdhandler_test
+	python3 tests/check_card_guids.py
 
 $(BUILD)/libifd-px4-test.so: tests/ifdhandler_test.cpp $(SOURCES) $(HEADERS) exports.map | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -UNDEBUG -DPX4_IFD_FAKE_MODULE -fPIC -shared $< $(SOURCES) $(LDFLAGS) -Wl,--wrap=open,--wrap=close,--wrap=ioctl,--version-script=exports.map -o $@

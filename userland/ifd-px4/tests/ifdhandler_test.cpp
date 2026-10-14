@@ -183,15 +183,33 @@ static void TestResolver()
 	std::ofstream(root / "usb/3-2/idProduct") << "924e\n";
 	std::ofstream(root / "usb/3-2/busnum") << "3\n";
 	std::ofstream(root / "usb/3-2/devnum") << "8\n";
+	std::ofstream(root / "class/px4card7/uevent") << "MAJOR=10\nMINOR=123\nDEVNAME=px4card/000042546005001\n";
 	std::string path;
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
-		path, (root / "class").string()) == 0 && path == "/dev/px4card7");
+		path, (root / "class").string()) == 0 && path == "/dev/px4card/000042546005001");
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/009",
 		path, (root / "class").string()) == -ENODEV);
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:1:/dev/bus/usb/003/008",
 		path, (root / "class").string()) == -EINVAL);
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008junk",
 		path, (root / "class").string()) == -EINVAL);
+	for (const char *devname : {"px4card/usb-3-2", "px4card/000042546005001-1"}) {
+		std::ofstream(root / "class/px4card7/uevent") << "DEVNAME=" << devname << "\n";
+		assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
+			path, (root / "class").string(), (root / "dev").string()) == 0 &&
+			path == (root / "dev" / devname).string());
+	}
+	std::ofstream(root / "class/px4card7/uevent") << "MAJOR=10\nMINOR=123\n";
+	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
+		path, (root / "class").string()) == -ENODEV);
+	for (const char *devname : {"", "/tmp/card", "px4card/../../tmp/card"}) {
+		std::ofstream(root / "class/px4card7/uevent") << "DEVNAME=" << devname << "\n";
+		assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
+			path, (root / "class").string()) == -EINVAL);
+	}
+	std::filesystem::remove(root / "class/px4card7/uevent");
+	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
+		path, (root / "class").string()) == -ENODEV);
 	std::filesystem::remove_all(root);
 }
 

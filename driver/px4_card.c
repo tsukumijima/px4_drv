@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * 内蔵カードリーダーのデバイスファイル (/dev/px4cardN) の機種共通層
+ * 内蔵カードリーダーのデバイスファイル (/dev/px4card/<ID>) の機種共通層
  */
 
 #include <linux/compat.h>
+#include <linux/ctype.h>
 #include <linux/fs.h>
 #include <linux/idr.h>
 #include <linux/kref.h>
+#include <linux/limits.h>
+#include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/poll.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/usb.h>
 
 #include "px4_card.h"
 
 struct px4_card {
 	struct miscdevice misc;
+	struct list_head node;
 	struct kref refs;
 	/* open・ioctl・close と登録解除を直列化する (機種のロックより先に取得する) */
 	struct mutex lock;
@@ -28,7 +33,32 @@ struct px4_card {
 	bool disconnected;
 };
 
+/* Windows 版と同じパスを組み立てるため、winusb/pkg/inf にある INF の DeviceInterfaceGUIDs を PID ごとに保持する */
+static const struct {
+	u16 product;
+	const char *guid;
+} px4_card_guids[] = {
+	{ 0x004b, "{1f8fa351-3f75-42c1-b0f1-ec794294448f}" },
+	{ 0x0052, "{ac1e5fa2-e265-4819-9b29-2be8a44ce4c9}" },
+	{ 0x023f, "{47fc15e3-6791-4e24-8fbe-c4218eee0ad6}" },
+	{ 0x024a, "{60eaf2b6-548f-4aad-ab0b-87055528dfd6}" },
+	{ 0x024e, "{eeb8e93b-1007-4e3e-8ce9-4f7ebdf3aba1}" },
+	{ 0x0252, "{bfafd6cd-29f8-46e7-b558-e3b0c493aaba}" },
+	{ 0x0253, "{145dce88-a4db-4737-8e5d-d1099814876a}" },
+	{ 0x0254, "{da23f91d-62ad-401e-812e-a7f054d665af}" },
+	{ 0x073f, "{3c42fdc6-2438-455e-89db-538011777617}" },
+	{ 0x074a, "{c78aa8ba-8476-4047-a089-7c3ed43503a6}" },
+	{ 0x083f, "{6d78c843-49d8-4bb8-8dfa-286fdee4c8a3}" },
+	{ 0x084a, "{87b25983-d116-4ccf-8896-84d022fabd73}" },
+	{ 0x084b, "{283639e3-0df2-40bd-a5cc-5051579745a7}" },
+	{ 0x0854, "{28ec1517-6150-4025-acfb-a5447add0a57}" },
+	{ 0x0855, "{a3303a3b-ea2c-467f-beae-8e72fb158714}" },
+	{ 0x924e, "{eeb8e93b-1007-4e3e-8ce9-4f7ebdf3aba1}" },
+};
+
 static DEFINE_IDA(px4_card_ids);
+static LIST_HEAD(px4_cards);
+static DEFINE_MUTEX(px4_card_names_lock);
 
 static void px4_card_free(struct kref *ref)
 {
@@ -36,6 +66,7 @@ static void px4_card_free(struct kref *ref)
 
 	ida_free(&px4_card_ids, card->id);
 	kfree(card->misc.name);
+	kfree(card->misc.nodename);
 	kfree(card);
 }
 
@@ -270,6 +301,94 @@ static const struct file_operations px4_card_fops = {
 	.poll = px4_card_poll,
 };
 
+static char *px4_card_reader_id(struct usb_device *usb)
+{
+	u16 product = le16_to_cpu(usb->descriptor.idProduct);
+	const char *guid = NULL;
+	char *path, *character;
+	u64 hash = 14695981039346656037ULL;
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(px4_card_guids); i++) {
+		if (px4_card_guids[i].product == product) {
+			guid = px4_card_guids[i].guid;
+			break;
+		}
+	}
+	/* PX-MLT5U など Windows 版の INF がない機種は、GUID を省いたパスで ID を求める */
+	path = kasprintf(GFP_KERNEL, "\\\\?\\usb#vid_%04x&pid_%04x#%s%s%s",
+			 le16_to_cpu(usb->descriptor.idVendor), product, usb->serial,
+			 guid ? "#" : "", guid ? guid : "");
+	if (!path)
+		return NULL;
+
+	/*
+	 * DriverHost_PX4 の device_base.cpp にある HashDevicePath() と同じく、UTF-16 の各文字の値を FNV-1a に通す
+	 * 呼び出し側でシリアル番号を ASCII に限っているため、小文字のパスの各バイトは UTF-16 の文字の値と一致する
+	 */
+	for (character = path; *character; character++) {
+		hash ^= (u16)tolower(*character);
+		hash *= 1099511628211ULL;
+	}
+	kfree(path);
+	return kasprintf(GFP_KERNEL, "%016llX", (unsigned long long)hash);
+}
+
+/*
+ * px4_card_names_lock を保持した状態で呼ぶ
+ * parent は USB インターフェースのデバイスである必要がある (各機種は px4_usb.c の &intf->dev を渡している)
+ */
+static int px4_card_set_nodename(struct px4_card *card, struct device *parent)
+{
+	struct usb_device *usb = interface_to_usbdev(to_usb_interface(parent));
+	const char *serial = usb->serial;
+	struct px4_card *entry;
+	char *base, *name;
+	unsigned int suffix = 0;
+	size_t length = serial ? strlen(serial) : 0;
+	bool duplicate;
+
+	/*
+	 * シリアル番号は ASCII の英数字・ピリオド・ハイフン・アンダースコアに限り、Windows 版と同じパスの文字列を組み立てる
+	 * 欠落・空・不正な番号は USB の接続位置で代用し、シリアル番号を使えない機器も登録する
+	 */
+	if (length && length <= NAME_MAX && strcmp(serial, ".") && strcmp(serial, "..") &&
+	    strspn(serial, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") == length)
+		base = px4_card_reader_id(usb);
+	else
+		base = kasprintf(GFP_KERNEL, "usb-%s", dev_name(&usb->dev));
+	if (!base)
+		return -ENOMEM;
+
+	/*
+	 * 同じ ID の別機器でも登録を維持するため、後から登録する側に空いている連番を付ける
+	 * 名前の確認から登録・解除まで同じロックで保護し、同時接続でも各機器に別のデバイスファイルを割り当てる
+	 */
+	do {
+		if (suffix)
+			name = kasprintf(GFP_KERNEL, "px4card/%s-%u", base, suffix);
+		else
+			name = kasprintf(GFP_KERNEL, "px4card/%s", base);
+		if (!name) {
+			kfree(base);
+			return -ENOMEM;
+		}
+		duplicate = false;
+		list_for_each_entry(entry, &px4_cards, node) {
+			if (!strcmp(entry->misc.nodename, name)) {
+				duplicate = true;
+				break;
+			}
+		}
+		if (duplicate)
+			kfree(name);
+		suffix++;
+	} while (duplicate);
+	kfree(base);
+	card->misc.nodename = name;
+	return 0;
+}
+
 int px4_card_register(struct device *parent,
 		      const struct px4_card_backend *backend,
 		      struct px4_card **result)
@@ -304,7 +423,13 @@ int px4_card_register(struct device *parent,
 		goto fail;
 	}
 
-	ret = misc_register(&card->misc);
+	mutex_lock(&px4_card_names_lock);
+	ret = px4_card_set_nodename(card, parent);
+	if (!ret)
+		ret = misc_register(&card->misc);
+	if (!ret)
+		list_add(&card->node, &px4_cards);
+	mutex_unlock(&px4_card_names_lock);
 	if (ret)
 		goto fail;
 
@@ -326,7 +451,10 @@ void px4_card_unregister(struct px4_card *card)
 		return;
 
 	/* misc_open() は misc のロックの下で px4_card_open() を呼ぶため、card->lock を取る前に登録を外す */
+	mutex_lock(&px4_card_names_lock);
 	misc_deregister(&card->misc);
+	list_del(&card->node);
+	mutex_unlock(&px4_card_names_lock);
 
 	mutex_lock(&card->lock);
 	px4_card_power_off(card);

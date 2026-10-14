@@ -168,8 +168,22 @@ int ResolveCardDevice(const std::string &name, std::string &path,
 		    ReadNumber(usb / "idProduct", p, true) &&
 		    ReadNumber(usb / "busnum", b) && ReadNumber(usb / "devnum", d) &&
 		    v == vendor && p == product && b == bus && d == device) {
-			path = (std::filesystem::path(devdir) / filename).string();
-			return 0;
+			/* sysfs の番号は内部の識別子なので、実際のデバイスファイル名はカーネルが公開する DEVNAME から取る */
+			std::ifstream uevent(entry.path() / "uevent");
+			std::string line;
+			while (std::getline(uevent, line)) {
+				if (line.compare(0, 8, "DEVNAME=") != 0)
+					continue;
+				const std::filesystem::path devname(line.substr(8));
+				if (devname.empty() || devname.is_absolute())
+					return -EINVAL;
+				for (const auto &component : devname) {
+					if (component == "..")
+						return -EINVAL;
+				}
+				path = (std::filesystem::path(devdir) / devname).string();
+				return 0;
+			}
 		}
 	}
 	return -ENODEV;
