@@ -1,8 +1,8 @@
 # Linux 版内蔵カードリーダー (IFD ハンドラー) 設計資料
 
 この文書は、Linux 版の内蔵カードリーダー対応を保守する開発者に向けて、実装の目的、責務の境界、壊してはいけない条件、検証方法を記録したものです。  
-利用者向けの導入手順はリポジトリルートの [README.md](../../README.md#4-内蔵-b-cas-カードリーダーの利用) を参照してください。  
-Windows 版の設計は [WinSCard_PX4 設計資料](../../winusb/src/WinSCard_PX4/README.md) にあり、T=1 の実装はこの2つで共有しています。
+利用者向けの導入手順はリポジトリルートの [README.md](../README.md#4-内蔵-b-cas-カードリーダーの利用) を参照してください。  
+Windows 版の設計は [WinSCard_PX4 設計資料](../winusb/src/WinSCard_PX4/README.md) にあり、T=1 の実装はこの2つで共有しています。
 
 ## 解決する問題
 
@@ -44,7 +44,7 @@ ATR の解析と T=1 (再送・WTX・APDU の分割・APDU 全体の期限) は�
 
 ### カーネル側
 
-ioctl のコマンドの振り分けと `it930x_bcas_*()` の呼び出しは、機種共通層の [`px4_card.c`](../../driver/px4_card.c) にまとめています。  
+ioctl のコマンドの振り分けと `it930x_bcas_*()` の呼び出しは、機種共通層の [`px4_card.c`](../driver/px4_card.c) にまとめています。  
 各機種は `struct px4_card_backend` で次の4つだけを渡し、機種ごとに同じファイル操作を複製しないようにしています。
 
 | 項目 | 内容 |
@@ -59,7 +59,7 @@ ioctl のコマンドの振り分けと `it930x_bcas_*()` の呼び出しは、�
 ### IFD ハンドラー側
 
 [`ifdhandler.cpp`](ifdhandler.cpp) は pcsc-lite の IFD ハンドラーの関数を実装し、[`linux_card_device.cpp`](linux_card_device.cpp) は ioctl を発行する薄いアダプターです。  
-T=1 の実装は、Windows 版の [`smart_card.cpp`](../../winusb/src/DriverHost_PX4/smart_card.cpp) をそのままビルドして使います。
+T=1 の実装は、Windows 版の [`smart_card.cpp`](../winusb/src/DriverHost_PX4/smart_card.cpp) をそのままビルドして使います。
 
 pcscd は USB の接続を検出すると、[`Info.plist`](Info.plist) の VID と PID が一致する機器についてこの IFD ハンドラーを読み込みます。  
 IFD ハンドラーは、渡された USB のバス番号とデバイス番号を sysfs の `/sys/class/misc/px4card*` の親と照合し、その `uevent` の `DEVNAME` から開くデバイスファイルを決めます。  
@@ -73,7 +73,7 @@ pcsc-lite は `Info.plist` の string 要素を行単位で読むため、配列
 
 デバイスファイルは、Windows 版のリーダー名に表示される ID を名前にして `/dev/px4card/` の下へ作ります。  
 接続順や認識順で変わる番号を名前にすると、機器を抜き差ししただけで設定や試験の対象が別の機器を指してしまうためです。  
-1つのディレクトリにまとめているので、カードリーダーのデバイスファイルは `/dev/px4card` ごとコンテナへ渡せます。
+`/dev/dvb` と同じく、最後の機器を外すとカーネルが `/dev/px4card` も消すため、コンテナでは `/dev` 全体をマウントする構成を前提にしています。
 
 ID は、USB の VID・PID・シリアル番号と、Windows 版の INF にある DeviceInterfaceGUIDs からデバイスインターフェースパスを組み立て、その小文字のパスを Windows 版と同じ 64bit FNV-1a で計算した大文字16桁の値です。  
 PX-MLT5PE の例では、Windows 版の `PLEX PX-MLT5PE Smart Card Reader (ID: E0044EBBED627D79)` に対して、Linux 版のデバイスファイルは `/dev/px4card/E0044EBBED627D79` になります。  
@@ -82,6 +82,13 @@ Windows 版の INF がない PX-MLT5U は、パス末尾の `#{guid}` を省い�
 シリアル番号が無い、空、255バイトを超える、`.` または `..` である、または ASCII の英数字・`.`・`-`・`_` 以外の文字を含む場合は、`usb-<USB の接続位置>` (例: `usb-1-3`) を代わりに使います。  
 同じ名前が既に使われている場合は、後から登録する側の末尾へ `-1` 、`-2` のように空いている番号を付けます。  
 sysfs 上の名前は従来どおり `px4cardN` で、udev の権限規則はこの名前に当てはめています。
+
+デバイスファイルの権限は `pcscd` グループの `0660` です。  
+デバイスファイルを開くのは pcscd だけで、pcsc-lite 2.4 以降は systemd の下の pcscd が `pcscd` ユーザーで動くため、libccid の規則と同じくこのグループに読み書きを許可しています。  
+`pcscd` グループのない古い環境では udev がグループの指定を無視し、root で動く pcscd が開きます。
+
+誰でも開ける `0666` にしなかったのは、ほかのユーザーがデバイスファイルを開いたままにすると、1つのプロセスしか開けない作りのために pcscd が開けなくなり、録画の復号が止まるためです。  
+開けなかったときは、IFD ハンドラーが失敗したパスと errno を pcscd のログへ出します。
 
 pcscd に表示されるリーダー名は、次のように USB のシリアル番号を含みます。
 
@@ -96,7 +103,7 @@ IFD ハンドラーは USB の接続情報を sysfs と照合し、`DEVNAME` か
 
 ## ioctl の仕様
 
-定義は [`include/px4_card_ioctl.h`](../../include/px4_card_ioctl.h) にあります。  
+定義は [`include/px4_card_ioctl.h`](../include/px4_card_ioctl.h) にあります。  
 32bit のユーザー空間からも同じ配置で使えるよう、構造体は固定幅の型だけで構成しています。  
 IFD ハンドラーは、開いた直後に `PX4_CARD_GET_INFO` で ABI の版と1回に送受信できる長さを確かめます。
 
@@ -135,7 +142,7 @@ open しただけでは電源を入れず、最後の記述子を閉じたとき
 
 ## ATR と T=1
 
-ATR の解析、通信速度の選択、T=1 の状態機械は Windows 版と共有する `smart_card.cpp` が担当し、ACAS を含む取り決めは [WinSCard_PX4 設計資料](../../winusb/src/WinSCard_PX4/README.md#atr-と-t1) に従います。  
+ATR の解析、通信速度の選択、T=1 の状態機械は Windows 版と共有する `smart_card.cpp` が担当し、ACAS を含む取り決めは [WinSCard_PX4 設計資料](../winusb/src/WinSCard_PX4/README.md#atr-と-t1) に従います。  
 状態遷移の試験 (`smart_card_state_test.cpp`) も共有しているため、T=1 の修正は Windows 版と Linux 版の両方へ同時に反映されます。
 
 ## タイムアウト
@@ -171,13 +178,13 @@ PX-Q3U4・PX-Q3PE4・PX-Q3PE5 と PX-MLT8PE は、1つの筐体が2つの USB �
 
 ```bash
 make -C driver
-make -C userland/ifd-px4
-make -C userland/ifd-px4 check
+make -C pcsc
+make -C pcsc check
 ```
 
 ### 実機に依存しない試験
 
-`make -C userland/ifd-px4 check` は、次の3つを実行します。  
+`make -C pcsc check` は、次の3つを実行します。  
 PID と GUID の照合には Python 3 が必要です。
 
 - Windows 版と共有する T=1 の状態遷移の試験
@@ -188,7 +195,7 @@ PID と GUID の照合には Python 3 が必要です。
 USB デバイスとホストの PC/SC のソケットを渡さず、pcscd を起動していないコンテナの root で、次を実行します。
 
 ```bash
-cd userland/ifd-px4
+cd pcsc
 make integration-build
 PX4_ISOLATED_TEST=1 sh tests/run-pcsc-integration.sh
 ```
@@ -227,4 +234,4 @@ USB バス層 (`itedtv_bus`) にタスクごとの期限を持たせ、制御転
 検出のたびに電源の参照を取る構成と、カードを閉じるときにリセット線 (GPIO H14) を Low へ落とす構成も採用しませんでした。  
 前者は pcscd の問い合わせで電源が切れなくなり、後者は Windows 版の `CloseCard()` にない操作で、必要とする理由も確認できていないためです。
 
-この実装に至った経緯と各判断の根拠は [実装の記録](../../docs/20261014_linux_card_reader_implementation_history.md) に、実機で確かめた範囲は [実機確認の記録](../../docs/20261014_linux_card_reader_validation.md) にまとめています。
+この実装に至った経緯と各判断の根拠は [実装の記録](../docs/20261014_linux_card_reader_implementation_history.md) に、実機で確かめた範囲は [実機確認の記録](../docs/20261014_linux_card_reader_validation.md) にまとめています。

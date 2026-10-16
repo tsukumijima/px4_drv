@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "linux_card_device.hpp"
 
+extern "C" {
+#include <debuglog.h>
+}
+
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -24,8 +28,13 @@ int LinuxCardDevice::Connect(const std::string &path)
 	if (fd_ >= 0)
 		return -EALREADY;
 	fd_ = open(path.c_str(), O_RDWR | O_CLOEXEC | O_NOCTTY);
-	if (fd_ < 0)
-		return -errno;
+	if (fd_ < 0) {
+		/* ログ処理で errno が変わっても、呼び出し側には open() の失敗理由を返す */
+		const int error = errno;
+		Log4(PCSC_LOG_ERROR, "open(%s) failed: %s (errno=%d)",
+			path.c_str(), std::strerror(error), error);
+		return -error;
+	}
 	px4_card_info info{};
 	int ret = ioctl(fd_, PX4_CARD_GET_INFO, &info) < 0 ? -errno : 0;
 	if (!ret && (info.abi_version != PX4_CARD_ABI_VERSION ||

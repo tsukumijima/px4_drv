@@ -24,7 +24,7 @@ $(BUILD)/smart_card_state_test: $(ROOT)/winusb/tests/smart_card_state_test.cpp $
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< $(SHARED)/smart_card.cpp $(LDFLAGS) -o $@
 
 $(BUILD)/ifdhandler_test: tests/ifdhandler_test.cpp $(SOURCES) $(HEADERS) | $(BUILD)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -UNDEBUG $< $(SOURCES) $(LDFLAGS) -Wl,--wrap=open,--wrap=close,--wrap=ioctl -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -UNDEBUG $< $(SOURCES) $(LDFLAGS) -Wl,--wrap=open,--wrap=close,--wrap=ioctl -rdynamic -ldl -o $@
 
 check: $(BUILD)/smart_card_state_test $(BUILD)/ifdhandler_test
 	$(BUILD)/smart_card_state_test

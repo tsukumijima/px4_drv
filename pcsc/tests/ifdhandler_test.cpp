@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 extern "C" {
 #include <ifdhandler.h>
+#include <debuglog.h>
 }
 
 #include <array>
@@ -11,6 +12,7 @@ extern "C" {
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -37,6 +39,7 @@ struct Device {
 std::array<Device, 2> devices;
 constexpr int FIRST_FD = 50000;
 unsigned char atr[] = {0x3b, 0x80, 0x01, 0x81};
+std::string last_log;
 
 int Failure(int error)
 {
@@ -61,6 +64,19 @@ void Queue(Device &device, unsigned char pcb, const unsigned char *data, unsigne
 	device.rx.push_back(lrc);
 }
 } // namespace
+
+/* pcscd が提供するログ関数を模擬し、errno が変わる場合にも open() のエラーを返すことを確かめる */
+extern "C" void log_msg(const int priority, const char *format, ...)
+{
+	assert(priority == PCSC_LOG_ERROR);
+	char message[1024];
+	va_list args;
+	va_start(args, format);
+	std::vsnprintf(message, sizeof(message), format, args);
+	va_end(args);
+	last_log = message;
+	errno = EIO;
+}
 
 extern "C" int __real_open(const char *, int, ...);
 extern "C" int __real_close(int);
@@ -213,18 +229,34 @@ static void TestResolver()
 	std::filesystem::remove_all(root);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
 	static_assert(sizeof(px4_card_io) == 264, "UAPI layout changed");
 	static_assert(offsetof(px4_card_io, data) == 8, "UAPI layout changed");
 	static_assert(sizeof(px4_card_info) == 16, "UAPI layout changed");
 	TestResolver();
+	/* pcscd のログ関数を提供した状態で、導入した本番ライブラリのシンボルをすべて解決する */
+	if (argc == 2) {
+		void *library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+		if (!library)
+			std::fprintf(stderr, "%s\n", dlerror());
+		assert(library);
+		dlclose(library);
+	}
 	char path0[] = "/dev/px4card-test0", path1[] = "/dev/px4card-test1";
 	assert(IFDHCreateChannelByName(1, path0) == IFD_NO_SUCH_DEVICE);
 	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS);
+	assert(last_log.empty());
 	assert(devices[0].opened && !devices[0].powered && devices[0].resets == 0);
 	assert(IFDHCreateChannelByName(0x10000, path0) == IFD_COMMUNICATION_ERROR);
+	assert(last_log.find(path0) != std::string::npos &&
+		last_log.find("errno=" + std::to_string(EBUSY)) != std::string::npos);
+	last_log.clear();
+	px4::LinuxCardDevice busy;
+	assert(busy.Connect(path0) == -EBUSY && !last_log.empty());
+	last_log.clear();
 	assert(IFDHCreateChannelByName(0x10000, path1) == IFD_SUCCESS);
+	assert(last_log.empty());
 	assert(IFDHICCPresence(0) == IFD_ICC_PRESENT);
 	assert(devices[0].resets == 0); // 状態照会はカードをリセットしない
 	unsigned char buffer[64]{};
