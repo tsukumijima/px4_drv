@@ -15,12 +15,14 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/device.h>
+#include <linux/err.h>
 #include <linux/usb.h>
 #include <linux/version.h>
 
 #include "px4_usb_params.h"
 #include "px4_device_params.h"
 #include "ptx_chrdev.h"
+#include "px4_card.h"
 #include "px4_device.h"
 #include "pxmlt_device.h"
 #include "isdb2056_device.h"
@@ -70,6 +72,8 @@
 struct px4_usb_context {
 	enum px4_usb_device_type type;
 	struct completion quit_completion;
+	/* interface 属性を作成した場合だけ保持する */
+	char *reader_id;
 	union {
 		struct px4_device px4;
 		struct pxmlt_device pxmlt;
@@ -79,6 +83,16 @@ struct px4_usb_context {
 };
 
 static struct ptx_chrdev_context *px4_usb_chrdev_ctx[MAX_USB_DEVICE_TYPE];
+
+static ssize_t interface_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct px4_usb_context *ctx = usb_get_intfdata(to_usb_interface(dev));
+
+	return scnprintf(buf, PAGE_SIZE, "ID: %s\n", ctx->reader_id);
+}
+
+static DEVICE_ATTR_RO(interface);
 
 static int px4_usb_init_bridge(struct device *dev, struct usb_device *usb_dev,
 			       struct it930x_bridge *it930x)
@@ -121,6 +135,31 @@ static int px4_usb_probe(struct usb_interface *intf,
 	}
 
 	init_completion(&ctx->quit_completion);
+	usb_set_intfdata(intf, ctx);
+
+	/*
+	 * pcscd は USB インターフェースの interface 属性を角括弧で囲んでリーダー名に加える
+	 * USB デバイス追加の通知で ID を読めるよう、ファームウェアの読み込みなど時間のかかる初期化より先に公開する
+	 * カードリーダーの有無は機種別の初期化処理で判定するため、ここではインターフェース名のない全機器に属性を作る
+	 */
+	if (!intf->cur_altsetting->string) {
+		char *reader_id = px4_card_reader_id(usb_dev);
+
+		if (IS_ERR(reader_id)) {
+			if (PTR_ERR(reader_id) != -EINVAL)
+				dev_warn(dev, "Card reader ID allocation failed: %ld\n",
+					 PTR_ERR(reader_id));
+		} else {
+			ctx->reader_id = reader_id;
+			ret = device_create_file(dev, &dev_attr_interface);
+			if (ret) {
+				/* 属性の作成に失敗しても、チューナーの初期化は続ける */
+				dev_warn(dev, "USB interface attribute creation failed: %d\n", ret);
+				kfree(ctx->reader_id);
+				ctx->reader_id = NULL;
+			}
+		}
+	}
 
 	switch (id->idVendor) {
 	case 0x0511:
@@ -281,13 +320,15 @@ static int px4_usb_probe(struct usb_interface *intf,
 		goto fail;
 
 	get_device(dev);
-	usb_set_intfdata(intf, ctx);
 
 	return 0;
 
 fail:
-	if (ctx)
-		kfree(ctx);
+	if (ctx->reader_id)
+		device_remove_file(dev, &dev_attr_interface);
+	usb_set_intfdata(intf, NULL);
+	kfree(ctx->reader_id);
+	kfree(ctx);
 
 	return ret;
 }
@@ -302,6 +343,9 @@ static void px4_usb_disconnect(struct usb_interface *intf)
 		return;
 	}
 
+	/* unbind でもモジュールの関数への参照が残るため、属性を削除して interface_show() の完了を待ってから ctx を解放する */
+	if (ctx->reader_id)
+		device_remove_file(&intf->dev, &dev_attr_interface);
 	usb_set_intfdata(intf, NULL);
 
 	switch (ctx->type) {
@@ -337,6 +381,7 @@ static void px4_usb_disconnect(struct usb_interface *intf)
 	dev_dbg(&intf->dev, "px4_usb_disconnect: release\n");
 
 	put_device(&intf->dev);
+	kfree(ctx->reader_id);
 	kfree(ctx);
 
 	return;

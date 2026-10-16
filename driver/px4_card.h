@@ -17,6 +17,7 @@
 #include "px4_card_ioctl.h"
 
 struct px4_card;
+struct usb_device;
 
 struct px4_card_backend {
 	struct it930x_bridge *it930x;
@@ -32,6 +33,8 @@ struct px4_card_backend {
 	void *context;
 };
 
+/* 戻り値は kfree() で解放する ID 文字列か ERR_PTR (シリアル番号を使えなければ -EINVAL) */
+char *px4_card_reader_id(struct usb_device *usb);
 int px4_card_register(struct device *parent,
 		      const struct px4_card_backend *backend,
 		      struct px4_card **result);

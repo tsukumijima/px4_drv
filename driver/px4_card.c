@@ -5,6 +5,7 @@
 
 #include <linux/compat.h>
 #include <linux/ctype.h>
+#include <linux/err.h>
 #include <linux/fs.h>
 #include <linux/idr.h>
 #include <linux/kref.h>
@@ -301,13 +302,20 @@ static const struct file_operations px4_card_fops = {
 	.poll = px4_card_poll,
 };
 
-static char *px4_card_reader_id(struct usb_device *usb)
+char *px4_card_reader_id(struct usb_device *usb)
 {
 	u16 product = le16_to_cpu(usb->descriptor.idProduct);
+	const char *serial = usb->serial;
 	const char *guid = NULL;
-	char *path, *character;
+	char *path, *character, *id;
 	u64 hash = 14695981039346656037ULL;
+	size_t length = serial ? strlen(serial) : 0;
 	size_t i;
+
+	/* シリアル番号は ASCII の英数字・ピリオド・ハイフン・アンダースコアに限り、Windows 版と同じパスの文字列を組み立てる */
+	if (!length || length > NAME_MAX || !strcmp(serial, ".") || !strcmp(serial, "..") ||
+	    strspn(serial, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") != length)
+		return ERR_PTR(-EINVAL);
 
 	for (i = 0; i < ARRAY_SIZE(px4_card_guids); i++) {
 		if (px4_card_guids[i].product == product) {
@@ -320,18 +328,19 @@ static char *px4_card_reader_id(struct usb_device *usb)
 			 le16_to_cpu(usb->descriptor.idVendor), product, usb->serial,
 			 guid ? "#" : "", guid ? guid : "");
 	if (!path)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	/*
 	 * DriverHost_PX4 の device_base.cpp にある HashDevicePath() と同じく、UTF-16 の各文字の値を FNV-1a に通す
-	 * 呼び出し側でシリアル番号を ASCII に限っているため、小文字のパスの各バイトは UTF-16 の文字の値と一致する
+	 * シリアル番号を ASCII に限っているため、小文字のパスの各バイトは UTF-16 の文字の値と一致する
 	 */
 	for (character = path; *character; character++) {
 		hash ^= (u16)tolower(*character);
 		hash *= 1099511628211ULL;
 	}
 	kfree(path);
-	return kasprintf(GFP_KERNEL, "%016llX", (unsigned long long)hash);
+	id = kasprintf(GFP_KERNEL, "%016llX", (unsigned long long)hash);
+	return id ? id : ERR_PTR(-ENOMEM);
 }
 
 /*
@@ -341,22 +350,17 @@ static char *px4_card_reader_id(struct usb_device *usb)
 static int px4_card_set_nodename(struct px4_card *card, struct device *parent)
 {
 	struct usb_device *usb = interface_to_usbdev(to_usb_interface(parent));
-	const char *serial = usb->serial;
 	struct px4_card *entry;
 	char *base, *name;
 	unsigned int suffix = 0;
-	size_t length = serial ? strlen(serial) : 0;
 	bool duplicate;
 
-	/*
-	 * シリアル番号は ASCII の英数字・ピリオド・ハイフン・アンダースコアに限り、Windows 版と同じパスの文字列を組み立てる
-	 * 欠落・空・不正な番号は USB の接続位置で代用し、シリアル番号を使えない機器も登録する
-	 */
-	if (length && length <= NAME_MAX && strcmp(serial, ".") && strcmp(serial, "..") &&
-	    strspn(serial, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") == length)
-		base = px4_card_reader_id(usb);
-	else
+	base = px4_card_reader_id(usb);
+	/* 欠落・空・不正な番号は USB の接続位置で代用し、シリアル番号を使えない機器も登録する */
+	if (IS_ERR(base) && PTR_ERR(base) == -EINVAL)
 		base = kasprintf(GFP_KERNEL, "usb-%s", dev_name(&usb->dev));
+	if (IS_ERR(base))
+		return PTR_ERR(base);
 	if (!base)
 		return -ENOMEM;
 
