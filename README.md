@@ -362,11 +362,11 @@ PX-Q3U4 / PX-Q3PE4 / PX-Q3PE5 / PX-MLT8PE は、1つの筐体に USB デバイ�
 
 #### IFD ハンドラーのインストール
 
-Releases から、CPU のアーキテクチャに合った IFD ハンドラーの Debian パッケージ (amd64 か arm64) をダウンロードしてインストールします。  
-glibc 2.17 以降の Debian 系のディストリビューション (Debian / Ubuntu など) であれば、種類やバージョンを問わずインストールできます。
+Releases から、CPU アーキテクチャに合った IFD ハンドラーの Debian パッケージ (amd64 か arm64) をダウンロードしてインストールします。  
+Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビューションで動作します。
 
-	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-ifd_0.6.1_amd64.deb
-	$ sudo apt install -y ./px4-drv-ifd_0.6.1_amd64.deb pcscd
+	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-pcsc_0.6.1_amd64.deb
+	$ sudo apt install -y ./px4-drv-pcsc_0.6.1_amd64.deb pcscd
 
 インストールや更新の後は、pcscd を再起動すると読み込まれます。  
 カードを使っている最中に再起動すると復号が途切れるため、録画や視聴をしていないときに実行してください。
@@ -376,8 +376,8 @@ glibc 2.17 以降の Debian 系のディストリビューション (Debian / Ub
 > [!TIP]
 > ソースからビルドしてインストールすることもできます。C++17 に対応したコンパイラー、make 、pkg-config 、pcsc-lite の開発用ファイル (Debian / Ubuntu では `libpcsclite-dev`) が必要です。  
 > ```
-> $ make -C userland/ifd-px4
-> $ sudo make -C userland/ifd-px4 install
+> $ make -C pcsc
+> $ sudo make -C pcsc install
 > ```
 
 #### 認識の確認
@@ -400,33 +400,60 @@ Windows 版の INF がない PX-MLT5U は、GUID を省いたパスから ID を
 
 - `/dev/px4card/` の下にデバイスファイルがあるか (ない場合は、カーネルモジュールがカードリーダーに対応した版かを確かめます)
 - pcscd を動かす環境に IFD ハンドラーをインストールし、その後で pcscd を再起動したか
-- pcscd を root 以外のユーザーで動かす場合は、そのユーザーがデバイスファイルを開けるか (権限は `root:video` の `0660`)
+- `journalctl -u pcscd` に、デバイスファイルを開けなかったことを示す `open(...) failed` が出ていないか
 
-#### Docker で pcscd を動かす場合
+デバイスファイルを開くのは pcscd だけで、権限は `pcscd` グループの `0660` です。  
+pcsc-lite 2.4 以降 (Ubuntu 26.04 など) の pcscd は `pcscd` ユーザーで動くため、このグループで開きます。  
+`pcscd` グループのない古い環境では、デバイスファイルは `root:root` になり、root で動く pcscd が開きます。  
+録画アプリケーションはデバイスファイルを開かずに pcscd へ接続するので、アプリケーションのユーザーをグループへ加える必要はありません。
 
-カーネルモジュールはホストへ、IFD ハンドラーと pcscd はコンテナへインストールします。  
-コンテナには、チューナーのデバイスファイルに加えて、`/dev/px4card` のディレクトリを渡します。
+#### root 以外のサービスから使う場合
 
-```yaml
-network_mode: host
-volumes:
-  - /dev/px4card:/dev/px4card
-  - /run/udev:/run/udev:ro
-device_cgroup_rules:
-  - 'c 10:* rw'
+Debian / Ubuntu の pcscd は、接続してきたプログラムを polkit で確かめ、ログインしていないユーザーからの接続を拒否します。  
+これは外付けのカードリーダーでも同じで、Mirakurun や EDCB を root 以外のユーザーの systemd サービスとして動かすと、カードリーダーを使えません (pcscd のログに `is NOT authorized for action: access_pcsc` が出ます)。  
+その場合は、次のような polkit の規則を `/etc/polkit-1/rules.d/50-pcscd-recorder.rules` に置き、サービスのユーザー (この例では `mirakurun`) に許可します。
+
+```js
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+         action.id == "org.debian.pcsc-lite.access_card") &&
+        subject.user == "mirakurun") {
+        return polkit.Result.YES;
+    }
+});
 ```
 
-コンテナ内の pcscd は、udev の情報とその通知からカードリーダーの接続と切断を知るため、ホストの `/run/udev` を共有し、ネットワークをホストと同じにします。  
-udev の通知はネットワーク名前空間ごとに届くため、`network_mode: host` がないと、起動時につないでいたカードリーダーは使えても、USB を抜き差しした後は pcscd を再起動するまで使えなくなります。  
-`c 10:* rw` は、カードリーダーのデバイスファイル (misc デバイス、メジャー番号 10) の読み書きを許可する設定です。  
-デバイスファイルはホストから渡すので、コンテナ内でデバイスファイルを作る権限 (`m`) は不要です。
+#### Docker で使う場合
 
-ホストの `/dev/px4card` は、カーネルモジュールのインストール時に systemd-tmpfiles で作られ、すべてのチューナーを外しても残ります。  
-カーネルに任せると、最後のカードリーダーを外したときにディレクトリごと消え、コンテナに渡したディレクトリが再接続後に見えなくなるためです。  
-インストールの時点でカードリーダーがつながっていて、カーネルがディレクトリを作り済みの場合は、次にホストを再起動した後からこの状態になります。
+カーネルモジュールはホストへインストールし、pcscd をコンテナとホストのどちらで動かすかで、IFD ハンドラーを入れる場所が変わります。  
+ホストとコンテナの両方で pcscd を動かすと、同じカードリーダーを取り合い、片方が使えなくなるため、どちらか一方にしてください。
 
-Ubuntu などの pcscd は、接続してきたプログラムの権限を polkit で確かめます。  
-コンテナの中では polkit を使えずにすべての接続が拒否されるため、コンテナ内の pcscd は `pcscd --disable-polkit` のように起動します。
+##### コンテナ内で pcscd を動かす (Mirakurun の既定の構成)
+
+Mirakurun の公式イメージは、コンテナ内で pcscd を動かし、`/dev` 全体をコンテナへマウントする構成が既定です。  
+公式イメージには IFD ハンドラーが入っていないので、Debian パッケージを追加したイメージを作ります。
+
+```dockerfile
+FROM chinachu/mirakurun:latest
+ADD https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-pcsc_0.6.1_amd64.deb /tmp/
+RUN dpkg -i /tmp/px4-drv-pcsc_0.6.1_amd64.deb && rm /tmp/px4-drv-pcsc_0.6.1_amd64.deb
+```
+
+arm64 の機器 (Raspberry Pi など) では、ファイル名の `amd64` を `arm64` に変えます。  
+`docker-compose.yml` は Mirakurun の公式のもの (`/dev:/dev` の volume 、`network_mode: host` 、`device_cgroup_rules`) のまま、`image` をこのイメージに変えます。  
+`/dev` 全体をマウントするので、USB を抜き差しして `/dev/px4card` が作り直されても、コンテナからそのまま見えます。  
+ホストの pcscd は止めておきます。
+
+	$ sudo systemctl disable --now pcscd.socket pcscd.service
+
+##### ホストの pcscd を使う
+
+IFD ハンドラーはホストにインストールし、コンテナ内の pcscd は動かさずに、ホストの pcscd のソケットをコンテナへ渡します。  
+Mirakurun では、環境変数 `DISABLE_PCSCD=1` を設定し、`/var/run/pcscd/pcscd.comm:/var/run/pcscd/pcscd.comm` をマウントします。  
+カードリーダーの管理はホストの pcscd と udev に任せられるので、コンテナのイメージをビルドし直す必要はありません。
+
+コンテナ内の PC/SC ライブラリ (libpcsclite) と、ホストの pcscd の間で、通信手順の版が合っている必要があります。  
+ホストとコンテナで pcsc-lite の版が大きく異なると接続できないことがあるため、その場合はコンテナ内で pcscd を動かす構成を使ってください。
 
 ## アンインストール (Windows)
 
@@ -515,7 +542,7 @@ Windows では、BonDriver_PX4-S.ini に記載の `LNBPower=0` を `LNBPower=1` 
 
 ### 内蔵カードリーダーやリモコンについて
 
-WinUSB 版と Linux 版のどちらでも、各種対応デバイスに内蔵されているカードリーダーを利用できます (Linux 版は pcsc-lite 用の [IFD ハンドラー](userland/ifd-px4/README.md) の導入が必要です)。リモコンの操作には対応していません。
+WinUSB 版と Linux 版のどちらでも、各種対応デバイスに内蔵されているカードリーダーを利用できます (Linux 版は pcsc-lite 用の [IFD ハンドラー](pcsc/README.md) の導入が必要です)。リモコンの操作には対応していません。
 
 ### e-Better DTV02-1T1S-U について
 
