@@ -53,10 +53,6 @@ install:
 	$(cmd_prefix)install -D -v -m 644 px4_drv.ko $(INSTALL_DIR)/px4_drv.ko
 	$(cmd_prefix)rm -fv /etc/udev/rules.d/90-px4.rules
 	$(cmd_prefix)install -D -v -m 644 ../etc/99-px4video.rules /etc/udev/rules.d/99-px4video.rules
-	$(cmd_prefix)install -D -v -m 644 ../etc/px4_drv-tmpfiles.conf /etc/tmpfiles.d/px4_drv.conf
-	$(cmd_prefix)if command -v systemd-tmpfiles > /dev/null; then \
-	systemd-tmpfiles --create /etc/tmpfiles.d/px4_drv.conf; \
-	fi
 	$(cmd_prefix)depmod -a $(KVER)
 	$(cmd_prefix)modprobe px4_drv
 
@@ -66,7 +62,7 @@ uninstall:
 	fi
 	$(cmd_prefix)rm -fv $(INSTALL_DIR)/px4_drv.ko
 	$(cmd_prefix)if [ `find /lib/modules/ -name 'px4_drv.ko*' | wc -l` -eq 0 ]; then \
-	rm -fv /etc/udev/rules.d/90-px4.rules /etc/udev/rules.d/99-px4video.rules /etc/tmpfiles.d/px4_drv.conf; \
+	rm -fv /etc/udev/rules.d/90-px4.rules /etc/udev/rules.d/99-px4video.rules; \
 	fi
 	$(cmd_prefix)depmod -a $(KVER)
 
