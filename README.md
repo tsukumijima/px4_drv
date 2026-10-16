@@ -387,10 +387,9 @@ Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビュ�
 	$ sudo apt install -y pcsc-tools
 	$ pcsc_scan
 
-`PLEX PX-W3U4 Smart Card Reader (000001711009061) 00 00` のように、機種名とシリアル番号の付いたカードリーダーが表示されます。  
-括弧の中は USB のシリアル番号で、デバイスファイル名とは異なります。  
-デバイスファイル名には Windows 版のリーダー名に表示される大文字16桁の ID を使い、この PX-W3U4 の例では `/dev/px4card/CD65353E4231AA77` になります。  
-Windows 版のリーダー名と Linux 版のデバイスファイルは、この ID で対応づけられます。
+`PLEX PX-W3U4 Smart Card Reader [ID: CD65353E4231AA77] (000001711009061) 00 00` のように、機種名と ID の付いたカードリーダーが表示されます。  
+`[ID: ...]` は Windows 版のリーダー名の `(ID: ...)` と同じ値で、デバイスファイル名 (この例では `/dev/px4card/CD65353E4231AA77`) にも同じ ID を使います。  
+後ろの括弧の中の USB のシリアル番号と末尾の番号は、pcscd が付けるものです。
 
 Windows 版の INF がない PX-MLT5U は、GUID を省いたパスから ID を計算します。  
 同じ ID の機器を複数台つないだ場合は、2台目以降のデバイスファイル名に `-1` などが付きます。  
@@ -449,7 +448,8 @@ arm64 の機器 (Raspberry Pi など) では、ファイル名の `amd64` を `a
 ##### ホストの pcscd を使う
 
 IFD ハンドラーはホストにインストールし、コンテナ内の pcscd は動かさずに、ホストの pcscd のソケットをコンテナへ渡します。  
-Mirakurun では、環境変数 `DISABLE_PCSCD=1` を設定し、`/var/run/pcscd/pcscd.comm:/var/run/pcscd/pcscd.comm` をマウントします。  
+Mirakurun では、環境変数 `DISABLE_PCSCD=1` を設定し、ソケットのあるディレクトリを `/var/run/pcscd:/var/run/pcscd` のようにマウントします。  
+Mirakurun の `docker-compose.yml` の例はソケットのファイル (`pcscd.comm`) だけをマウントしていますが、それではホストの pcscd がソケットを作り直したときに、コンテナが古いソケットを指したままになります。  
 カードリーダーの管理はホストの pcscd と udev に任せられるので、コンテナのイメージをビルドし直す必要はありません。
 
 コンテナ内の PC/SC ライブラリ (libpcsclite) と、ホストの pcscd の間で、通信手順の版が合っている必要があります。  
