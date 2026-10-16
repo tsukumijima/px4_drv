@@ -1,7 +1,7 @@
 # 2026年10月14日 Linux 版内蔵カードリーダーの実機確認の記録
 
 この文書は、Linux 版の内蔵カードリーダー対応 (`feature/linux-card-reader` ブランチ) を実機で確かめた結果と、確かめられていない機種・条件をまとめたものです。  
-構成と取り決めは [Linux 版内蔵カードリーダーの設計資料](../userland/ifd-px4/README.md) を参照してください。
+構成と取り決めは [Linux 版内蔵カードリーダーの設計資料](../pcsc/README.md) を参照してください。
 
 ## 検証環境
 
@@ -12,6 +12,8 @@
 - pcsc-lite 2.0.3 (Ubuntu 24.04 のパッケージ) の pcscd を root で起動し、IFD ハンドラーはこのブランチからビルドして配置
 - カードはいずれも内蔵スロットに挿した B-CAS で、ATR は `3b f0 12 00 ff 91 81 b1 7c 45 1f 03 99`
 - アンテナは、PX-MLT5PE と DTV02A-1T1S-U には地上波と BS を、PX-W3U4 には地上波だけを接続
+- pcsc-lite の版による違いは、同じ WSL2 に入れた Ubuntu 26.04 (pcsc-lite 2.4.1) で確かめた
+- 古い pcsc-lite は、Ubuntu 20.04 (pcsc-lite 1.8.26) と Debian 12 (Mirakurun の公式イメージ、pcsc-lite 1.9.9) のコンテナで確かめた
 
 USB/IP と仮想マシンを経由するため、TS のドロップ・同期エラー・連続性エラーは、ネイティブ Linux の結果として評価していません。  
 TS の計数は、受信が止まらずに続くことの確認として扱っています。
@@ -48,7 +50,7 @@ DTV02A-1T1S-U で、カードへ APDU を送っている最中にチューナー
 
 ### /dev/px4card の下に作る形と deb での確認
 
-デバイスファイルを `/dev/px4card/` の下に作る形にした版と、`build_ifd_deb.sh` で作った deb の IFD ハンドラーで、上と同じ3台を確かめ直しました。  
+デバイスファイルを `/dev/px4card/` の下に作る形にした版と、`build_pcsc_deb.sh` で作った deb の IFD ハンドラーで、上と同じ3台を確かめ直しました。  
 この時点のデバイスファイル名は USB のシリアル番号で、現在の ID の名前は後の「Windows 版と同じ ID の名前」の節で確かめています。
 
 - 3台とも `/dev/px4card/` の下に作られ、権限は udev の規則どおり `root:video` の `0660` だった
@@ -92,23 +94,54 @@ APDU は受信開始の3秒後から、3台へそれぞれ連続で送り続け�
 カード対応の前の版でも、受信開始の約 1.7 秒後に同じ PID で1件出ることがあり、同じ傾向と見ています。  
 最大読み出し間隔は、PX-MLT5PE のチューナー0の地上波の 0.234 秒を除いて 0.07 秒以下でした。
 
-### Docker のコンテナで pcscd を動かした場合
+PX-W3U4 の衛星側の2基は、同軸ケーブルを衛星側につなぎ替えたうえで、デバイスファイル名を ID にした版で確かめました。  
+受信しながら、PX-W3U4 ・PX-M1UR ・DTV02A-1T1S-U の3台のカードへ APDU を送り続けています。
 
-ホストの pcscd を止め、Ubuntu 24.04 のコンテナへ pcscd と deb の IFD ハンドラーを入れ、`/dev/px4card` と `/run/udev` を渡して確かめました。  
-コンテナのネットワークだけを変えて、PX-MLT5PE の切断と再接続を比べています。
+| 試験 | 受信したチューナー | 同期ずれ・TEI | 連続性エラー | APDU |
+|---|---|---|---|---|
+| BS15_0 、60秒 | PX-W3U4 の衛星側2基 (C/N 17.9dB 、17.7dB) | すべて0件 | 0件 | 3台とも416回成功 |
+| CS2 、30秒 | PX-W3U4 の衛星側2基 (C/N 16.7dB 、17.3dB) | すべて0件 | 0件 | 3台とも176回成功 |
 
-| ネットワーク | 起動時の列挙と APDU | 切断と再接続の後 |
-|---|---|---|
-| 既定 (bridge) | 3台を列挙し、APDU 30回成功 | 切断後も一覧に残り、再接続後も `SCARD_E_READER_UNAVAILABLE` のまま |
-| host | 3台を列挙 | 切断で一覧から消え、再接続後の APDU 20回成功 |
+### pcsc-lite の版とデバイスファイルの権限
 
-pcscd の udev の通知はネットワーク名前空間ごとに届くため、抜き差しへ追従するには host ネットワークが必要です。  
-また、Ubuntu の pcscd はコンテナ内で polkit に接続できず、`--disable-polkit` を付けるまですべてのクライアントを拒否しました。
+pcsc-lite 2.4 以降は、systemd の下の pcscd が root ではなく `pcscd` ユーザーで動きます。  
+Ubuntu 26.04 (pcsc-lite 2.4.1) の WSL を用意し、PX-M1UR を接続して、udev の規則のカードリーダーの行だけを変えて比べました。
 
-3台を同時に外すと、カーネル (devtmpfs) が空になった `/dev/px4card` を削除しました。  
-この状態では、コンテナに渡したディレクトリが削除済みのものを指し続け、再接続後のデバイスファイルがコンテナから見えません。  
-`/dev/px4card` を systemd-tmpfiles で先に作る変更の後は、全台を外してもディレクトリが残りました。  
-host ネットワークのコンテナを動かしたまま全台を外してつなぎ直すと、3台とも APDU 20回が成功しています。
+| 環境 | pcscd の実行ユーザー | デバイスファイルの権限 | 結果 |
+|---|---|---|---|
+| Ubuntu 26.04 | `pcscd` | `root:video` の `0660` | pcscd が開けず、`init failed` でカードリーダーが一覧に出ない |
+| Ubuntu 26.04 | `pcscd` | `root:pcscd` の `0660` | 一覧に出て、APDU 20回成功 |
+| Ubuntu 24.04 | root | `pcscd` グループの規則 (グループは存在しない) | 一覧に出て、APDU 20回成功 |
+
+Ubuntu 24.04 では `pcscd` グループが存在しないため、udev はグループの指定を無視します。  
+デバイスファイルのグループは変わらずに残りますが、root で動く pcscd はそのまま開けます。
+
+配布する deb は、CI と同じく Ubuntu 20.04 のコンテナで作り、Depends は `libc6 (>= 2.17)` になりました。  
+同じ Ubuntu 20.04 のコンテナの pcscd (pcsc-lite 1.8.26) にこの deb を読み込ませると、PX-M1UR を認識し、APDU 20回がすべて成功しました。  
+開けなかったときのログのために pcscd の関数を使っていますが、この版でも読み込みのエラーは出ていません。
+
+### 外付けのカードリーダーとの併用
+
+外付けのカードリーダー (SCM Microsystems SCR3310 、libccid 1.5.5 で動作) と、PX-W3U4 ・PX-M1UR ・DTV02A-1T1S-U の内蔵カードリーダーを、同じ pcscd に同時に接続しました。  
+4台はそれぞれ別のリーダーとして列挙され (外付けのリーダーが先頭)、4台へ同時に APDU を100回ずつ送り、すべて成功しました。
+
+### root 以外のサービスから使う場合
+
+Ubuntu 24.04 の pcscd は、polkit の既定でログインしていないユーザーからの接続を拒否します。  
+`video` グループに入った一般ユーザーを systemd のサービスとして動かすと、`SCardEstablishContext` が `Access denied` になり、pcscd のログに `is NOT authorized for action: access_pcsc` が出ました。  
+README に載せた polkit の規則でそのユーザーを許可すると、同じサービスから APDU 10回がすべて成功し、規則を外すと再び拒否されました。
+
+### Docker のコンテナで使う場合
+
+ホストの pcscd を止め、Mirakurun の公式イメージ (`chinachu/mirakurun:latest` 、Debian 12 、pcsc-lite 1.9.9) に、CI と同じ Ubuntu 20.04 のコンテナで作った deb を追加したイメージで確かめました。  
+起動の設定は公式の `docker-compose.yml` と同じく、`/dev:/dev` の volume 、host ネットワーク、`c *:* rmw` の `device_cgroup_rules` です。
+
+- Mirakurun の起動処理が動かす pcscd が PX-M1UR を認識し、APDU 20回がすべて成功した
+- PX-M1UR を抜き差しすると、作り直された `/dev/px4card/8E5C59AEFF108DEA` がコンテナからもそのまま見え、APDU が成功した
+- ホストの pcscd (pcsc-lite 2.0.3) を使い、コンテナでは `DISABLE_PCSCD=1` を設定して `/var/run/pcscd` を渡す構成でも、コンテナの中の `pcsc_scan` にカードリーダーが表示された
+
+最後の機器を外すと、カーネル (devtmpfs) は空になった `/dev/px4card` を削除します。  
+`/dev/px4card` だけをコンテナへ渡していると、作り直されたディレクトリがコンテナから見えなくなるため、`/dev` 全体をマウントする構成を前提にしています。
 
 ### Windows 版と同じ ID の名前
 
@@ -120,8 +153,11 @@ ID は、同じ機器の Windows 版のリーダー名に表示された値と�
 | PX-M1UR | `000000000000001` | `/dev/px4card/8E5C59AEFF108DEA` | `8E5C59AEFF108DEA` |
 | PX-W3U4 | `000001711009061` | `/dev/px4card/CD65353E4231AA77` | `CD65353E4231AA77` |
 | PX-MLT5PE | `000042546005001` | `/dev/px4card/E0044EBBED627D79` | `E0044EBBED627D79` |
+| DTV02A-1T1S-U | `000000000000001` | `/dev/px4card/3D5490589EDEA2B5` | (Windows 版の表示とは未照合) |
 
-3台とも pcscd に列挙され、APDU 10回ずつがすべて成功しました。  
+PX-M1UR ・PX-W3U4 ・PX-MLT5PE の3台は、pcscd に列挙され、APDU 10回ずつがすべて成功しました。  
+DTV02A-1T1S-U は、PX-W3U4 の衛星側の試験と同時に接続し、Windows 版と同じ式で計算した値の名前で作られることを確かめました。
+
 PX-M1UR と DTV02A-1T1S-U はどちらもシリアル番号が `000000000000001` ですが、PID と GUID が異なるため、ID は別の値になります。  
 同じ機種でシリアル番号も同じ機器を複数台つないだ場合は ID も同じになり、2台目以降のデバイスファイル名には接続した順に `-1` などが付きます。  
 手元に同じ機種が1台ずつしかないため、この場合と、シリアル番号を持たない機器の `usb-<USB の接続位置>` の名前は確かめられていません。
@@ -130,13 +166,12 @@ PX-M1UR と DTV02A-1T1S-U はどちらもシリアル番号が `000000000000001`
 
 - 手元に実機がない機種
   - PX4 系: PX-Q3U4・PX-Q3PE4・PX-Q3PE5 (2基連動の電源管理を含む)、PX-W3PE4・PX-W3PE5
-  - PXMLT 系: PX-MLT5U・PX-MLT8PE・DTV02A-5TS-P・DTV02A-4TS-P
+  - PXMLT 系: PX-MLT5U・PX-MLT8PE・DTV02A-4TS-P (DTV02A-5TS-P は PX-MLT5PE のリブランド品で、ハードウェアと通る処理が同じなので、PX-MLT5PE の結果に含めている)
   - ISDB2056 系: ISDB2056N
   - ISDBT2071 系: PX-S1UR・DTV03A-1TU
 - PX-M1UR 以外の機種での、通信中のカードの抜去と再挿入
-- ACAS カード
-- CS の受信と PX-W3U4 の衛星側のチューナー (同軸ケーブルを接続していない)、長時間の録画、ネイティブ Linux での TS の品質
-- 外付けのカードリーダーとの共存
+- ACAS チップ
+- PX-W3U4 以外の機種での CS の受信、長時間の録画、ネイティブ Linux での TS の品質
 
 ## 外部の報告
 

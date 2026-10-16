@@ -1,7 +1,7 @@
 # 2026年10月14日 Linux 版内蔵カードリーダー対応の実装の記録
 
 この文書は、Linux 版の内蔵カードリーダー対応 (`feature/linux-card-reader` ブランチ) を、どの外部の実装を土台にし、何を取り込み、何をどう直したかを記録したものです。  
-現在の設計は [`userland/ifd-px4/README.md`](../userland/ifd-px4/README.md) に、実機で確かめた範囲は [実機確認の記録](20261014_linux_card_reader_validation.md) にあります。  
+現在の設計は [`pcsc/README.md`](../pcsc/README.md) に、実機で確かめた範囲は [実機確認の記録](20261014_linux_card_reader_validation.md) にあります。  
 2026年7月24日時点の外部実装の評価は [`20260724_external_change_assessment.md`](20260724_external_change_assessment.md) にあり、この文書はその後の状況を踏まえた続きです。
 
 ## 土台にした実装
@@ -66,7 +66,11 @@ PR #43 は、`develop` から作った自前のブランチへ、マージコミ
 
 取り込んだ実装は `/dev/px4cardN` を作っていましたが、この N は登録順で決まり、USB の接続順で変わるため、Docker でコンテナへ渡すときや設定ファイルで固定するときに扱いにくいものでした。  
 そこで、デバイスファイルは `/dev/px4card/<ID>` に作り、番号のファイルは作らない形にしました。  
-この形なら、カードリーダーのデバイスファイルは `/dev/px4card` のディレクトリごとコンテナへ渡せます (pcscd を抜き差しに追従させるには、別に `/run/udev` の共有と host ネットワークが必要です)。
+`/dev/dvb` と同じく、最後の機器を外すとカーネルが `/dev/px4card` も消すため、コンテナでは Mirakurun の既定の構成と同じく `/dev` 全体をマウントする形を案内しています。  
+ディレクトリを systemd-tmpfiles で残す方法も試しましたが、`/dev` 全体をマウントする既存の運用では不要なため採用しませんでした。
+
+デバイスファイルの権限は、pcsc-lite 2.4 以降で pcscd が `pcscd` ユーザーで動くことに合わせ、libccid と同じく `pcscd` グループの `0660` にしました。  
+チューナーと同じ `video` グループにすると、Ubuntu 26.04 (pcsc-lite 2.4.1) の pcscd がデバイスファイルを開けず、カードリーダーが一覧に出ないことを実機で確かめています。
 
 ID には、Windows 版のリーダー名の `(ID: ...)` と同じ値を使い、Windows 版と Linux 版で同じ機器を同じ ID で識別できるようにしました。  
 VID・PID・シリアル番号と Windows 版の INF の DeviceInterfaceGUIDs から小文字のデバイスインターフェースパスを組み立て、DriverHost_PX4 の `HashDevicePath()` と同じ 64bit FNV-1a で求めます。  
@@ -81,12 +85,15 @@ PID と GUID の表が Windows 版からずれると ID も変わるため、既
 
 ## 配布
 
-IFD ハンドラーは、ディストリビューションに依存しない amd64 と arm64 の deb として配布します。  
-libstdc++ と libgcc を静的にリンクして依存を glibc だけにし、古い glibc の環境でビルドしています。  
+IFD ハンドラーは、`px4-drv-pcsc` という名前の amd64 と arm64 の deb として配布します。  
+ソースは、利用者が探すときの語に合わせてリポジトリ直下の `pcsc/` に置き、pcsc-lite の慣習に従うバンドル名 (`ifd-px4.bundle`) と共有ライブラリ名 (`libifd-px4.so`) はそのまま使っています。
+
+libstdc++ と libgcc を静的にリンクして依存を glibc だけにし、Ubuntu 20.04 のコンテナでビルドして、Ubuntu 20.04 以降と Debian 系のディストリビューションで動くようにしています。  
+`.so` と `Info.plist` が1つずつのパッケージなので、debian/ ディレクトリと debhelper は使わずに dpkg-deb で作り、Depends は参照している glibc のシンボルの版から求めています。  
 内蔵カードリーダーを使わない利用者は導入しなくてよく、既存の DKMS の deb の生成方法は変えていません。
 
 ## 残る課題
 
-- 手元に実機がない機種での確認 (PX4 系の Q3 系と PE 版、PXMLT 系の PX-MLT5PE 以外、ISDB2056N 、PX-S1UR 、DTV03A-1TU)
-- PX-M1UR 以外の機種での通信中のカードの抜去と再挿入、ACAS カード、長時間の録画、ネイティブ Linux での TS の品質
+- 手元に実機がない機種での確認 (PX4 系の Q3 系と PE 版、PXMLT 系の PX-MLT5PE とそのリブランド品の DTV02A-5TS-P 以外、ISDB2056N 、PX-S1UR 、DTV03A-1TU)
+- PX-M1UR 以外の機種での通信中のカードの抜去と再挿入、ACAS チップ、長時間の録画、ネイティブ Linux での TS の品質
 - 同じ VID・PID・GUID・シリアル番号を持つ機器を複数台つなぐ場合の識別。ID は同じになり、Linux 版のデバイスファイル名に付く `-1` などの番号は接続順で決まる。DTV02A-1T1S-U と PX-M1UR はシリアル番号が同じでも、PID と GUID が異なるため ID は別になる
