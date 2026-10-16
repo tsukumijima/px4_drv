@@ -76,8 +76,10 @@ ID には、Windows 版のリーダー名の `(ID: ...)` と同じ値を使い�
 VID・PID・シリアル番号と Windows 版の INF の DeviceInterfaceGUIDs から小文字のデバイスインターフェースパスを組み立て、DriverHost_PX4 の `HashDevicePath()` と同じ 64bit FNV-1a で求めます。  
 Windows 版で `PLEX PX-MLT5PE Smart Card Reader (ID: E0044EBBED627D79)` と表示される機器は、Linux 版では `/dev/px4card/E0044EBBED627D79` になります。
 
-pcscd のリーダー名は、`PLEX PX-MLT5PE Smart Card Reader (000042546005001) 00 00` の形です。  
-pcscd は USB で検出したリーダーの名前を、Info.plist の名前と USB の serial 属性から組み立てるため、Windows 版の `(ID: ...)` の形にはできず、括弧の値とデバイスファイル名は異なります。
+pcscd のリーダー名は、`PLEX PX-MLT5PE Smart Card Reader [ID: E0044EBBED627D79] (000042546005001) 00 00` の形です。  
+pcscd は USB で検出したリーダーの名前を Info.plist の名前と USB の情報から組み立て、IFD ハンドラーには名前を返す手段がありません。  
+そこで、pcscd が名前の材料として読む USB インターフェースの `interface` 属性を px4_drv が作り、`ID: <ID>` を返すことで、Windows 版の `(ID: ...)` と同じ ID をリーダー名に入れました。  
+アプリケーションが呼ぶ PC/SC のライブラリ (libpcsclite) を置き換えれば Windows 版と同じ名前にもできますが、アプリケーションごとに差し込む必要があり、配布物と利用者の手間が大きく増えるため採用しませんでした。
 
 Windows 版の INF がない PX-MLT5U は、パス末尾の `#{guid}` を省いて計算します。  
 シリアル番号が使えない機器は `usb-<USB の接続位置>` を名前にし、名前が重複した場合は後から登録する側に `-1` 、`-2` を付けます。  
