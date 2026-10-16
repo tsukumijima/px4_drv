@@ -43,8 +43,8 @@ jobs:
         run: ls -l /lib/modules/*/updates/dkms/px4_drv.ko*
         shell: bash
 
-  build_ifd:
-    name: Build and Check IFD Package (${{ matrix.arch }})
+  build_pcsc:
+    name: Build and Check PC/SC Package (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -71,15 +71,15 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Check IFD handler
-        run: make -C userland/ifd-px4 check LDFLAGS="-static-libstdc++ -static-libgcc"
+        run: make -C pcsc check LDFLAGS="-static-libstdc++ -static-libgcc"
 
-      - name: Build IFD Debian package
-        run: bash build_ifd_deb.sh
+      - name: Build PC/SC Debian package
+        run: bash build_pcsc_deb.sh
 
       - name: Check package and install
         run: |
           test "$(dpkg --print-architecture)" = "${{ matrix.arch }}"
-          dpkg-deb -c ../px4-drv-ifd_*_${{ matrix.arch }}.deb
-          dpkg-deb -f ../px4-drv-ifd_*_${{ matrix.arch }}.deb Depends
-          dpkg -i ../px4-drv-ifd_*_${{ matrix.arch }}.deb
-          python3 -c 'import ctypes; ctypes.CDLL("/usr/lib/pcsc/drivers/ifd-px4.bundle/Contents/Linux/libifd-px4.so")'
+          dpkg-deb -c ../px4-drv-pcsc_*_${{ matrix.arch }}.deb
+          dpkg-deb -f ../px4-drv-pcsc_*_${{ matrix.arch }}.deb Depends Maintainer
+          dpkg -i ../px4-drv-pcsc_*_${{ matrix.arch }}.deb
+          pcsc/build/ifdhandler_test /usr/lib/pcsc/drivers/ifd-px4.bundle/Contents/Linux/libifd-px4.so

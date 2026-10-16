@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 
-root = Path(__file__).resolve().parents[3]
+root = Path(__file__).resolve().parents[2]
 source = (root / 'driver/px4_card.c').read_text(encoding='utf-8')
 table = source.split('px4_card_guids[] = {', 1)[1].split('};', 1)[0]
 entries = re.findall(r'\{\s*0x([0-9a-f]{4}),\s*"(\{[0-9a-f-]+\})"\s*\}', table)

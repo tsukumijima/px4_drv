@@ -18,8 +18,9 @@ esac
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 
-make -C userland/ifd-px4 BUILD="$stage/build" LDFLAGS="-static-libstdc++ -static-libgcc"
-make -C userland/ifd-px4 BUILD="$stage/build" LDFLAGS="-static-libstdc++ -static-libgcc" install DESTDIR="$stage/root" USBDROPDIR=/usr/lib/pcsc/drivers
+make -C pcsc BUILD="$stage/build" LDFLAGS="-static-libstdc++ -static-libgcc"
+make -C pcsc BUILD="$stage/build" LDFLAGS="-static-libstdc++ -static-libgcc" install DESTDIR="$stage/root" USBDROPDIR=/usr/lib/pcsc/drivers
+install -D -m 0644 pcsc/copyright "$stage/root/usr/share/doc/px4-drv-pcsc/copyright"
 
 library="$stage/root/usr/lib/pcsc/drivers/ifd-px4.bundle/Contents/Linux/libifd-px4.so"
 
@@ -38,10 +39,10 @@ strip --strip-unneeded "$library"
 
 mkdir -p "$stage/root/DEBIAN"
 cat > "$stage/root/DEBIAN/control" <<EOF
-Package: px4-drv-ifd
+Package: px4-drv-pcsc
 Version: $version
 Architecture: $arch
-Maintainer: tsukumijima <tsukumijima@users.noreply.github.com>
+Maintainer: tsukumi <tsukumijima@users.noreply.github.com>
 Section: libs
 Priority: optional
 Depends: libc6 (>= $glibc_version)
@@ -52,4 +53,4 @@ Description: PC/SC driver for the built-in card readers of px4_drv tuners
  exposed by px4_drv under /dev/px4card/.
 EOF
 
-dpkg-deb --build --root-owner-group "$stage/root" "../px4-drv-ifd_${version}_${arch}.deb"
+dpkg-deb --build --root-owner-group "$stage/root" "../px4-drv-pcsc_${version}_${arch}.deb"

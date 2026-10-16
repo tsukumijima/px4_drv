@@ -3,7 +3,7 @@ PKG_CONFIG ?= pkg-config
 PCSC_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags libpcsclite)
 USBDROPDIR ?= $(shell $(PKG_CONFIG) --variable=usbdropdir libpcsclite)
 BUILD ?= build
-ROOT := ../..
+ROOT := ..
 SHARED := $(ROOT)/winusb/src/DriverHost_PX4
 CPPFLAGS += -I$(ROOT)/include -I$(ROOT)/driver -I$(SHARED) $(PCSC_CFLAGS)
 CPPFLAGS += -I.
