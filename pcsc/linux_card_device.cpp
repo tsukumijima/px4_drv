@@ -28,14 +28,7 @@ int LinuxCardDevice::Connect(const std::string &path)
 	if (fd_ >= 0)
 		return -EALREADY;
 	fd_ = open(path.c_str(), O_RDWR | O_CLOEXEC | O_NOCTTY);
-	if (fd_ < 0) {
-		/* ログ処理で errno が変わっても、呼び出し側には open() の失敗理由を返す */
-		const int error = errno;
-		Log4(PCSC_LOG_ERROR, "open(%s) failed: %s (errno=%d)",
-			path.c_str(), std::strerror(error), error);
-		return -error;
-	}
-	return 0;
+	return fd_ < 0 ? -errno : 0;
 }
 
 void LinuxCardDevice::Disconnect() noexcept

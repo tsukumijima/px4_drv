@@ -255,8 +255,7 @@ int main(int argc, char *argv[])
 		last_log.find("errno=" + std::to_string(EBUSY)) != std::string::npos);
 	last_log.clear();
 	px4::LinuxCardDevice busy;
-	assert(busy.Connect(path0) == -EBUSY && !last_log.empty());
-	last_log.clear();
+	assert(busy.Connect(path0) == -EBUSY && last_log.empty());
 	assert(IFDHCreateChannelByName(0x10000, path1) == IFD_SUCCESS);
 	assert(last_log.empty());
 	assert(IFDHICCPresence(0) == IFD_ICC_PRESENT);

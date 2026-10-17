@@ -195,9 +195,13 @@ static int px4_card_open(struct inode *inode, struct file *file)
 	struct px4_card *card = NULL, *entry;
 	int ret = 0;
 
+	/*
+	 * 切断された機器の open が途中で止まっている間に、同じデバイス番号で別の機器が登録されることがある
+	 * VFS が open の前に取得した cdev も照合し、切断された機器への open を後から登録された機器へつながない
+	 */
 	mutex_lock(&px4_card_names_lock);
 	list_for_each_entry(entry, &px4_cards, node) {
-		if (entry->devt == inode->i_rdev) {
+		if (entry->devt == inode->i_rdev && entry->cdev == inode->i_cdev) {
 			card = entry;
 			kref_get(&card->refs);
 			break;
@@ -268,6 +272,8 @@ static long px4_card_ioctl(struct file *file, unsigned int command,
 	case PX4_CARD_WRITE:
 		if (copy_from_user(&frame, ptr, sizeof(frame)))
 			return -EFAULT;
+		if (!frame.length)
+			return -EINVAL;
 		/* 受信では、利用者が渡した data を受信データとして返さない */
 		if (command == PX4_CARD_READ)
 			memset(frame.data, 0, sizeof(frame.data));

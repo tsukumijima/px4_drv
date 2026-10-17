@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 extern "C" {
 #include <ifdhandler.h>
+#include <debuglog.h>
 }
 
 #include <cstring>
@@ -101,15 +102,23 @@ extern "C" RESPONSECODE IFDHCreateChannelByName(DWORD Lun, LPSTR DeviceName)
 			ret = px4::ResolveCardDevice(DeviceName, path);
 			if (!ret)
 				ret = reader->device->Connect(path);
-			if (ret != -ENODEV && ret != -ENOENT)
+			if (ret != -ENODEV && ret != -ENOENT && ret != -EACCES)
 				break;
 			if (DeviceName[0] == '/')
 				break;
-			/* pcscd への USB の接続通知は、カーネルがカードデバイスを登録し終える前に届くことがある */
+			/*
+			 * pcscd への USB の接続通知は、カーネルがカードデバイスを登録し終える前に届くことがある
+			 * 登録の直後は root の 0600 で作られ、udev が pcscd グループの 0660 に直すまで、root 以外の pcscd は開けない
+			 */
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		} while (std::chrono::steady_clock::now() < deadline);
-		if (ret)
+		if (ret) {
+			/* 再試行の途中の失敗は記録せず、権限の不足のような原因を最後の1回だけ pcscd のログに残す */
+			if (!path.empty())
+				Log4(PCSC_LOG_ERROR, "open(%s) failed: %s (errno=%d)",
+					path.c_str(), std::strerror(-ret), -ret);
 			return MapError(ret);
+		}
 		std::lock_guard<std::mutex> lock(readers_lock);
 		if (readers.size() >= MAX_READERS || readers.count(Lun))
 			return IFD_COMMUNICATION_ERROR;
