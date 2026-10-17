@@ -23,13 +23,13 @@ public:
 	int WriteCardData(const std::uint8_t *buf, std::uint8_t len) override;
 
 private:
-	int Request(unsigned long command, px4_card_io &io);
+	int Request(unsigned long command, void *argument);
 	int fd_ = -1;
 };
 
 /* 同じ機種を複数台つないだときに VID と PID だけでは区別できないため、sysfs で USB のバス番号とデバイス番号まで照合する */
 int ResolveCardDevice(const std::string &name, std::string &path,
-		      const std::string &sysfs = "/sys/class/misc",
+		      const std::string &sysfs = "/sys/class/px4card",
 		      const std::string &devdir = "/dev");
 
 } // namespace px4

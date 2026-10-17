@@ -35,14 +35,7 @@ int LinuxCardDevice::Connect(const std::string &path)
 			path.c_str(), std::strerror(error), error);
 		return -error;
 	}
-	px4_card_info info{};
-	int ret = ioctl(fd_, PX4_CARD_GET_INFO, &info) < 0 ? -errno : 0;
-	if (!ret && (info.abi_version != PX4_CARD_ABI_VERSION ||
-		     info.max_frame != PX4_CARD_MAX_FRAME))
-		ret = -EPROTONOSUPPORT;
-	if (ret)
-		Disconnect();
-	return ret;
+	return 0;
 }
 
 void LinuxCardDevice::Disconnect() noexcept
@@ -54,25 +47,31 @@ void LinuxCardDevice::Disconnect() noexcept
 	}
 }
 
-int LinuxCardDevice::Request(unsigned long command, px4_card_io &io)
+int LinuxCardDevice::Request(unsigned long command, void *argument)
 {
 	if (fd_ < 0)
 		return -ENODEV;
-	/* EINTR で再実行すると、完了済みの USB 操作を二重に発行するおそれがあるため、失敗として返す */
-	return ioctl(fd_, command, &io) < 0 ? -errno : 0;
+	/* カーネルモジュールは USB の操作を始める前にだけ EINTR を返すため、再実行しても操作は重複しない */
+	int ret;
+	do {
+		ret = ioctl(fd_, command, argument);
+	} while (ret < 0 && errno == EINTR);
+	if (ret == 0)
+		return 0;
+	const int error = errno;
+	if (error == ENOTTY)
+		Log2(PCSC_LOG_ERROR, "ioctl(0x%lx) is not supported by the px4_drv kernel module", command);
+	return -error;
 }
 
 int LinuxCardDevice::OpenCard()
 {
-	px4_card_io io{};
-	io.value = 1;
-	return Request(PX4_CARD_POWER, io);
+	return Request(PX4_CARD_POWER_ON, nullptr);
 }
 
 int LinuxCardDevice::PowerOff()
 {
-	px4_card_io io{};
-	return Request(PX4_CARD_POWER, io);
+	return Request(PX4_CARD_POWER_OFF, nullptr);
 }
 
 void LinuxCardDevice::CloseCard()
@@ -82,35 +81,34 @@ void LinuxCardDevice::CloseCard()
 
 int LinuxCardDevice::DetectCard(bool &detected)
 {
-	px4_card_io io{};
-	int ret = Request(PX4_CARD_DETECT, io);
-	detected = !ret && io.value != 0;
+	__u32 value = 0;
+	int ret = Request(PX4_CARD_DETECT, &value);
+	detected = !ret && value != 0;
 	return ret;
 }
 
 int LinuxCardDevice::ResetCard()
 {
-	px4_card_io io{};
-	return Request(PX4_CARD_RESET, io);
+	return Request(PX4_CARD_RESET, nullptr);
 }
 
 int LinuxCardDevice::SetCardBaudrate(it930x_uart_baudrate baudrate)
 {
-	px4_card_io io{};
+	__u32 value;
 	switch (baudrate) {
-	case IT930X_UART_BAUDRATE_9600: io.value = 9600; break;
-	case IT930X_UART_BAUDRATE_19200: io.value = 19200; break;
-	case IT930X_UART_BAUDRATE_38400: io.value = 38400; break;
+	case IT930X_UART_BAUDRATE_9600: value = 9600; break;
+	case IT930X_UART_BAUDRATE_19200: value = 19200; break;
+	case IT930X_UART_BAUDRATE_38400: value = 38400; break;
 	default: return -EINVAL;
 	}
-	return Request(PX4_CARD_SET_BAUDRATE, io);
+	return Request(PX4_CARD_SET_BAUDRATE, &value);
 }
 
 int LinuxCardDevice::IsCardDataReady(bool &ready)
 {
-	px4_card_io io{};
-	int ret = Request(PX4_CARD_RX_READY, io);
-	ready = !ret && io.value != 0;
+	__u32 value = 0;
+	int ret = Request(PX4_CARD_RX_READY, &value);
+	ready = !ret && value != 0;
 	return ret;
 }
 
@@ -118,15 +116,15 @@ int LinuxCardDevice::ReadCardData(std::uint8_t *buf, std::uint8_t &len)
 {
 	if (!buf || !len)
 		return -EINVAL;
-	px4_card_io io{};
-	io.length = len;
-	int ret = Request(PX4_CARD_READ, io);
+	px4_card_frame frame{};
+	frame.length = len;
+	int ret = Request(PX4_CARD_READ, &frame);
 	if (ret)
 		return ret;
-	if (io.length > len)
+	if (frame.length > len)
 		return -EBADMSG;
-	std::memcpy(buf, io.data, io.length);
-	len = static_cast<std::uint8_t>(io.length);
+	std::memcpy(buf, frame.data, frame.length);
+	len = frame.length;
 	return 0;
 }
 
@@ -134,10 +132,10 @@ int LinuxCardDevice::WriteCardData(const std::uint8_t *buf, std::uint8_t len)
 {
 	if (!buf || !len)
 		return -EINVAL;
-	px4_card_io io{};
-	io.length = len;
-	std::memcpy(io.data, buf, len);
-	return Request(PX4_CARD_WRITE, io);
+	px4_card_frame frame{};
+	frame.length = len;
+	std::memcpy(frame.data, buf, len);
+	return Request(PX4_CARD_WRITE, &frame);
 }
 
 static bool ReadNumber(const std::filesystem::path &path, unsigned int &value,
@@ -165,9 +163,6 @@ int ResolveCardDevice(const std::string &name, std::string &path,
 
 	std::error_code ec;
 	for (const auto &entry : std::filesystem::directory_iterator(sysfs, ec)) {
-		const auto filename = entry.path().filename().string();
-		if (filename.compare(0, 7, "px4card") != 0)
-			continue;
 		const auto parent = std::filesystem::canonical(entry.path() / "device", ec);
 		if (ec)
 			continue;
@@ -177,7 +172,7 @@ int ResolveCardDevice(const std::string &name, std::string &path,
 		    ReadNumber(usb / "idProduct", p, true) &&
 		    ReadNumber(usb / "busnum", b) && ReadNumber(usb / "devnum", d) &&
 		    v == vendor && p == product && b == bus && d == device) {
-			/* sysfs の番号は内部の識別子なので、実際のデバイスファイル名はカーネルが公開する DEVNAME から取る */
+			/* デバイスファイルの置き場所はカーネルの devnode で決まるため、パスはカーネルが公開する DEVNAME から取る */
 			std::ifstream uevent(entry.path() / "uevent");
 			std::string line;
 			while (std::getline(uevent, line)) {

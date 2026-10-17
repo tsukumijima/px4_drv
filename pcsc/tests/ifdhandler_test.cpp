@@ -29,7 +29,7 @@ struct Device {
 	bool available = true;
 	bool present = true;
 	bool powered = false;
-	bool bad_abi = false;
+	bool old_module = false;
 	int error = 0;
 	unsigned int resets = 0;
 	unsigned int writes = 0;
@@ -125,20 +125,20 @@ extern "C" int __wrap_ioctl(int fd, unsigned long command, ...)
 		return __real_ioctl(fd, command, argument);
 	if (!device->opened || !device->available)
 		return Failure(ENODEV);
-	if (command == PX4_CARD_GET_INFO) {
-		auto &info = *static_cast<px4_card_info *>(argument);
-		info.abi_version = device->bad_abi ? 99 : PX4_CARD_ABI_VERSION;
-		info.max_frame = PX4_CARD_MAX_FRAME;
+	/* カードのコマンドを知らないカーネルモジュールは ENOTTY を返す */
+	if (device->old_module)
+		return Failure(ENOTTY);
+	auto &value = *static_cast<__u32 *>(argument);
+	auto &frame = *static_cast<px4_card_frame *>(argument);
+	switch (command) {
+	case PX4_CARD_POWER_ON:
+		device->powered = true;
 		return 0;
-	}
-	auto &io = *static_cast<px4_card_io *>(argument);
-	assert(io.reserved == 0);
-	if (command == PX4_CARD_POWER) {
-		device->powered = io.value != 0;
+	case PX4_CARD_POWER_OFF:
+		device->powered = false;
 		return 0;
-	}
-	if (command == PX4_CARD_DETECT) {
-		io.value = device->present;
+	case PX4_CARD_DETECT:
+		value = device->present;
 		return 0;
 	}
 	if (!device->powered)
@@ -150,29 +150,31 @@ extern "C" int __wrap_ioctl(int fd, unsigned long command, ...)
 		device->rx.assign(std::begin(atr), std::end(atr));
 		return 0;
 	case PX4_CARD_SET_BAUDRATE:
-		assert(io.value == 9600);
+		assert(value == 9600);
 		return 0;
 	case PX4_CARD_RX_READY:
-		io.value = !device->rx.empty();
+		value = !device->rx.empty();
 		return 0;
 	case PX4_CARD_READ: {
-		const auto length = std::min<std::size_t>(io.length, device->rx.size());
+		assert(frame.length);
+		const auto length = std::min<std::size_t>(frame.length, device->rx.size());
 		for (std::size_t i = 0; i < length; i++) {
-			io.data[i] = device->rx.front();
+			frame.data[i] = device->rx.front();
 			device->rx.pop_front();
 		}
-		io.length = length;
+		frame.length = length;
 		return 0;
 	}
 	case PX4_CARD_WRITE:
+		assert(frame.length);
 		device->writes++;
 		if (device->error) {
 			const int error = device->error;
 			device->error = 0;
 			return Failure(error);
 		}
-		if ((io.data[1] & 0xc0) == 0xc0)
-			Queue(*device, io.data[1] | 0x20, io.data + 3, io.data[2]);
+		if ((frame.data[1] & 0xc0) == 0xc0)
+			Queue(*device, frame.data[1] | 0x20, frame.data + 3, frame.data[2]);
 		else {
 			const unsigned char reply[] = {0x90, 0x00};
 			Queue(*device, device->sequence ? 0x40 : 0, reply, sizeof(reply));
@@ -191,15 +193,15 @@ static void TestResolver()
 	char *directory = mkdtemp(pattern);
 	assert(directory);
 	const std::filesystem::path root(directory);
-	std::filesystem::create_directories(root / "class/px4card7");
+	std::filesystem::create_directories(root / "class/000042546005001");
 	std::filesystem::create_directories(root / "usb/3-2/3-2:1.0");
 	std::filesystem::create_directory_symlink(root / "usb/3-2/3-2:1.0",
-		root / "class/px4card7/device");
+		root / "class/000042546005001/device");
 	std::ofstream(root / "usb/3-2/idVendor") << "0511\n";
 	std::ofstream(root / "usb/3-2/idProduct") << "924e\n";
 	std::ofstream(root / "usb/3-2/busnum") << "3\n";
 	std::ofstream(root / "usb/3-2/devnum") << "8\n";
-	std::ofstream(root / "class/px4card7/uevent") << "MAJOR=10\nMINOR=123\nDEVNAME=px4card/000042546005001\n";
+	std::ofstream(root / "class/000042546005001/uevent") << "MAJOR=10\nMINOR=123\nDEVNAME=px4card/000042546005001\n";
 	std::string path;
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
 		path, (root / "class").string()) == 0 && path == "/dev/px4card/000042546005001");
@@ -210,20 +212,20 @@ static void TestResolver()
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008junk",
 		path, (root / "class").string()) == -EINVAL);
 	for (const char *devname : {"px4card/usb-3-2", "px4card/000042546005001-1"}) {
-		std::ofstream(root / "class/px4card7/uevent") << "DEVNAME=" << devname << "\n";
+		std::ofstream(root / "class/000042546005001/uevent") << "DEVNAME=" << devname << "\n";
 		assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
 			path, (root / "class").string(), (root / "dev").string()) == 0 &&
 			path == (root / "dev" / devname).string());
 	}
-	std::ofstream(root / "class/px4card7/uevent") << "MAJOR=10\nMINOR=123\n";
+	std::ofstream(root / "class/000042546005001/uevent") << "MAJOR=10\nMINOR=123\n";
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
 		path, (root / "class").string()) == -ENODEV);
 	for (const char *devname : {"", "/tmp/card", "px4card/../../tmp/card"}) {
-		std::ofstream(root / "class/px4card7/uevent") << "DEVNAME=" << devname << "\n";
+		std::ofstream(root / "class/000042546005001/uevent") << "DEVNAME=" << devname << "\n";
 		assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
 			path, (root / "class").string()) == -EINVAL);
 	}
-	std::filesystem::remove(root / "class/px4card7/uevent");
+	std::filesystem::remove(root / "class/000042546005001/uevent");
 	assert(px4::ResolveCardDevice("usb:0511/924e:libudev:0:/dev/bus/usb/003/008",
 		path, (root / "class").string()) == -ENODEV);
 	std::filesystem::remove_all(root);
@@ -231,9 +233,9 @@ static void TestResolver()
 
 int main(int argc, char *argv[])
 {
-	static_assert(sizeof(px4_card_io) == 264, "UAPI layout changed");
-	static_assert(offsetof(px4_card_io, data) == 8, "UAPI layout changed");
-	static_assert(sizeof(px4_card_info) == 16, "UAPI layout changed");
+	/* ioctl の番号には構造体の大きさが入るため、配置が変わると既存のカーネルモジュールと通じなくなる */
+	static_assert(sizeof(px4_card_frame) == 256, "UAPI layout changed");
+	static_assert(offsetof(px4_card_frame, data) == 1, "UAPI layout changed");
 	TestResolver();
 	/* pcscd のログ関数を提供した状態で、導入した本番ライブラリのシンボルをすべて解決する */
 	if (argc == 2) {
@@ -306,8 +308,12 @@ int main(int argc, char *argv[])
 	assert(IFDHCloseChannel(0) == IFD_NO_SUCH_DEVICE);
 	assert(IFDHCloseChannel(0x10000) == IFD_SUCCESS && !devices[1].opened);
 	devices[0].available = true;
-	devices[0].bad_abi = true;
-	assert(IFDHCreateChannelByName(0, path0) == IFD_PROTOCOL_NOT_SUPPORTED && !devices[0].opened);
+	devices[0].old_module = true;
+	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS);
+	length = sizeof(buffer);
+	assert(IFDHPowerICC(0, IFD_POWER_UP, buffer, &length) != IFD_SUCCESS && length == 0);
+	assert(last_log.find("not supported by the px4_drv kernel module") != std::string::npos);
+	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].opened);
 	std::puts("ifdhandler_test: passed");
 }
 #endif

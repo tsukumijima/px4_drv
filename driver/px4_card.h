@@ -33,6 +33,9 @@ struct px4_card_backend {
 	void *context;
 };
 
+/* モジュールの読み込み時と取り外し時に、USB ドライバーの登録の前と解除の後で呼ぶ */
+int px4_card_init(void);
+void px4_card_exit(void);
 /* 戻り値は kfree() で解放する ID 文字列か ERR_PTR (シリアル番号を使えなければ -EINVAL) */
 char *px4_card_reader_id(struct usb_device *usb);
 int px4_card_register(struct device *parent,

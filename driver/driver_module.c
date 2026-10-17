@@ -14,6 +14,7 @@
 
 #include "revision.h"
 #include "px4_usb.h"
+#include "px4_card.h"
 #include "firmware.h"
 
 static int __init m_init(void)
@@ -41,9 +42,15 @@ static int __init m_init(void)
 #endif
 		"\n");
 
-	ret = px4_usb_register();
+	ret = px4_card_init();
 	if (ret)
 		return ret;
+
+	ret = px4_usb_register();
+	if (ret) {
+		px4_card_exit();
+		return ret;
+	}
 
 	return 0;
 }
@@ -51,6 +58,7 @@ static int __init m_init(void)
 static void __exit m_cleanup(void)
 {
 	px4_usb_unregister();
+	px4_card_exit();
 }
 
 module_init(m_init);

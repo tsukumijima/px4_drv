@@ -62,7 +62,7 @@ ioctl のコマンドの振り分けと `it930x_bcas_*()` の呼び出しは、�
 T=1 の実装は、Windows 版の [`smart_card.cpp`](../winusb/src/DriverHost_PX4/smart_card.cpp) をそのままビルドして使います。
 
 pcscd は USB の接続を検出すると、[`Info.plist`](Info.plist) の VID と PID が一致する機器についてこの IFD ハンドラーを読み込みます。  
-IFD ハンドラーは、渡された USB のバス番号とデバイス番号を sysfs の `/sys/class/misc/px4card*` の親と照合し、その `uevent` の `DEVNAME` から開くデバイスファイルを決めます。  
+IFD ハンドラーは、渡された USB のバス番号とデバイス番号を sysfs の `/sys/class/px4card/<ID>` の親と照合し、その `uevent` の `DEVNAME` から開くデバイスファイルを決めます。  
 同じ機種を複数台つないだときに VID と PID だけでは区別できないためです。  
 USB の接続通知はカーネルがカードリーダーを登録し終える前に届くことがあるので、見つかるまで最大3秒待ちます。
 
@@ -77,11 +77,14 @@ pcsc-lite は `Info.plist` の string 要素を行単位で読むため、配列
 
 ID は、USB の VID・PID・シリアル番号と、Windows 版の INF にある DeviceInterfaceGUIDs からデバイスインターフェースパスを組み立て、その小文字のパスを Windows 版と同じ 64bit FNV-1a で計算した大文字16桁の値です。  
 PX-MLT5PE の例では、Windows 版の `PLEX PX-MLT5PE Smart Card Reader (ID: E0044EBBED627D79)` に対して、Linux 版のデバイスファイルは `/dev/px4card/E0044EBBED627D79` になります。  
-Windows 版の INF がない PX-MLT5U は、パス末尾の `#{guid}` を省いて ID を計算します。
+PX-MLT5U は未発売の機種で、公式の Windows 用ドライバーに定義があるため対応していますが、Windows 版の INF はありません。  
+このため、パス末尾の `#{guid}` を省いて ID を計算します。  
+発売されて INF を用意したときは、その GUID を `px4_card.c` の表へ加えます (それまで使われている機器はないので、ID が変わって困る利用者はいません)。
 
 シリアル番号が無い、空、255バイトを超える、`.` または `..` である、または ASCII の英数字・`.`・`-`・`_` 以外の文字を含む場合は、`usb-<USB の接続位置>` (例: `usb-1-3`) を代わりに使います。  
 同じ名前が既に使われている場合は、後から登録する側の末尾へ `-1` 、`-2` のように空いている番号を付けます。  
-sysfs 上の名前は従来どおり `px4cardN` で、udev の権限規則はこの名前に当てはめています。
+カードリーダーは px4_drv が登録する `px4card` クラスのデバイスで、sysfs では `/sys/class/px4card/<ID>` 、udev の規則では `SUBSYSTEM=="px4card"` として現れます。  
+汎用の misc クラスを使うとクラスの中に `px4card` の階層を作れず、sysfs の名前とデバイスファイルの名前が食い違うため、専用のクラスにしています。
 
 デバイスファイルの権限は `pcscd` グループの `0660` です。  
 デバイスファイルを開くのは pcscd だけで、pcsc-lite 2.4 以降は systemd の下の pcscd が `pcscd` ユーザーで動くため、libccid の規則と同じくこのグループに読み書きを許可しています。  
@@ -111,22 +114,27 @@ pcscd は USB が追加されたという通知を受けて名前を作るため
 ## ioctl の仕様
 
 定義は [`include/px4_card_ioctl.h`](../include/px4_card_ioctl.h) にあります。  
-32bit のユーザー空間からも同じ配置で使えるよう、構造体は固定幅の型だけで構成しています。  
-IFD ハンドラーは、開いた直後に `PX4_CARD_GET_INFO` で ABI の版と1回に送受信できる長さを確かめます。
+各コマンドは Windows 版の `CardDevice` ([`card_device.hpp`](../winusb/src/DriverHost_PX4/card_device.hpp)) の関数と1対1に対応し、引数はそのコマンドに必要な型だけを受け渡します。  
+マジック番号と書き方は、チューナーの ioctl ([`include/ptx_ioctl.h`](../include/ptx_ioctl.h)) と同じ 0x8d です。
 
-| コマンド | 内容 |
-|---|---|
-| `PX4_CARD_GET_INFO` | ABI の版 (1) と、1回に送受信できる長さ (255バイト) を返す |
-| `PX4_CARD_POWER` | `value` が 1 なら電源の参照を取って UART を初期化し、0 なら参照を解放する |
-| `PX4_CARD_DETECT` | カードの有無を `value` に返す (電源を入れていなくても使える) |
-| `PX4_CARD_RESET` | カードをリセットし、UART を ATR の受信速度 (9600bps) へ戻す |
-| `PX4_CARD_SET_BAUDRATE` | `value` に 9600 、19200 、38400 のいずれかを渡す |
-| `PX4_CARD_RX_READY` | カードの応答を受信し終えたかを `value` に返す |
-| `PX4_CARD_READ` | `length` に受信できる最大長を渡し、実際の受信長とデータを返す |
-| `PX4_CARD_WRITE` | `data` の先頭から `length` バイトを1つの UART フレームとして送信する |
+| コマンド | 引数 | 内容 |
+|---|---|---|
+| `PX4_CARD_POWER_ON` | なし | 基板電源の参照を取って UART を初期化する (電源投入済みなら何もしない) |
+| `PX4_CARD_POWER_OFF` | なし | 基板電源の参照を解放する (デバイスファイルを閉じたときも同じ処理を行う) |
+| `PX4_CARD_DETECT` | `__u32` (出力) | カードがあれば 1 、なければ 0 を返す (電源を入れていなくても使える) |
+| `PX4_CARD_RESET` | なし | カードをリセットし、UART を ATR の受信速度 (9600bps) へ戻す |
+| `PX4_CARD_SET_BAUDRATE` | `__u32` (入力) | UART の速度を bps で渡す (9600 、19200 、38400 のいずれか) |
+| `PX4_CARD_RX_READY` | `__u32` (出力) | カードの応答を受信し終えていれば 1 、まだなら 0 を返す |
+| `PX4_CARD_READ` | `struct px4_card_frame` (入出力) | `length` に `data` の容量を渡し、実際の受信長とデータが返る |
+| `PX4_CARD_WRITE` | `struct px4_card_frame` (入力) | `data` の先頭から `length` バイトを1つの UART フレームとして送信する |
 
-使わない `value`・`length` と `reserved` には 0 を入れます。  
-電源を入れていない状態で UART を操作するコマンドは `EHOSTDOWN` 、USB 切断後の操作は `ENODEV` を返します。
+`struct px4_card_frame` は `__u8 length` と `__u8 data[255]` だけの 256 バイトで、32bit と 64bit のどちらのユーザー空間でも同じ配置になり、詰め物 (パディング) もありません。  
+`READ` と `WRITE` の `length` は1以上で、0 は `EINVAL` になります。  
+電源を入れていない状態で UART を操作するコマンドは `EHOSTDOWN` を、USB 切断後のコマンドは `ENODEV` を返します。
+
+カーネルモジュール (DKMS) と IFD ハンドラー (deb) は別々に更新されるので、公開したコマンドの番号・引数・意味は変えず、機能は新しい番号のコマンドとして追加します。  
+古いカーネルモジュールは知らない番号に `ENOTTY` を返し、IFD ハンドラーはそのことを pcscd のログに残します。  
+番号が変わらない限り意味も変わらないので、ABI のバージョン番号や予約フィールド (reserved) は持たせていません。
 
 ## 基板電源の取り決め
 
@@ -163,7 +171,7 @@ T=1 の待機をカーネルへ置くと、TS 受信と共有する機種のロ�
 USB が切断されると、機種側は機種のロックの下で利用可能状態を 0 にしてから、`px4_card_unregister()` でカードリーダーの登録を外します。  
 登録の解除は、カードが使っていた電源の参照を戻し (切断後なのでハードウェアには触れません)、以後の操作がすべて `-ENODEV` になるようにします。  
 開いたままの記述子は機種共通層の小さな管理オブジェクトだけを参照し続けるため、機種のオブジェクトは pcscd が記述子を閉じるのを待たずに解放できます。  
-`poll()` は USB 切断を `POLLERR | POLLHUP` で知らせ、カードの挿抜は pcscd の定期的な問い合わせで扱います。
+pcscd は USB の切断を udev から、カードの挿抜を IFD ハンドラーへの定期的な問い合わせから知るので、デバイスファイルは `poll()` に対応していません。
 
 ## 機種差
 
@@ -195,7 +203,7 @@ make -C pcsc check
 PID と GUID の照合には Python 3 が必要です。
 
 - Windows 版と共有する T=1 の状態遷移の試験
-- IFD ハンドラーの関数から `LinuxCardDevice` までを実物で通し、open・close・ioctl のシステムコールだけを模擬する試験 (未挿入、電源、T=1 、抜去、複数のカードリーダーの区別、ABI の不一致など)
+- IFD ハンドラーの関数から `LinuxCardDevice` までを実物で通し、open・close・ioctl のシステムコールだけを模擬する試験 (未挿入、電源、T=1 、抜去、複数のカードリーダーの区別、コマンドを知らない古いカーネルモジュールなど)
 - カーネル側の PID・GUID の表と Windows 版の INF の照合
 
 実際の pcscd と libpcsclite を使う統合試験は、ホストの pcscd へ接続しないよう、試験専用のコンテナの中で実行します。  
