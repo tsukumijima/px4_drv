@@ -354,7 +354,7 @@ pcsc-lite (pcscd) 用のドライバー (IFD ハンドラー) を導入すると
 内蔵カードリーダーを持つ機種は次のとおりです。
 
 - PLEX PX-W3U4 / PX-Q3U4 / PX-W3PE4 / PX-Q3PE4 / PX-W3PE5 / PX-Q3PE5
-- PLEX PX-MLT5U / PX-MLT5PE / PX-MLT8PE
+- PLEX PX-MLT5PE / PX-MLT8PE
 - e-Better DTV02A-5TS-P / DTV02A-4TS-P / DTV02A-1T1S-U / DTV03A-1TU
 - PLEX PX-M1UR / PX-S1UR
 
@@ -394,8 +394,6 @@ pcscd を新しくインストールした場合は、すでにつながって�
 `[ID: ...]` は Windows 版のリーダー名の `(ID: ...)` と同じ値で、デバイスファイル名 (この例では `/dev/px4card/CD65353E4231AA77`) にも同じ ID を使います。  
 後ろの括弧の中の USB のシリアル番号と末尾の番号は、pcscd が付けるものです。
 
-PX-MLT5U は未発売の機種ですが、公式の Windows 用ドライバーに定義があるため対応しています。  
-Windows 版の INF がないので、GUID を省いたパスから ID を計算します。  
 同じ ID の機器を複数台つないだ場合は、2台目以降のデバイスファイル名に `-1` などが付きます (リーダー名の `[ID: ...]` には付かず、どちらも同じ値になります)。  
 シリアル番号が使えない機器では、`usb-<USB の接続位置>` がデバイスファイル名になります。
 
