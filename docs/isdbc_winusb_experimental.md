@@ -131,6 +131,18 @@ DebugLogPath="DriverHost_PX4.log"
 
 `DebugLog=false` にするとログを作成しません。ログには選局した方式・周波数・復調ロック状態が出力されます。
 
+BonDriver の選局ログは、読み込む DLL と同名の INI ファイルで有効にできます。
+
+```ini
+[BonDriver]
+DebugLog=true
+DebugLogPath="BonDriver_PX-MLT.log"
+```
+
+`DebugLog` の既定値は `false` です。  
+`DebugLogPath` を省略した場合は DLL と同じフォルダの `<DLL名>.log` に出力され、相対パスを指定した場合も DLL のフォルダが基準になります。  
+ログファイルは開くたびに作り直されます。
+
 ## Linux
 
 > [!WARNING]
