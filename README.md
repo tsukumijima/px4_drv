@@ -373,7 +373,7 @@ Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビュ�
 	$ sudo udevadm settle
 	$ sudo systemctl restart pcscd
 
-`udevadm` の2行は、接続済みのチューナーのカードリーダーを、新しくインストールした pcscd から開けるようにするためのものです。
+`udevadm` の2行は、すでに接続しているチューナーのカードリーダーを、新しくインストールした pcscd から開けるようにするためのものです。
 
 > [!NOTE]
 > 更新したときも、インストールの後に pcscd を再起動すると読み込まれます。  
@@ -427,7 +427,7 @@ Ubuntu 24.04 以降と Debian 13 以降の pcscd は、接続してきたプロ�
 このため、Mirakurun や EDCB を root 以外のユーザーの systemd サービスとして動かすと、カードリーダーを使えません (外付けのカードリーダーでも同じで、pcscd のログに `is NOT authorized for action: access_pcsc` が出ます)。  
 Ubuntu 22.04 以前と Debian 12 以前の pcscd はこの確認をしないため、次の設定は不要です。
 
-この拒否が出る場合は、次の polkit のルールを `/etc/polkit-1/rules.d/50-pcscd-recorder.rules` に置き、サービスのユーザー (この例では `mirakurun`) に許可します。
+接続が拒否される場合は、次の polkit のルールを `/etc/polkit-1/rules.d/50-pcscd-recorder.rules` に置き、サービスのユーザー (この例では `mirakurun`) に許可します。
 
 ```js
 polkit.addRule(function(action, subject) {
