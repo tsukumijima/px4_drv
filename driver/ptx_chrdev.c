@@ -499,11 +499,11 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 			chrdev->params.tsmf_tsid = -1;
 			chrdev->params.tsmf_output_tlv = false;
 			/* ISDB-C の中心周波数には、地上波の 143 kHz オフセットを加えない
+			 * 0-62 は recpt1 と同じく VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch で、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
 			 * slot は既存の addfreq と同じく、符号付きの周波数補正値 (kHz) として使う */
-			if ((freq.freq_no >= 3 && freq.freq_no <= 12) ||
-			    (freq.freq_no >= 22 && freq.freq_no <= 62)) {
+			if (freq.freq_no >= 0 && freq.freq_no <= 62) {
 				chrdev->params.freq = 93000 + freq.freq_no * 6000 + freq.slot;
-				if (freq.freq_no == 12)
+				if (freq.freq_no >= 12 && freq.freq_no <= 16)
 					chrdev->params.freq += 2000;
 			} else if (freq.freq_no >= 63 && freq.freq_no <= 112) {
 				chrdev->params.freq = 95000 + freq.freq_no * 6000 + freq.slot;
