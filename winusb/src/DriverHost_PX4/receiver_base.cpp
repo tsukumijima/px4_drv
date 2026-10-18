@@ -191,6 +191,11 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 			ret = -ETIMEDOUT;
 			return false;
 		}
+		// 選局に失敗した場合も、以前の TLV 断片を引き継がない
+		if (isdbc && params_.tsmf_mode && params_.tsmf_output_tlv)
+			stream_buf_->SetTsmfRelativeStream(true,
+				static_cast<std::uint8_t>(params_.tsmf_relative_stream),
+				static_cast<std::int32_t>(params_.tsmf_slot_offset), true);
 		ret = SetFrequency();
 		if (ret)
 			return false;
@@ -694,8 +699,11 @@ bool ReceiverBase::StreamBuffer::TsmfExtractTlvPacket(const std::uint8_t *packet
 	/* This deliberately mirrors the segmented-TLV layout used by
 	 * BonDriver_BDA: a three-byte prefix for continuations, and a pointer
 	 * byte at offset three on a packet-start indication. */
-	if (packet[0] != 0x47 || (packet[1] & 0xa0) != 0 || pid != 0x002d)
+	if (packet[0] != 0x47 || (packet[1] & 0xa0) != 0 || pid != 0x002d) {
+		if (packet[1] & 0x80)
+			tsmf_tlv_size_ = 0;
 		return false;
+	}
 
 	const bool packet_start = (packet[1] & 0x40) != 0;
 	if (!packet_start) {
@@ -705,8 +713,10 @@ bool ReceiverBase::StreamBuffer::TsmfExtractTlvPacket(const std::uint8_t *packet
 	}
 
 	const std::size_t tlv_start = static_cast<std::size_t>(packet[3]) + 4;
-	if (tlv_start >= 188)
+	if (tlv_start >= 188) {
+		tsmf_tlv_size_ = 0;
 		return false;
+	}
 	if (tsmf_tlv_size_) {
 		if (!TsmfAppendTlv(packet + 4, tlv_start - 4))
 			return false;
@@ -726,6 +736,7 @@ bool ReceiverBase::StreamBuffer::TsmfSelectPacket(const std::uint8_t *packet) no
 
 	if (packet[0] != 0x47 || tsmf_slot_ < 0 || tsmf_slot_ >= 52) {
 		tsmf_slot_ = -1;
+		tsmf_tlv_size_ = 0;
 		return false;
 	}
 
