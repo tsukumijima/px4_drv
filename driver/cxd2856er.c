@@ -1367,6 +1367,10 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
 		params->isdbc.j83b;
 
+	/* ISDB-C の起動が途中で失敗して停止処理を通らなかった場合も、ISDB-T/S の起動の前に書き戻す */
+	if (system != CXD2856ER_ISDB_C_SYSTEM)
+		cxd2856er_restore_isdbc_regs(demod);
+
 	/* J.83B と ISDB-C は内部の設定が異なるため、停止状態を経由して再設定する */
 	if (demod->state == CXD2856ER_ACTIVE_STATE && (j83b || demod->j83b_active)) {
 		ret = cxd2856er_sleep(demod);
