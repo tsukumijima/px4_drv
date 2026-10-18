@@ -14,7 +14,7 @@
 #include "bon_ts_copy.hpp"
 #include "pipe.hpp"
 
-std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enabled)
+std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enabled, unsigned int slots = 1)
 {
 	std::array<unsigned char, 188> packet{};
 	packet[0] = 0x47;
@@ -24,7 +24,8 @@ std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enable
 	packet[5] = 0x86;
 	packet[6] = 1;
 	if (enabled) packet[7 + relative / 8] = static_cast<unsigned char>(0x80 >> (relative % 8));
-	packet[73] = static_cast<unsigned char>((relative + 1) << 4);
+	for (unsigned int i = 0; i < slots; ++i)
+		packet[73 + i / 2] |= static_cast<unsigned char>((relative + 1) << ((i % 2) ? 0 : 4));
 	std::uint32_t crc = 0xffffffff;
 	for (std::size_t i = 4; i < 184; ++i) {
 		crc ^= static_cast<std::uint32_t>(packet[i]) << 24;
@@ -43,17 +44,19 @@ public:
 	unsigned int attempts = 0;
 	unsigned int lock_delay = 0;
 	unsigned int frequency_delay = 0;
+	int frequency_error = 0;
 	int lock_error = 0;
 	std::chrono::steady_clock::time_point frequency_begin;
 
-	TuneReceiver(px4::SystemType system, std::uint32_t modulation, int relative, Input value, unsigned int options = 0)
+	TuneReceiver(px4::SystemType system, std::uint32_t modulation, int relative, Input value, unsigned int options = 0, bool output_tlv = false)
 		: ReceiverBase(options), input(value)
 	{
 		params_.system = system;
 		params_.modulation = modulation;
 		params_.tsmf_mode = relative >= 0;
 		params_.tsmf_relative_stream = relative >= 0 ? relative : 0;
-		stream_buf_->SetTsmfRelativeStream(relative >= 0, static_cast<std::uint8_t>(params_.tsmf_relative_stream), 0);
+		params_.tsmf_output_tlv = output_tlv;
+		stream_buf_->SetTsmfRelativeStream(relative >= 0, static_cast<std::uint8_t>(params_.tsmf_relative_stream), 0, output_tlv);
 		if (!stream_buf_->Alloc(188 * 1024)) std::abort();
 		stream_buf_->Start();
 	}
@@ -69,7 +72,7 @@ public:
 		++attempts;
 		frequency_begin = std::chrono::steady_clock::now();
 		Sleep(frequency_delay);
-		return 0;
+		return frequency_error;
 	}
 	int CheckLock(bool &locked) override
 	{
@@ -92,6 +95,96 @@ public:
 		return 0;
 	}
 };
+
+std::array<unsigned char, 188> MakeTlvPacket(bool start, unsigned char pointer, unsigned char payload)
+{
+	std::array<unsigned char, 188> packet;
+	packet.fill(payload);
+	packet[0] = 0x47;
+	packet[1] = start ? 0x40 : 0;
+	packet[2] = 0x2d;
+	if (start) packet[3] = pointer;
+	return packet;
+}
+
+enum class TlvReset { Normal, TEIStart, TEIContinuation, Pointer184, Pointer255, SyncByte, MissingHeader, Restart, Purge, RetuneFailure };
+
+bool TestTlvReset(TlvReset reason)
+{
+	TuneReceiver receiver(px4::SystemType::ISDB_C, 256, 0, TuneReceiver::Input::None, 0, true);
+	auto stream = receiver.GetStreamBuffer();
+	auto write = [&](const std::array<unsigned char, 188> &packet, std::size_t expected) {
+		std::size_t size = packet.size();
+		return stream->Write(packet.data(), size) && size == expected;
+	};
+	auto read = [&](const std::vector<unsigned char> &expected) {
+		std::vector<unsigned char> output;
+		stream->HandleRead(4096, [&](const void *buf, std::size_t size) {
+			const auto *bytes = static_cast<const unsigned char *>(buf);
+			output.assign(bytes, bytes + size);
+			return false;
+		});
+		return output == expected;
+	};
+	const auto header = MakeTsmfHeader(0, true, 52);
+	const auto continuation = MakeTlvPacket(false, 0, 0x22);
+	if (!write(header, 0) || !write(MakeTlvPacket(true, 0, 0x11), 0)) return false;
+	if (reason == TlvReset::Normal || reason == TlvReset::MissingHeader) {
+		auto null_packet = continuation;
+		null_packet[1] = 0x1f;
+		null_packet[2] = 0xff;
+		for (unsigned int i = 1; i < 52; ++i)
+			if (!write(null_packet, 0)) return false;
+		if (reason == TlvReset::Normal) {
+			if (!write(header, 0) || !write(continuation, 0) || !write(MakeTlvPacket(true, 3, 0x33), 372)) return false;
+			std::vector<unsigned char> expected(184, 0x11);
+			expected.insert(expected.end(), 185, 0x22);
+			expected.insert(expected.end(), 3, 0x33);
+			if (!read(expected) || !write(MakeTlvPacket(true, 0, 0x44), 181) || !read(std::vector<unsigned char>(181, 0x33))) return false;
+			expected.assign(184, 0x44);
+			expected.insert(expected.end(), 183, 0x55);
+			if (!write(MakeTlvPacket(true, 183, 0x55), 367) || !read(expected)) return false;
+			return write(MakeTlvPacket(true, 0, 0x66), 1) && read(std::vector<unsigned char>(1, 0x55));
+		}
+	}
+	if (reason == TlvReset::Restart) {
+		stream->Stop();
+		stream->Start();
+	} else if (reason == TlvReset::Purge) {
+		if (!stream->Purge()) return false;
+	} else if (reason == TlvReset::RetuneFailure) {
+		receiver.frequency_error = -EIO;
+		if (receiver.Tune(1000) || receiver.attempts != 1) return false;
+	} else {
+		auto invalid = MakeTlvPacket(true, 0, 0x22);
+		if (reason == TlvReset::TEIStart) invalid[1] |= 0x80;
+		if (reason == TlvReset::TEIContinuation) {
+			invalid = continuation;
+			invalid[1] |= 0x80;
+		}
+		if (reason == TlvReset::Pointer184) invalid[3] = 184;
+		if (reason == TlvReset::Pointer255) invalid[3] = 255;
+		if (reason == TlvReset::SyncByte) invalid[0] = 0x46;
+		if (reason == TlvReset::MissingHeader) invalid = continuation;
+		if (!write(invalid, 0)) return false;
+	}
+	if (!write(header, 0) || !write(continuation, 0) || !write(MakeTlvPacket(true, 0, 0x33), 0)) return false;
+	return write(MakeTlvPacket(true, 0, 0x44), 184) && read(std::vector<unsigned char>(184, 0x33));
+}
+
+bool TestTlvReassembly()
+{
+	const char *names[] = {"normal frame crossing", "TEI start", "TEI continuation", "pointer 184", "pointer 255", "sync byte", "missing header", "restart", "purge", "retune failure"};
+	bool valid = true;
+	for (unsigned int i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+		if (!TestTlvReset(static_cast<TlvReset>(i))) {
+			std::fprintf(stderr, "TLV case failed: %s\n", names[i]);
+			valid = false;
+		}
+	}
+	if (valid) std::puts("stream_transfer_test: passed (TLV frame crossing, TEI, pointer boundaries, TSMF resync, restart, purge and failed retune)");
+	return valid;
+}
 
 bool TestTuneInput()
 {
@@ -268,6 +361,7 @@ bool TestNativePipe(bool copy, std::size_t fragment, int sequence)
 
 int main()
 {
+	if (!TestTlvReassembly()) return 5;
 	if (!TestTuneInput()) return 4;
 	if (!TestWriteDiagnostics()) return 1;
 	int sequence = 0;
