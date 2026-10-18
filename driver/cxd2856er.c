@@ -3,7 +3,16 @@
  * Sony CXD2856ER driver (cxd2856er.c)
  *
  * Copyright (c) 2018-2021 nns779
- * J.83B reference portions:
+ *
+ * ISDB-C 用に参照した Linux cxd2841er.c (GPL-2.0-or-later):
+ * https://github.com/torvalds/linux/blob/v6.12/drivers/media/dvb-frontends/cxd2841er.c
+ * Copyright 2012 Sony Corporation
+ * Copyright (C) 2014 NetUP Inc.
+ * Copyright (C) 2014 Sergey Kozlov <serjk@netup.ru>
+ * Copyright (C) 2014 Abylay Ospan <aospan@netup.ru>
+ *
+ * DVB-C 参照プロファイル・J.83B 用に参照した cxd2878.c:
+ * https://github.com/koreapyj/cxd28xx/blob/c5fa27eecbe80633cbb365cc44656daea1c0e2e3/cxd2878.c
  * Copyright (c) 2022 Sony Semiconductor Solutions Corporation
  * Copyright (c) 2021 Davin zhang <Davin@tbsdtv.com>
  * Copyright (c) 2026 Yoonji Park <koreapyj@dcmys.kr>
@@ -209,14 +218,7 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 	u8 tmp;
 	u8 ts_clock_period;
 
-	/*
-	 * PX-MLT's original ISDB-T path uses 0x10 here.  The corresponding
-	 * Sony DVB-C implementation uses 0x08.  ISDB-C 256QAM transports can
-	 * exceed the output rate that was observed to work with the inherited
-	 * 0x10 setting, so use the faster clock only for the experimental
-	 * ISDB-C path.  This register is volatile and is programmed on every
-	 * tune.
-	 */
+	/* 256QAM の TS 出力レートに合わせ、ISDB-C では DVB-C 用の高速クロックを使う。 */
 	ts_clock_period = (system == CXD2856ER_ISDB_C_SYSTEM) ? 0x08 : 0x10;
 
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
@@ -239,9 +241,8 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 	if (ret)
 		return ret;
 
-	/* cxd2878.c の cxd2878_setTSClkModeAndFreq(): DVB-C は rate control
-	 * 有効、serial は continuous/full rate。parallel では C4/D1 を書かない。
-	 * 64QAM/256QAM の区別はなく、既存プロファイルだけ従来の値を保持する。 */
+	/* cxd2878_setTSClkModeAndFreq() の DVB-C 設定に従い、参照プロファイルではレート制御を有効にする。
+	 * シリアル出力は連続クロック・フルレートとし、パラレル出力の C4/D1 は保持する。 */
 	if (!reference_profile || (tmp & 0x80)) {
 		ret = cxd2856er_write_slvt_reg_mask(demod, 0xc4,
 			reference_profile ? 0x01 : 0x00, 0x03);
@@ -334,15 +335,8 @@ static int cxd2856er_set_ts_pin_state(struct cxd2856er_demod *demod,
 	return 0;
 }
 
-/*
- * CXD2856ER's original ISDB-T path uses TSIF clock-select value 2.  Public
- * Sony DVB-C code uses value 0 for both the TS output duty mode and clock
- * select.  64QAM happens to work with the terrestrial setting on this board,
- * but the 256QAM transport is much denser and reaches FEC while producing no
- * bytes at the IT9305.  Test the documented DVB-C TSIF form only for the
- * experimental 256QAM path; the receiver board wiring has to prove whether it
- * accepts it.
- */
+/* 地上波用の TSIF 設定 (クロック選択2) では、64QAM は受信できるが 256QAM は FEC まで進んでも IT930x へ TS が届かない。
+ * 256QAM では、公開 DVB-C ドライバーに合わせて TSIF のデューティーモードとクロック選択を0にする。 */
 static int cxd2856er_set_isdbc_256_tsif(struct cxd2856er_demod *demod)
 {
 	int ret;
@@ -574,14 +568,12 @@ static int cxd2856er_sleep_isdbs(struct cxd2856er_demod *demod)
 	return 0;
 }
 
-/* 出典: Sony/TBS cxd2878_sleep() の SONY_DTV_SYSTEM_J83B (GPL-2.0)。
- * 共通のアナログ停止だけでは J.83B 固有値が残るため、既存 T/C の前に戻す。
- */
+/* cxd2878_sleep() の SONY_DTV_SYSTEM_J83B に従い、共通のアナログ停止処理の前に J.83B 固有の設定を戻す。 */
 static int cxd2856er_sleep_j83b(struct cxd2856er_demod *demod)
 {
 	int ret;
 	u8 data[4];
-	/* 固有値を戻す前に TS を停止する順序も出典の sleep と揃える。 */
+	/* レジスターの設定を戻す間は TS 出力を停止しておく。 */
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
 	if (ret)
 		return ret;
@@ -655,12 +647,7 @@ int cxd2856er_sleep(struct cxd2856er_demod *demod)
 	switch (demod->system) {
 	case CXD2856ER_ISDB_T_SYSTEM:
 	case CXD2856ER_ISDB_C_SYSTEM:
-		/*
-		 * ISDB-C uses the terrestrial/cable analogue front-end path.  Its
-		 * experimental wake-up sequence is based on the same power-down
-		 * state as terrestrial mode, so use the established ISDB-T sleep
-		 * sequence before a C-to-T/S delivery-system switch.
-		 */
+		/* ISDB-C は地上波と同じアナログ受信経路を使うため、ISDB-T と同じ手順で停止する。 */
 		cxd2856er_sleep_isdbt(demod);
 		break;
 
@@ -770,7 +757,7 @@ static int cxd2856er_wakeup_isdbt(struct cxd2856er_demod *demod,
 	int ret = 0;
 	u8 data[3];
 
-	/* Read-only diagnostic counter; it does not alter the ISDB-T setup. */
+	/* ログの間引きカウンターは選局ごとに初期化する。 */
 	demod->isdbt_lock_checks = 0;
 
 	ret = cxd2856er_set_ts_clock(demod, CXD2856ER_ISDB_T_SYSTEM, false);
@@ -1083,20 +1070,11 @@ static int cxd2856er_reset_isdbs(struct cxd2856er_demod *demod)
 	return 0;
 }
 
-/*
- * CXD2856ER supports ISDB-C in hardware, but its J.83C register sequence is
- * not present in the public driver.  Keep the mode distinct from ISDB-T so a
- * verified sequence can be added without accidentally programming terrestrial
- * settings into a cable channel.
- */
-/* Sony/TBS 公開 cxd2878.c (GPL-2.0) の SLtoACC() と
- * SLtoACC_BandSetting(): SONY_DTV_BW_J83B_5_60_MSPS のみを移植。
- * TS 出力は DTV02A-4TS-P で受信済みの DVB-C 参照プロファイルを再利用。
- * J.83B 信号がない環境では非ロックと既存系統への復帰までが試験範囲で、
- * J.83B のロック・TS 品質は未検証。5.06/5.36 Msps は対象外。
- * IF は cxd2878.h の SONY_DEMOD_MAKE_IFFREQ_CONFIG と同じ
- * round(3.75 / 48 * 2^24) = 0x140000。48 MHz は復調器内部の基準であり、
- * 外部水晶 24 MHz を代入する式ではない（DVB-C 3.7 MHz と同じ基準）。
+/* cxd2878.c の SLtoACC() と SLtoACC_BandSetting() のうち、5.6 Msps 用の設定を使う。
+ * 5.06/5.36 Msps は対象外。
+ * TS 出力には DVB-C 参照プロファイルを共用する。
+ * IF は SONY_DEMOD_MAKE_IFFREQ_CONFIG と同じく round(3.75 / 48 * 2^24) = 0x140000。
+ * 48 MHz は復調器内部の基準クロックで、外部水晶の周波数とは異なる。
  */
 static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 {
@@ -1108,7 +1086,7 @@ static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 	ret = cxd2856er_set_ts_clock(demod, CXD2856ER_ISDB_C_SYSTEM, true);
 	if (ret)
 		return ret;
-	/* 途中の I/O 失敗でも次回 sleep が J.83B 固有状態を解除できるよう保持する。 */
+	/* 途中で I/O が失敗しても、次回の停止時に J.83B 固有の設定を解除できるよう状態を保持する。 */
 	demod->j83b_active = true;
 	demod->system = CXD2856ER_ISDB_C_SYSTEM;
 	demod->state = CXD2856ER_ACTIVE_STATE;
@@ -1228,20 +1206,11 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 		 params->isdbc.modulation != CXD2856ER_ISDBC_256QAM))
 		return -EINVAL;
 
-	/*
-	 * This is an opt-in, DVB-C-derived 6 MHz profile.  It was mapped from
-	 * cxd2841er.c after comparing its ISDB-T path with this CXD2856ER driver;
-	 * it is not a Sony-verified J.83C sequence.  All writes are volatile and
-	 * disappear after power removal, but do not enable it without a receiver
-	 * that actually carries 64QAM or 256QAM / 5274 ksym/s
-	 * transmodulation.  The candidate sequence is initially shared by the
-	 * two QAM orders; a CXD2856ER-specific 256QAM-only register delta has
-	 * not yet been independently verified.
-	 */
+	/* cxd2841er.c の DVB-C 6 MHz 設定を基にした実験用プロファイルのため、利用には明示的な有効化が必要。 */
 	if (!params->isdbc.experimental_profile)
 		return -ENOSYS;
 
-	/* A new tune starts a new diagnostic sample sequence. */
+	/* ログの間引きカウンターは選局ごとに初期化する。 */
 	demod->isdbc_lock_checks = 0;
 
 	dev_info(demod->dev, "CXD2856ER ISDB-C: %s, symbol_rate=%u ksym/s, modulation=%uQAM\n",
@@ -1264,13 +1233,7 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
 	if (ret)
 		return ret;
-	/*
-	 * Keep the CXD2856ER terrestrial/cable analogue front-end baseline.
-	 * CXD2841ER has a different analogue-clock preamble (0x2f/0x30/0x41/
-	 * 0x43), so copying that preamble into CXD2856ER is not justified.
-	 * The values below are the CXD2856ER ISDB-T baseline; the cable-specific
-	 * differences are applied further down in this function.
-	 */
+	/* アナログ受信経路の基本設定は CXD2856ER の ISDB-T と共通。 */
 	ret = cxd2856er_write_slvt_reg(demod, 0xa9, 0x00);
 	if (ret)
 		return ret;
@@ -1283,14 +1246,8 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 	ret = cxd2856er_write_slvt_reg(demod, 0x49, 0x00);
 	if (ret)
 		return ret;
-	/*
-	 * The original 64QAM experiment retained the CXD2856ER ISDB-T analogue
-	 * front-end values above.  For a forced 256QAM attempt, add the DVB-C
-	 * analogue-front-end enable sequence used by Sony's public CXD2841ER
-	 * driver.  These registers precede the common 6 MHz cable filters below;
-	 * they are volatile and deliberately leave the proven 64QAM path intact.
-	 */
-	/* SLtoAC() にこの CXD2841ER 由来の追加アナログ設定はない。 */
+	/* 基本プロファイルの 256QAM にだけ、CXD2841ER の DVB-C 用アナログ設定を追加する。
+	 * 参照プロファイルの SLtoAC() にはこの設定がないため適用対象外とする。 */
 	if (!reference && params->isdbc.modulation == CXD2856ER_ISDBC_256QAM) {
 		data[0] = 0x09;
 		data[1] = 0x54;
@@ -1317,7 +1274,7 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
 	if (ret)
 		return ret;
-	/* SLtoAC() に D2 の書き込みはない。従来の IFAGC 設定は A/B 用に残す。 */
+	/* 参照プロファイルの SLtoAC() は D2 を設定しないため、IFAGC の設定は基本プロファイルにだけ適用する。 */
 	if (!reference) {
 		ret = cxd2856er_write_slvt_reg_mask(demod, 0xd2, 0x09, 0x1f);
 		if (ret)
@@ -1334,10 +1291,8 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 	if (ret)
 		return ret;
 
-	/* Sony/TBS 公開 cxd2878.c の SLtoAC() と SLtoAC_BandSetting()。
-	 * CXD2856=0x090 を含むドライバの DVB-C 6 MHz 経路で、QAM 別の分岐はない。
-	 * CXD2856 実機での品質は未確認のため、参照フラグ時だけ両 QAM に適用する。
-	 * ALP/TLV 用の bank 01/02/95 は CXD2856 への根拠が不足するため対象外。
+	/* cxd2878.c の SLtoAC() と SLtoAC_BandSetting() にある DVB-C 6 MHz 設定を使う。
+	 * ALP/TLV 用のバンク 01/02/95 は CXD2856 での適用根拠がないため対象外とする。
 	 */
 	if (reference) {
 		data[0] = 0x00; data[1] = 0x03; data[2] = 0x3b;
@@ -1352,7 +1307,7 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 			return ret;
 	}
 
-	/* 6 MHz cable filter settings. */
+	/* 6 MHz ケーブル信号用のフィルター係数。 */
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
 	if (ret)
 		return ret;
@@ -1369,13 +1324,8 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 	ret = cxd2856er_write_slvt_regs(demod, 0xa6, data, 14);
 	if (ret)
 		return ret;
-	/*
-	 * The CXD2858ER DVB-C 6 MHz profile outputs a 3.7 MHz IF.  Use the
-	 * matching CXD2841ER DVB-C 6 MHz conversion (0x13bbbb); 3.55 MHz is
-	 * specific to the ISDB-T tuner profile and cannot lock this signal.
-	 */
-	/* 参照の SONY_DEMOD_MAKE_IFFREQ_CONFIG(3.7) は四捨五入で 0x13bbbc。
-	 * 従来の切り捨て値 0x13bbbb は false 時の比較基準として保持する。 */
+	/* チューナーの DVB-C 6 MHz 設定が出力する IF 3.7 MHz に合わせる (ISDB-T 用の 3.55 MHz ではロックしない)。
+	 * 参照プロファイルは SONY_DEMOD_MAKE_IFFREQ_CONFIG(3.7) の四捨五入値 0x13bbbc、基本プロファイルは切り捨て値 0x13bbbb。 */
 	data[0] = 0x13; data[1] = 0xbb; data[2] = reference ? 0xbc : 0xbb;
 	ret = cxd2856er_write_slvt_regs(demod, 0xb6, data, 3);
 	if (ret)
@@ -1392,7 +1342,7 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod,
 	if (ret)
 		return ret;
 	if (reference) {
-		/* SLtoAC_BandSetting(): 5274 固定値ではなく 6 MHz の探索範囲。 */
+		/* SLtoAC_BandSetting() に従い、6 MHz 帯域のシンボルレート探索範囲を設定する。 */
 		data[0] = 0x07; data[1] = 0x33; data[2] = 0x00; data[3] = 0xee;
 		ret = cxd2856er_write_slvt_regs(demod, 0x26, data, 4);
 		if (ret)
@@ -1439,8 +1389,7 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
 		params->isdbc.experimental_j83b;
 
-	/* 公開系統が同じでも J.83B と DVB-C は別モード。Sony/TBS set_mcns()
-	 * と同様に sleep を経由する。J.83B 再選局も完全な列で再構築する。 */
+	/* J.83B と DVB-C は公開 API 上の系統を共用するが、内部の設定が異なるため、停止状態を経由して再設定する。 */
 	if (demod->state == CXD2856ER_ACTIVE_STATE && (j83b || demod->j83b_active)) {
 		ret = cxd2856er_sleep(demod);
 		if (ret)
@@ -1611,8 +1560,7 @@ int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked)
 
 	*locked = false;
 	if (demod->j83b_active) {
-		/* Sony/TBS read_status: Annex A/B/C 共通の bank 40:88 bit0 と
-		 * 10 bit5。FEC 計数は J.83B で意味を確認できていないため読まない。 */
+		/* cxd2878_read_status() と同じく、バンク 0x40 の 0x88 bit0 と 0x10 bit5 でロックを判定する。 */
 		u8 qam;
 		ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
 		if (ret)
@@ -1629,8 +1577,7 @@ int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked)
 				 !!(qam & 0x01), *locked, qam, status);
 		return 0;
 	}
-	/* The lock callback runs about every 20 ms.  One sample per 500 ms keeps
-	 * the diagnostic useful without drowning the actual tune events in logs. */
+	/* 繰り返しのロック確認でログが増えすぎないよう、状態ログを25回ごとに間引く。 */
 	log_sample = ((demod->isdbc_lock_checks++ % 25) == 0);
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
 	if (ret)
@@ -1647,7 +1594,7 @@ int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked)
 	if (ret)
 		return ret;
 	*locked = (status & 0x20) ? true : false;
-	/* A successful lock is always interesting, even between diagnostic ticks. */
+	/* ロック成立時は間引きの対象外とする。 */
 	if (log_sample || *locked)
 		dev_info(demod->dev, "CXD2856ER ISDB-C: QAM sync=1, TS lock=%u, status10=0x%02x\n",
 			 (*locked) ? 1 : 0, status);
@@ -1720,8 +1667,8 @@ int cxd2856er_read_j83b_monitor(struct cxd2856er_demod *demod,
 	memset(value, 0, sizeof(*value));
 	if (!demod || demod->state != CXD2856ER_ACTIVE_STATE || !demod->j83b_active)
 		return -EINVAL;
-	/* CXD2856 向け公開 sony_demod_j83b_monitor.c のレジスタ定義を参照。
-	 * 受信設定・計数期間は変更せず、有効ビットと未校正の生値を保存する。 */
+	/* sony_demod_j83b_monitor.c のレジスター定義に従い、有効ビットと未校正の生値を取得する。
+	 * 受信設定と計数期間は保持する。 */
 	ret = cxd2856er_write_slvt_reg(demod, 0x01, 0x01);
 	if (ret)
 		return ret;
@@ -1757,7 +1704,7 @@ int cxd2856er_read_j83b_monitor(struct cxd2856er_demod *demod,
 		ret = cxd2856er_read_slvt_reg(demod, 0x50, &sample.vq_status_raw);
 	if (!ret)
 		ret = cxd2856er_read_slvt_regs(demod, 0x53, interleave, 3);
-	/* 途中失敗でも元のモニターバンクと freeze 解除を試み、先のエラーを保持する。 */
+	/* 途中で失敗してもモニターのバンクを戻してレジスターの固定を解除し、最初のエラーを返す。 */
 	cleanup = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
 	if (!ret)
 		ret = cleanup;
@@ -1802,10 +1749,7 @@ int cxd2856er_read_cnr_raw_isdbc(struct cxd2856er_demod *demod, u16 *value)
 
 	*value = 0;
 
-	/*
-	 * DVB-C/Annex-C SNR estimate.  This is the same monitor location used by
-	 * the public CXD2841ER driver: SLV-T bank 0x40, registers 0x4c-0x4d.
-	 */
+	/* cxd2841er.c と同様に、SLV-T バンク 0x40 の 0x4c〜0x4d から C/N 推定用の生値を読む。 */
 	ret = cxd2856er_write_slvt_reg(demod, 0x01, 0x01);
 	if (ret)
 		return ret;

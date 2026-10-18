@@ -20,11 +20,7 @@
 #define PXMLT_DEVICE_TS_SYNC_COUNT	4
 #define PXMLT_DEVICE_TS_SYNC_SIZE	(188 * PXMLT_DEVICE_TS_SYNC_COUNT)
 
-/*
- * The J.83C register profile is validated on a PX-MLT5PE, but has not been
- * verified on every board using this tuner pair.  Keep the legacy T/S-only
- * capability unless the installer explicitly opts in when loading the module.
- */
+/* ISDB-C は同じチューナーを使う全機種での受信確認が取れていないため、モジュール読み込み時に明示的に有効化する。 */
 static bool experimental_isdbc;
 module_param_named(experimental_isdbc, experimental_isdbc, bool, 0444);
 MODULE_PARM_DESC(experimental_isdbc,

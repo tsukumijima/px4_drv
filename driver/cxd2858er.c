@@ -3,7 +3,15 @@
  * Sony CXD2858ER driver (cxd2858er.c)
  *
  * Copyright (c) 2018-2021 nns779
- * J.83B reference portions:
+ *
+ * ISDB-C 用に参照した Linux helene.c (GPL-2.0-or-later):
+ * https://github.com/torvalds/linux/blob/v6.12/drivers/media/dvb-frontends/helene.c
+ * Copyright 2012 Sony Corporation
+ * Copyright (C) 2014 NetUP Inc.
+ * Copyright (C) 2014 Abylay Ospan <aospan@netup.ru>
+ *
+ * DVB-C 参照プロファイル・J.83B 用に参照した cxd2878.c:
+ * https://github.com/koreapyj/cxd28xx/blob/c5fa27eecbe80633cbb365cc44656daea1c0e2e3/cxd2878.c
  * Copyright (c) 2022 Sony Semiconductor Solutions Corporation
  * Copyright (c) 2021 Davin zhang <Davin@tbsdtv.com>
  * Copyright (c) 2026 Yoonji Park <koreapyj@dcmys.kr>
@@ -421,7 +429,7 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 
 	if (bandwidth != 6)
 		return -EINVAL;
-	/* J.83B の REF_R は出典で値を確定できる水晶だけに限定する。 */
+	/* J.83B の REF_R は、参照元で設定値を確認できる水晶周波数に限定する。 */
 	if (tuner->config.experimental_j83b && tuner->config.xtal != 16000 &&
 		tuner->config.xtal != 24000)
 		return -EINVAL;
@@ -485,20 +493,15 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 		goto exit;
 
 	data[0] = 0x00;
-	/* Sony/TBS g_terr_param_table_helene の SONY_HELENE_DTV_DVBC_6:
-	 * RF_GAIN=AUTO / IF_BPF_GC=4。64QAM と 256QAM の設定は共通。
-	 * 参照の helene_tune_terr() は FREIA enum で表を引くため1行ずれるが、
-	 * ここでは指定された HELENE DVB-C 6 MHz 行の値を採用する。 */
+	/* g_terr_param_table_helene の SONY_HELENE_DTV_DVBC_6 に従い、参照プロファイルでは RF_GAIN=AUTO、IF_BPF_GC=4 とする。
+	 * FREIA の列挙値では HELENE の表と添字がずれるため、HELENE の行名に対応する値を使う。 */
 	data[1] = (tuner->config.isdbc_reference_profile || tuner->config.experimental_j83b) ? 0x84 : 0x85;
 	data[2] = 0x00;
 	data[3] = 0x02;
 	data[4] = 0x21;
 	data[5] = 0x00;
-	/* 出典: Sony/TBS cxd2878.c (GPL-2.0), g_terr_param_table_helene の
-	 * SONY_HELENE_DTV_J83B_5_6 と helene_tune_terr()。他の列は DVB-C 6 と
-	 * 同一。FIF_OFFSET=-5, BW_OFFSET=+2 を5bitで格納する。
-	 * 参照関数の FREIA enum と HELENE 表の添字ずれは移植せず名前で選ぶ。
-	 * 待機 50 ms は既存/出典共通の校正手順で、短縮の実測根拠がない。 */
+	/* cxd2878.c の SONY_HELENE_DTV_J83B_5_6 に従い、J.83B では FIF_OFFSET=-5、BW_OFFSET=+2 を5ビットで格納する。
+	 * 他の列は DVB-C 6 MHz と共通で、書き込み後は helene_tune_terr() と同じ50ミリ秒の校正待ちが必要。 */
 	data[6] = tuner->config.experimental_j83b ? 0x1b : 0x1a;
 	data[7] = tuner->config.experimental_j83b ? 0x02 : 0x1c;
 	data[8] = freq & 0xff;
@@ -660,7 +663,7 @@ static int cxd2858er_stop_t(struct cxd2858er_tuner *tuner)
 	int ret = 0;
 	u8 data[3];
 
-	/* ISDB-C も地上波側の RF 経路を使うため同じ停止列を適用する。 */
+	/* ISDB-C も地上波側の RF 経路を使うため同じ手順で停止する。 */
 	if (tuner->system != CXD2858ER_ISDB_T_SYSTEM &&
 	    tuner->system != CXD2858ER_ISDB_C_SYSTEM)
 		return -EINVAL;
