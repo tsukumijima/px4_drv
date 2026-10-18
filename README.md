@@ -39,6 +39,10 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
   - 同梱の `WinSCard.dll` を利用するアプリケーションの実行ファイルと同じフォルダに配置すると、内蔵カードリーダーを優先して利用できるようになる
   - Windows が認識している外付けカードリーダーも引き続き利用できる
 - チャンネル切り替え、USB の切断・再接続、内蔵カードリーダーとの同時利用に関する安定性を改善 (v0.6.0 以降)
+- PX-MLT 系 (PX-MLT5PE / PX-MLT8PE / DTV02A-5TS-P / DTV02A-4TS-P) で、ケーブルテレビの ISDB-C (ITU-T J.83 Annex C) の受信に実験的に対応
+  - [n0atl 氏のフォーク](https://github.com/n0atl/px4_drv) と [aoiro-labo 氏のフォーク](https://github.com/aoiro-labo/px4_drv) での更新を取り込み、64QAM / 256QAM の受信、TSMF で多重された TS の分離、4K 放送用の生 TLV 出力、スカパー！プレミアムサービス光 (J.83 Annex B) の受信に対応
+  - TSMF で多重された TS は、相対 TS 番号のほか、radi-sh 氏の BonDriver_BDA と同じく TSID でも指定できる
+  - 既定では無効で、有効にする方法は [ケーブルテレビ (ISDB-C) の受信](#ケーブルテレビ-isdb-c-の受信-実験的) を参照
 - fwtool: PX-W3PE5 / PX-Q3PE4 / PX-Q3PE5 / PX-W3U4 / PX-Q3U4 / PX-MLT5PE / PX-MLT8PE の2021年版公式 Windows ドライバからのファームウェア抽出に対応
   - 既定の抽出済みファームウェアで問題なく動作することが知られているため、特段実用性はない
 - README（このページ）に WinUSB 版のインストール方法などを追記
@@ -55,6 +59,8 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 - PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応
 - WinUSB 版と同じく、PX-S1UR を ISDB2056 系の共通処理に統合し、設計の異なる DTV03A-1TU (ISDBT2071) を単独の実装に分離
 - Linux 4.15 (Ubuntu 18.04 の初期カーネル) 以降でビルドできるように修正
+- PX-MLT 系で、ケーブルテレビの ISDB-C (64QAM) の受信に実験的に対応
+  - モジュールパラメーター `experimental_isdbc=1` を指定したときだけ有効になる (256QAM と TSMF の分離は WinUSB 版だけが対応)
 - https://github.com/tsukumijima/px4_drv/pull/33 をマージし、IBT (Indirect Branch Tracking) 対応に伴う `objtool` の検査強化により、Linux 6.15 系などでモジュールをビルド・ロードできない問題に対応
   - 当初は保守的に Linux 6.15.4 以降でのみ `module_init()` と `module_exit()` を使っていたが、これらは古いカーネルでも利用できるため、v0.6.0 以降ではカーネル版による分岐を削除して統一
 - https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
@@ -540,6 +546,64 @@ recpt1 や [BonDriverProxy_Linux](https://github.com/u-n-k-n-o-w-n/BonDriverProx
 recpt1 は、PLEX 社より配布されているものを使用する必要はありません。
 
 BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などのデバイスファイル1つで ISDB-T と ISDB-S のどちらも受信可能なチューナーを組み合わせて使用する場合は、BonDriver として BonDriverProxy_Linux に同梱されている BonDriver_LinuxPT の代わりに、[BonDriver_LinuxPTX](https://github.com/nns779/BonDriver_LinuxPTX) を使用してください。
+
+## ケーブルテレビ (ISDB-C) の受信 (実験的)
+
+PX-MLT 系 (PX-MLT5PE / PX-MLT8PE / DTV02A-5TS-P / DTV02A-4TS-P) は、ケーブルテレビ局が BS・地デジ・専門チャンネルを再送信する ISDB-C (ITU-T J.83 Annex C、トランスモジュレーション) を受信できます。  
+受信にはケーブルテレビの回線が必要で、契約していない有料チャンネルは復号できません。
+
+実機で検証しているのは、Windows と PX-MLT5PE を使い、イッツコムの回線で 64QAM・256QAM・TSMF で多重された TS を受信する組み合わせです。  
+ほかの機種とケーブルテレビ局、Linux 版の長時間の受信は検証できていません。  
+実装の経緯と確認結果は [ISDB-C 対応の記録](docs/20261018_isdbc_validation.md) にあります。
+
+### Windows
+
+ISDB-C は既定で無効です。  
+有効にするには、次の2か所を変更します。
+
+1. `DriverHost_PX4.ini` で、使う機種の `[DeviceDefinitionN.Config]` の `ExperimentalISDBC` を `true` にする (N は PX-MLT5PE と DTV02A-5TS-P が 6、PX-MLT8PE が 7 と 8、DTV02A-4TS-P が 9)
+2. `BonDriver_PX-MLT.ini` の `[BonDriver]` の `System` を `"ISDB-T,ISDB-S,ISDB-C"` にする
+
+チャンネルは `BonDriver_PX4-C.ChSet.txt` に定義します。  
+同梱のファイルには CATV (C13〜C63)・UHF・VHF の3つのチューニング空間があり、変調は 64QAM 、256QAM の順に試します。  
+各行の列は次のとおりで、第8列以降は省略できます。
+
+| 列 | 内容 |
+|---|---|
+| 1〜4 | 名前・空間番号・チャンネル番号・物理チャンネル番号 |
+| 5 | TSID (第8列が `-1` のときだけ使う) |
+| 6 | 中心周波数 (kHz)。`0` なら物理チャンネル番号から計算する |
+| 7 | 周波数の補正 (kHz) |
+| 8 | `64` / `256` で変調を固定する。`0`〜`14` は TSMF の相対 TS 番号、`-1` は第5列の TSID で TSMF の TS を選ぶ |
+| 9 | TSMF の slot offset (通常は `0`) |
+| 10 | TSMF の TS の変調 (`0` は自動、`64` / `256`) |
+| 11 | `1` で TSMF の TS を生 TLV で出力する (4K 放送を [BonDriver_dantto4k](https://github.com/nekohkr/dantto4k) へ渡す場合だけ使う) |
+
+TSMF は、1つの搬送波に複数の TS を多重する方式です。  
+受信する TS は、相対 TS 番号か TSID のどちらかで指定します。  
+TSID で指定すると、ケーブルテレビ局が相対 TS 番号の割り当てを変えても同じ TS を受信できます。
+
+```text
+C52-相対TS0	0	0	51	0	0	-525	0
+C52-TSID	0	1	51	17488	0	-525	-1
+```
+
+周波数の補正は、受信環境ごとに異なる場合があります。  
+選局できない場合は、25kHz 刻みで補正を変えて試してください。
+
+スカパー！プレミアムサービス光 (J.83 Annex B、256QAM / 5.6Msps) を受信する場合は、`DriverHost_PX4.ini` の同じセクションに `ExperimentalJ83B=true` を追加します。  
+この設定はその機種のすべての ISDB-C の選局を J.83 Annex B に置き換えるため、同じ機種でケーブルテレビの ISDB-C と同時には使えません。
+
+受信がうまくいかない場合は、`DriverHost_PX4.ini` の `[DriverHost_PX4]` と `BonDriver_PX-MLT.ini` の `[BonDriver]` で `DebugLog=true` にすると、選局の記録をログファイルへ出力できます。
+
+### Linux
+
+モジュールパラメーター `experimental_isdbc=1` を指定してドライバーを読み込むと、PX-MLT 系のデバイスファイルで ISDB-C を選局できます。  
+Linux 版が対応しているのは 64QAM の受信だけで、256QAM と TSMF の分離には対応していません。
+
+選局には、`PTX_SET_SYSTEM_MODE` で放送方式を ISDB-C (`0x40`) にしてから、`PTX_SET_CHANNEL` で周波数を指定します。  
+`freq_no` は CATV の C13〜C22 が 3〜12、C23〜C63 が 22〜62、UHF の 13〜62ch が 63〜112 で、`slot` は周波数の補正 (kHz) です。  
+recpt1 などの既存の受信ソフトウェアはこの放送方式に対応していないため、現時点では ioctl を直接呼ぶ必要があります。
 
 ## LNB電源の出力
 
