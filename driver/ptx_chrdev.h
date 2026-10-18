@@ -24,8 +24,13 @@ struct ptx_tune_params {
 	u32 freq;
 	u32 bandwidth;
 	u16 stream_id;
+	u32 symbol_rate;
+	int tsmf_relative_stream;
+	int tsmf_tsid;
+	bool tsmf_output_tlv;
 };
 
+struct ptx_tsmf_stream;
 struct ptx_chrdev;
 struct ptx_chrdev_group;
 struct ptx_chrdev_context;
@@ -84,6 +89,8 @@ struct ptx_chrdev {
 	wait_queue_head_t ringbuf_wait;
 	size_t ringbuf_threshold_size;
 	size_t ringbuf_write_size;
+	struct ptx_tsmf_stream *tsmf;
+	bool tsmf_active;
 	void *priv;
 };
 
