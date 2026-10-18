@@ -1606,11 +1606,7 @@ int cxd2856er_is_ts_locked_isdbs(struct cxd2856er_demod *demod, bool *locked)
 int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked)
 {
 	int ret;
-	u8 status, agc[2];
-	u16 cnr_raw = 0;
-	u8 ber[3] = {0, 0, 0};
-	u8 packet_error[3] = {0, 0, 0};
-	unsigned int monitor_sample;
+	u8 status;
 	bool log_sample;
 
 	*locked = false;
@@ -1639,22 +1635,12 @@ int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked)
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
 	if (ret)
 		return ret;
-	ret = cxd2856er_read_slvt_regs(demod, 0x49, agc, 2);
-	if (ret)
-		return ret;
 	ret = cxd2856er_read_slvt_reg(demod, 0x88, &status);
 	if (ret)
 		return ret;
 	if (!(status & 0x01)) {
-		if (log_sample) {
-			/* This monitor is read-only and does not affect the demodulator.
-			 * It lets C43/C45 failures be compared even before TS lock. */
-			ret = cxd2856er_read_cnr_raw_isdbc(demod, &cnr_raw);
-			if (ret)
-				dev_warn(demod->dev, "CXD2856ER ISDB-C: C/N monitor read failed (%d)\n", ret);
-			dev_info(demod->dev, "CXD2856ER ISDB-C: QAM sync=0, AGC=0x%03x, CNRraw=0x%04x, status88=0x%02x\n",
-				 ((agc[0] & 0x0f) << 8) | agc[1], cnr_raw, status);
-		}
+		if (log_sample)
+			dev_info(demod->dev, "CXD2856ER ISDB-C: QAM sync=0, status88=0x%02x\n", status);
 		return 0;
 	}
 	ret = cxd2856er_read_slvt_reg(demod, 0x10, &status);
@@ -1662,41 +1648,9 @@ int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked)
 		return ret;
 	*locked = (status & 0x20) ? true : false;
 	/* A successful lock is always interesting, even between diagnostic ticks. */
-	dev_info(demod->dev, "CXD2856ER ISDB-C: QAM sync=1, TS lock=%u, AGC=0x%03x, status10=0x%02x\n",
-			 (*locked) ? 1 : 0, ((agc[0] & 0x0f) << 8) | agc[1], status);
-
-	/*
-	 * Read-only DVB-C monitor values.  They distinguish a demodulator that
-	 * has actually accumulated FEC/packet statistics from one that only
-	 * reports the coarse lock bits.  This is especially useful for the
-	 * experimental J.83C-256QAM path where the USB bridge can otherwise only
-	 * report an undifferentiated 0 Mbps result.
-	 */
-	/*
-	 * A caller normally stops polling as soon as TS lock is reported.  The
-	 * error counters are not necessarily valid at that instant, so take three
-	 * read-only snapshots over 500 ms before returning the successful lock.
-	 * This affects the experimental ISDB-C tune latency only; it never writes
-	 * a demodulator register.
-	 */
-	if (log_sample || *locked) {
-		for (monitor_sample = 0; monitor_sample < 3; monitor_sample++) {
-			if (monitor_sample)
-				msleep(250);
-			ret = cxd2856er_read_slvt_regs(demod, 0x62, ber, sizeof(ber));
-			if (ret)
-				return ret;
-			ret = cxd2856er_read_slvt_regs(demod, 0xea, packet_error,
-							       sizeof(packet_error));
-			if (ret)
-				return ret;
-			dev_info(demod->dev,
-				 "CXD2856ER ISDB-C: FEC monitor[%u] ber=%02x:%02x%02x (valid=%u), packet_error=%02x%02x (valid=%u)\n",
-				 monitor_sample, ber[0], ber[1], ber[2],
-				 (ber[0] & 0x80) ? 1 : 0, packet_error[0],
-				 packet_error[1], (packet_error[2] & 0x01) ? 1 : 0);
-		}
-	}
+	if (log_sample || *locked)
+		dev_info(demod->dev, "CXD2856ER ISDB-C: QAM sync=1, TS lock=%u, status10=0x%02x\n",
+			 (*locked) ? 1 : 0, status);
 
 	return 0;
 }

@@ -126,6 +126,33 @@ int main(void)
 	union cxd2856er_system_params params;
 	unsigned int ref, qam;
 	{
+		bool locked;
+		unsigned int sync, ts, poll, count, fail;
+		for (sync = 0; sync < 2; sync++) {
+			for (ts = 0; ts < 2; ts++) {
+				reset(&demod, &tuner);
+				bus.regs[1][0x40][0x88] = (u8)sync;
+				bus.regs[1][0x40][0x10] = ts ? 0x20 : 0;
+				for (poll = 0; poll < 26; poll++) {
+					count = bus.calls;
+					CHECK(cxd2856er_is_ts_locked_isdbc(&demod, &locked) == 0);
+					CHECK(locked == (sync && ts));
+					CHECK(bus.calls - count == (sync ? 3U : 2U));
+				}
+			}
+		}
+		for (fail = 1; fail <= 3; fail++) {
+			reset(&demod, &tuner);
+			bus.regs[1][0x40][0x88] = 1;
+			bus.regs[1][0x40][0x10] = 0x20;
+			bus.fail_at = fail;
+			locked = true;
+			CHECK(cxd2856er_is_ts_locked_isdbc(&demod, &locked) == -EIO);
+			CHECK(!locked && bus.calls == fail);
+		}
+		puts("ISDBC QAM/TS lock states, polling I/O and failure boundaries: PASS");
+	}
+	{
 		struct cxd2856er_j83b_monitor sample, zero = {0};
 		unsigned int fail, ar, count;
 		reset(&demod, &tuner);
