@@ -232,20 +232,6 @@ bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
 	char *end;
 	long value;
 
-	// 中心周波数 (kHz)
-	if (!*tail)
-		return true;
-	if (!next(0, 1000000, value))
-		return false;
-	ch.freq = static_cast<std::uint32_t>(value);
-
-	// 中心周波数の補正 (kHz)
-	if (!*tail)
-		return true;
-	if (!next(-3000, 3000, value))
-		return false;
-	ch.freq_offset = static_cast<std::int32_t>(value);
-
 	// 方式 (0 は J.83 Annex C、J83B は J.83 Annex B)
 	if (!*tail)
 		return true;

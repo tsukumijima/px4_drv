@@ -23,8 +23,6 @@ public:
 		ChannelInfo() noexcept
 			: ptx_ch(0),
 			tsid(0),
-			freq(0),
-			freq_offset(0),
 			j83b(false),
 			tsmf(TsmfSelection::NONE),
 			tsmf_relative_stream(0),
@@ -33,9 +31,7 @@ public:
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
-		// 以降は ISDB-C の行だけで使い、freq が 0 なら物理チャンネル番号から中心周波数を求める
-		std::uint32_t freq;
-		std::int32_t freq_offset;
+		// 以降は ISDB-C の行だけで使う
 		bool j83b;
 		TsmfSelection tsmf;
 		std::uint8_t tsmf_relative_stream;
