@@ -369,7 +369,6 @@ void IoQueue::ReadWorker()
 
 		std::size_t rofs = 0;
 		bool quit = false;
-		const std::chrono::milliseconds flush_interval(read_flush_interval_.load());
 		const auto begin = std::chrono::steady_clock::now();
 
 		while (rofs < buf_size_) {
@@ -383,6 +382,8 @@ void IoQueue::ReadWorker()
 			rofs += rlen;
 
 			// 低レートの TS ではバッファーが埋まるまで数秒かかるため、指定があればその時間で途中まででも渡す
+			// 地デジから切り替えたときは読み始めたバッファーにも新しい指定を効かせるため、読むたびに指定を読み直す
+			const std::chrono::milliseconds flush_interval(read_flush_interval_.load());
 			if (flush_interval.count() && rofs && (std::chrono::steady_clock::now() - begin) >= flush_interval)
 				break;
 		}
