@@ -480,8 +480,10 @@ std::uint64_t ReceiverBase::StreamBuffer::GetInputPacketCount() const noexcept
 bool ReceiverBase::StreamBuffer::IsTsmfStreamReady() noexcept
 {
 	std::lock_guard<std::mutex> lock(tsmf_mtx_);
+	// 生 TLV の出力は分割 TLV の TS (stream_type 0) でしか作れないため、それ以外の TS では選局を失敗にする
 	return tsmf_header_packets_ != 0 && tsmf_relative_stream_ < tsmf_stream_enabled_.size() &&
-		tsmf_stream_enabled_[tsmf_relative_stream_] != 0;
+		tsmf_stream_enabled_[tsmf_relative_stream_] != 0 &&
+		(!tsmf_output_tlv_ || tsmf_stream_type_[tsmf_relative_stream_] == 0);
 }
 
 ReceiverBase::StreamBuffer::WriteDiagnostics ReceiverBase::StreamBuffer::GetWriteDiagnostics() const noexcept
@@ -664,7 +666,7 @@ bool ReceiverBase::StreamBuffer::TsmfParseHeader(const std::uint8_t *packet) noe
 		std::uint8_t relative = 15;
 		for (std::size_t i = 0; i < tsmf_stream_enabled_.size(); i++) {
 			const std::uint16_t tsid = (static_cast<std::uint16_t>(packet[9 + i * 4]) << 8) | packet[10 + i * 4];
-			if (tsid == tsmf_tsid_) {
+			if (tsmf_stream_enabled_[i] && tsid == tsmf_tsid_) {
 				relative = static_cast<std::uint8_t>(i);
 				break;
 			}
@@ -675,6 +677,9 @@ bool ReceiverBase::StreamBuffer::TsmfParseHeader(const std::uint8_t *packet) noe
 		tsmf_relative_stream_ = relative;
 	}
 
+	// 前のフレームの52スロットがそろっていなければパケットが欠けているため、欠落をまたいで TLV の断片を連結しない
+	if (tsmf_slot_ != 52)
+		tsmf_tlv_size_ = 0;
 	tsmf_slot_ = 0;
 	tsmf_header_packets_++;
 	if (!tsmf_logged_header_) {
