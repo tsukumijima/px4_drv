@@ -918,17 +918,11 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 		u16 val;
 		s32 cn;
 
-		/* J.83B の換算式は参照できる公開ドライバーにないため、C/N を返さない */
-		if (chrdev->params.symbol_rate == 5600) {
-			ret = -ENOSYS;
-			break;
-		}
-
 		ret = cxd2856er_read_cnr_raw_isdbc(&chrdevm->cxd2856er, &val);
 		if (ret)
 			break;
 
-		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じ Linux の cxd2841er.c の式で dB の1000倍の値を返す */
+		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じ式で dB の1000倍の値を返す (J.83B も cxd2878.c に従い同じ式を使う) */
 		cn = (val) ? -95 * (s32)pxmlt_ln_x100(max_t(u16, val, 126)) + 95941 : 0;
 		*value = (cn > 0) ? cn : 0;
 		break;
