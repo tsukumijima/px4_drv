@@ -126,6 +126,20 @@ int main(void)
 	union cxd2856er_system_params params;
 	unsigned int ref, qam;
 	{
+		unsigned int xtal, profile;
+		for (xtal = 16000; xtal <= 24000; xtal += 8000) {
+			for (profile = 0; profile < 4; profile++) {
+				reset(&demod, &tuner);
+				tuner.config.xtal = xtal;
+				tuner.config.isdbc_reference_profile = (profile & 1) != 0;
+				tuner.config.experimental_j83b = (profile & 2) != 0;
+				CHECK(cxd2858er_set_params_c(&tuner, 697143, 6) == 0);
+				CHECK(bus.regs[2][0][0x62] == (xtal == 16000 ? 0x10 : 0x18));
+			}
+		}
+		puts("Cable REF_R for 16/24 MHz crystals and all profile flags: PASS");
+	}
+	{
 		bool locked;
 		unsigned int sync, ts, poll, count, fail;
 		for (sync = 0; sync < 2; sync++) {
