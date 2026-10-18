@@ -542,13 +542,12 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		break;
 
 	case px4::SystemType::ISDB_C:
-		if (channel.freq) {
-			real_freq = channel.freq;
-		} else if ((channel.ptx_ch >= 3 && channel.ptx_ch <= 12) || (channel.ptx_ch >= 22 && channel.ptx_ch <= 62)) {
-			// CATV C13-22ch, C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
+		if (channel.ptx_ch <= 62) {
+			// VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
+			// 番号の割り当ては recpt1 と同じで、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
 			real_freq = 93000 + (channel.ptx_ch * 6000);
 
-			if (channel.ptx_ch == 12)
+			if (channel.ptx_ch >= 12 && channel.ptx_ch <= 16)
 				real_freq += 2000;
 		} else if (channel.ptx_ch >= 63 && channel.ptx_ch <= 112) {
 			// UHF 13-62ch
@@ -558,7 +557,6 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 			return FALSE;
 		}
 
-		real_freq += channel.freq_offset;
 		num_param = 1;
 		if (channel.tsmf != px4::ChannelSet::TsmfSelection::NONE)
 			num_param++;
