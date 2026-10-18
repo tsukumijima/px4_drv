@@ -637,6 +637,9 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 	delete[] reinterpret_cast<std::uint8_t*>(param_set);
 
+	// TSMF で選んだ TS は毎秒数十 KB のことがあり、バッファーが埋まるまで待つと最初のデータまで数秒かかるため、ISDB-C だけ 200ms で途中まででも渡す
+	// 地デジや BS/CS は 192KB を 0.1 秒前後で埋めるので、従来どおり埋まるまで待つ
+	ioq_->SetReadFlushInterval(std::chrono::milliseconds((system == px4::SystemType::ISDB_C) ? 200 : 0));
 	PurgeTsStream();
 
 	if (ret) {
