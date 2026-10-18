@@ -26,7 +26,22 @@
 #include "px4_device.h"
 #include "pxmlt_device.h"
 #include "isdb2056_device.h"
-#include "s1ur_device.h"
+#include "isdbt2071_device.h"
+
+/*
+ * fallthrough は Linux 5.4 で追加されたため、それより古いカーネルでは 5.4 と同じ定義を置く
+ * 5.3 は case の落ち込みの警告が有効なので、コンパイラーが対応していれば属性を使う
+ */
+#ifndef fallthrough
+#if defined(__has_attribute)
+#if __has_attribute(__fallthrough__)
+#define fallthrough __attribute__((__fallthrough__))
+#endif
+#endif
+#ifndef fallthrough
+#define fallthrough do {} while (0)
+#endif
+#endif
 
 #ifndef PX4_USB_MAX_DEVICE
 #define PX4_USB_MAX_DEVICE	16
@@ -61,7 +76,7 @@
 #ifndef PXS1UR_USB_MAX_DEVICE
 #define PXS1UR_USB_MAX_DEVICE	64
 #endif
-#define PXS1UR_USB_MAX_CHRDEV	(PXS1UR_USB_MAX_DEVICE * S1UR_CHRDEV_NUM)
+#define PXS1UR_USB_MAX_CHRDEV	(PXS1UR_USB_MAX_DEVICE * ISDB2056_CHRDEV_NUM)
 
 #ifndef ISDBT2071_USB_MAX_DEVICE
 #define ISDBT2071_USB_MAX_DEVICE	64
@@ -78,7 +93,7 @@ struct px4_usb_context {
 		struct px4_device px4;
 		struct pxmlt_device pxmlt;
 		struct isdb2056_device isdb2056;
-		struct s1ur_device s1ur;
+		struct isdbt2071_device isdbt2071;
 	} ctx;
 };
 
@@ -279,26 +294,24 @@ static int px4_usb_probe(struct usb_interface *intf,
 
 		case USB_PID_PX_S1UR:
 			ret = px4_usb_init_bridge(dev, usb_dev,
-						  &ctx->ctx.s1ur.it930x);
+						  &ctx->ctx.isdb2056.it930x);
 			if (ret)
 				break;
 
 			ctx->type = PXS1UR_USB_DEVICE;
-			ret = s1ur_device_init(&ctx->ctx.s1ur, dev,
-						   PXS1UR_MODEL,
+			ret = isdb2056_device_init(&ctx->ctx.isdb2056, dev, PXS1UR_MODEL,
 						   px4_usb_chrdev_ctx[PXS1UR_USB_DEVICE],
 						   &ctx->quit_completion);
 			break;
 
 		case USB_PID_DIGIBEST_ISDBT2071:
 			ret = px4_usb_init_bridge(dev, usb_dev,
-						&ctx->ctx.s1ur.it930x);
+						&ctx->ctx.isdbt2071.it930x);
 			if (ret)
 				break;
 
 			ctx->type = ISDBT2071_USB_DEVICE;
-			ret = s1ur_device_init(&ctx->ctx.s1ur, dev,
-						ISDBT2071_MODEL,
+			ret = isdbt2071_device_init(&ctx->ctx.isdbt2071, dev,
 						px4_usb_chrdev_ctx[ISDBT2071_USB_DEVICE],
 						&ctx->quit_completion);
 			break;
@@ -363,13 +376,13 @@ static void px4_usb_disconnect(struct usb_interface *intf)
 
 	case ISDB2056_USB_DEVICE:
 	case PXM1UR_USB_DEVICE:
+	case PXS1UR_USB_DEVICE:
 		isdb2056_device_term(&ctx->ctx.isdb2056);
 		wait_for_completion(&ctx->quit_completion);
 		break;
 
-	case PXS1UR_USB_DEVICE:
 	case ISDBT2071_USB_DEVICE:
-		s1ur_device_term(&ctx->ctx.s1ur);
+		isdbt2071_device_term(&ctx->ctx.isdbt2071);
 		wait_for_completion(&ctx->quit_completion);
 		break;
 
