@@ -116,6 +116,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 
 			// tsid
 			Split(&tmp_head, &tmp_tail, '\t');
+			const char *tsid_str = tmp_head;
 			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
 
 			// optional RF centre frequency in kHz (sixth field)
@@ -135,23 +136,32 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 					// dummy TSMF fields.
 					if (tmp_tail) {
 						Split(&tmp_head, &tmp_tail, '\t');
-						std::uint32_t field8;
+						long long field8;
 						if (system == px4::SystemType::ISDB_C) {
-							long long value;
-							if (!ParseInteger(tmp_head, value) || value < 0 ||
-								(value > 14 && value != 64 && value != 256)) {
+							if (!ParseInteger(tmp_head, field8) || field8 < -1 ||
+								(field8 > 14 && field8 != 64 && field8 != 256)) {
 								if (strict_)
 									return false;
 								continue;
 							}
-							field8 = static_cast<std::uint32_t>(value);
 						} else {
 							field8 = px4::util::atoui32(tmp_head);
 						}
 						if (field8 == 64 || field8 == 256) {
 							ch.isdbc_modulation = static_cast<std::uint16_t>(field8);
 						} else {
-							ch.tsmf_relative_stream = static_cast<std::uint8_t>(field8);
+							if (field8 == -1) {
+								long long tsid;
+								if (!ParseInteger(tsid_str, tsid) || tsid < 0 || tsid > 65535) {
+									if (strict_)
+										return false;
+									continue;
+								}
+								ch.tsid = static_cast<std::uint16_t>(tsid);
+								ch.tsmf_by_tsid = true;
+							} else {
+								ch.tsmf_relative_stream = static_cast<std::uint8_t>(field8);
+							}
 							ch.is_tsmf = true;
 
 							// Optional signed TSMF slot-map offset (ninth field).

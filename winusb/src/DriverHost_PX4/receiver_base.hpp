@@ -28,6 +28,8 @@ public:
 		std::uint32_t modulation;
 		std::uint32_t tsmf_mode;
 		std::uint32_t tsmf_relative_stream;
+		// TSID 0 や 0xffff も照合対象にするため、未指定は -1 で表す
+		std::int32_t tsmf_tsid;
 		std::uint32_t tsmf_slot_offset;
 		std::uint32_t tsmf_output_tlv;
 		std::uint32_t stream_id;
@@ -56,7 +58,7 @@ public:
 		/* PID 0x002f is a TSMF multi-frame header.  It is an ISDB-C-only
 		 * output filter and is never applied to terrestrial or satellite TS. */
 		void SetDiscardTsmfHeaderPacketsOnIsdbCOutput(bool enabled) noexcept;
-		void SetTsmfRelativeStream(bool enabled, std::uint8_t stream, std::int32_t slot_offset, bool output_tlv = false) noexcept;
+		void SetTsmfRelativeStream(bool enabled, std::uint8_t stream, std::int32_t slot_offset, bool output_tlv = false, std::int32_t tsid = -1) noexcept;
 		/* Raw TS packets received from USB since the last reset, counted before
 		 * TSMF or output-PID filtering. */
 		void ResetInputPacketCount() noexcept;
@@ -94,6 +96,7 @@ public:
 		bool tsmf_logged_header_;
 		bool tsmf_logged_tlv_type_mismatch_;
 		std::uint8_t tsmf_relative_stream_;
+		std::int32_t tsmf_tsid_;
 		std::int32_t tsmf_slot_offset_;
 		int tsmf_slot_;
 		std::array<std::uint8_t, 15> tsmf_stream_enabled_;

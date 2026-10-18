@@ -14,7 +14,7 @@
 #include "bon_ts_copy.hpp"
 #include "pipe.hpp"
 
-std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enabled, unsigned int slots = 1)
+std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enabled, unsigned int slots = 1, unsigned int tsid = 0, unsigned int onid = 0)
 {
 	std::array<unsigned char, 188> packet{};
 	packet[0] = 0x47;
@@ -24,6 +24,10 @@ std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enable
 	packet[5] = 0x86;
 	packet[6] = 1;
 	if (enabled) packet[7 + relative / 8] = static_cast<unsigned char>(0x80 >> (relative % 8));
+	packet[9 + relative * 4] = static_cast<unsigned char>(tsid >> 8);
+	packet[10 + relative * 4] = static_cast<unsigned char>(tsid);
+	packet[11 + relative * 4] = static_cast<unsigned char>(onid >> 8);
+	packet[12 + relative * 4] = static_cast<unsigned char>(onid);
 	for (unsigned int i = 0; i < slots; ++i)
 		packet[73 + i / 2] |= static_cast<unsigned char>((relative + 1) << ((i % 2) ? 0 : 4));
 	std::uint32_t crc = 0xffffffff;
@@ -39,8 +43,10 @@ std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enable
 
 class TuneReceiver final : public px4::ReceiverBase {
 public:
-	enum class Input { None, Raw, Header, Disabled, BadCRC, DelayedHeader, SecondQam, StaleHeader };
+	enum class Input { None, Raw, Header, Disabled, BadCRC, DelayedHeader, SecondQam, StaleHeader, SecondQamHeader };
 	Input input;
+	unsigned int input_tsid = 0x1234;
+	int input_relative = -1;
 	unsigned int attempts = 0;
 	unsigned int lock_delay = 0;
 	unsigned int frequency_delay = 0;
@@ -79,15 +85,16 @@ public:
 		const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - frequency_begin).count();
 		locked = elapsed >= lock_delay && !(input == Input::StaleHeader && params_.modulation == 64);
 		if (lock_error) return lock_error;
-		if (input == Input::None || (input == Input::SecondQam && params_.modulation != 256)) return 0;
+		if (input == Input::None || ((input == Input::SecondQam || input == Input::SecondQamHeader) && params_.modulation != 256)) return 0;
 		std::array<unsigned char, 188> packet{};
 		packet[0] = 0x47;
 		packet[2] = 0x20;
 		packet[3] = 0x10;
-		if (input == Input::Header || input == Input::Disabled || input == Input::BadCRC ||
+		if (input == Input::Header || input == Input::Disabled || input == Input::BadCRC || input == Input::SecondQamHeader ||
 			(input == Input::DelayedHeader && elapsed >= 400) ||
 			(input == Input::StaleHeader && params_.modulation == 64)) {
-			packet = MakeTsmfHeader(params_.tsmf_relative_stream, input != Input::Disabled);
+			packet = MakeTsmfHeader(input_relative >= 0 ? input_relative : params_.tsmf_relative_stream,
+				input != Input::Disabled, 1, input_tsid, 0x4321);
 			if (input == Input::BadCRC) packet[187] ^= 1;
 		}
 		std::size_t size = packet.size();
@@ -244,6 +251,108 @@ bool TestTuneInput()
 	return true;
 }
 
+bool SetTsmfSelection(TuneReceiver &receiver, px4::command::ParameterType type, std::uint32_t selection,
+	std::uint32_t modulation = 256, bool tlv = false)
+{
+	using namespace px4::command;
+	alignas(ParameterSet) unsigned char storage[offsetof(ParameterSet, params) + 7 * sizeof(Parameter)]{};
+	auto &set = *reinterpret_cast<ParameterSet *>(storage);
+	set.system = px4::SystemType::ISDB_C;
+	set.freq = 123000;
+	set.num = tlv ? 7 : 6;
+	set.params[0] = {ParameterType::BANDWIDTH, 6};
+	set.params[1] = {ParameterType::SYMBOL_RATE, 5274};
+	set.params[2] = {ParameterType::MODULATION, modulation};
+	set.params[3] = {ParameterType::TSMF_MODE, 1};
+	set.params[4] = {type, selection};
+	set.params[5] = {ParameterType::TSMF_SLOT_OFFSET, 0};
+	set.params[6] = {ParameterType::TSMF_OUTPUT_TLV, 1};
+	return receiver.SetParameters(set);
+}
+
+bool TestTsidSelection()
+{
+	using Type = px4::command::ParameterType;
+	using Input = TuneReceiver::Input;
+	static_assert(static_cast<unsigned int>(Type::TSMF_TSID) == 8);
+	static_assert(static_cast<unsigned int>(Type::STREAM_ID) == 16);
+	const Input inputs[] = {Input::Header, Input::Raw, Input::Disabled, Input::BadCRC,
+		Input::DelayedHeader, Input::SecondQamHeader, Input::StaleHeader, Input::Header};
+	for (unsigned int i = 0; i < sizeof(inputs) / sizeof(inputs[0]); ++i) {
+		TuneReceiver receiver(px4::SystemType::ISDB_C, 256, 0, inputs[i]);
+		receiver.input_relative = 14;
+		if (i == 7) receiver.input_tsid = 0x5678;
+		const bool automatic = i == 5 || i == 6;
+		if (!SetTsmfSelection(receiver, Type::TSMF_TSID, 0x1234, automatic ? 0 : 256)) return false;
+		const bool expected = i == 0 || i == 4 || i == 5;
+		if (receiver.Tune(1000) != expected || receiver.attempts != (automatic ? 2U : 1U)) return false;
+	}
+	TuneReceiver timeout(px4::SystemType::ISDB_C, 256, 0, Input::Header);
+	if (!SetTsmfSelection(timeout, Type::TSMF_TSID, 0x5678)) return false;
+	const auto begin = std::chrono::steady_clock::now();
+	if (timeout.Tune(200) || std::chrono::steady_clock::now() - begin >= std::chrono::milliseconds(350)) return false;
+
+	TuneReceiver receiver(px4::SystemType::ISDB_C, 256, 0, Input::None);
+	if (!SetTsmfSelection(receiver, Type::TSMF_TSID, 0x1234, 256, true)) return false;
+	px4::command::ParameterSet get{};
+	get.num = 1;
+	get.params[0].type = Type::TSMF_TSID;
+	if (!receiver.GetParameters(get) || get.params[0].value != 0x1234) return false;
+	auto stream = receiver.GetStreamBuffer();
+	auto write = [&](const std::array<unsigned char, 188> &packet, std::size_t expected) {
+		std::size_t size = packet.size();
+		return stream->Write(packet.data(), size) && size == expected;
+	};
+	auto read = [&](const std::vector<unsigned char> &expected) {
+		std::vector<unsigned char> output;
+		stream->HandleRead(4096, [&](const void *buf, std::size_t size) {
+			const auto *bytes = static_cast<const unsigned char *>(buf);
+			output.assign(bytes, bytes + size);
+			return false;
+		});
+		return output == expected;
+	};
+	auto null_packet = MakeTlvPacket(false, 0, 0);
+	null_packet[1] = 0x1f;
+	null_packet[2] = 0xff;
+	if (stream->IsTsmfStreamReady() || !write(MakeTsmfHeader(0, true, 52, 0x1234, 1), 0) ||
+		!stream->IsTsmfStreamReady() || !write(MakeTlvPacket(true, 0, 0x11), 0)) return false;
+	for (unsigned int i = 1; i < 52; ++i)
+		if (!write(null_packet, 0)) return false;
+	if (!write(MakeTsmfHeader(0, true, 52, 0x1234, 2), 0) ||
+		!write(MakeTlvPacket(false, 0, 0x22), 0) || !write(MakeTlvPacket(true, 3, 0x33), 372)) return false;
+	std::vector<unsigned char> expected(184, 0x11);
+	expected.insert(expected.end(), 185, 0x22);
+	expected.insert(expected.end(), 3, 0x33);
+	if (!read(expected)) return false;
+	for (unsigned int i = 2; i < 52; ++i)
+		if (!write(null_packet, 0)) return false;
+	if (!write(MakeTsmfHeader(14, true, 52, 0x1234), 0) || !stream->IsTsmfStreamReady() ||
+		!write(MakeTlvPacket(false, 0, 0x22), 0) || !write(MakeTlvPacket(true, 0, 0x44), 0) ||
+		!write(MakeTlvPacket(true, 0, 0x55), 184) || !read(std::vector<unsigned char>(184, 0x44))) return false;
+	if (!write(MakeTsmfHeader(0, true, 52, 0x5678), 0) || stream->IsTsmfStreamReady() ||
+		!write(MakeTlvPacket(true, 0, 0x66), 0) || !write(MakeTsmfHeader(14, true, 52, 0x1234), 0) ||
+		!write(MakeTlvPacket(false, 0, 0x22), 0) || !write(MakeTlvPacket(true, 0, 0x66), 0) ||
+		!write(MakeTlvPacket(true, 0, 0x77), 184) || !read(std::vector<unsigned char>(184, 0x66))) return false;
+	if (!stream->Purge() || stream->IsTsmfStreamReady()) return false;
+	if (!write(MakeTsmfHeader(14, true, 52, 0x1234), 0) || !stream->IsTsmfStreamReady()) return false;
+	stream->Stop();
+	stream->Start();
+	if (stream->IsTsmfStreamReady()) return false;
+	if (!SetTsmfSelection(receiver, Type::TSMF_RELATIVE_STREAM, 0)) return false;
+	if (!receiver.GetParameters(get) || get.params[0].value != 0xffffffffU) return false;
+	const auto raw_packet = MakeTlvPacket(true, 0, 0x88);
+	if (!write(MakeTsmfHeader(0, true, 1, 0x5678), 0) || !stream->IsTsmfStreamReady() ||
+		!write(raw_packet, 188) || !read(std::vector<unsigned char>(raw_packet.begin(), raw_packet.end()))) return false;
+	if (SetTsmfSelection(receiver, Type::TSMF_TSID, 65536)) return false;
+	for (unsigned int tsid : {0U, 65535U}) {
+		if (!SetTsmfSelection(receiver, Type::TSMF_TSID, tsid) ||
+			!write(MakeTsmfHeader(tsid ? 14 : 0, true, 1, tsid), 0) || !stream->IsTsmfStreamReady()) return false;
+	}
+	std::puts("stream_transfer_test: passed (TSID tune/deadline, ONID wildcard, remap TLV discard, same-map preservation and relative-mode reset)");
+	return true;
+}
+
 bool TestWriteDiagnostics()
 {
 	px4::ReceiverBase::StreamBuffer stream;
@@ -361,6 +470,7 @@ bool TestNativePipe(bool copy, std::size_t fragment, int sequence)
 
 int main()
 {
+	if (!TestTsidSelection()) return 6;
 	if (!TestTlvReassembly()) return 5;
 	if (!TestTuneInput()) return 4;
 	if (!TestWriteDiagnostics()) return 1;

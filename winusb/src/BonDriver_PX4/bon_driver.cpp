@@ -683,17 +683,21 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		if (channel.is_tsmf) {
 			param_set->params[3].type = px4::command::ParameterType::TSMF_MODE;
 			param_set->params[3].value = 1;
-			param_set->params[4].type = px4::command::ParameterType::TSMF_RELATIVE_STREAM;
-			param_set->params[4].value = channel.tsmf_relative_stream;
+			param_set->params[4].type = channel.tsmf_by_tsid ?
+				px4::command::ParameterType::TSMF_TSID : px4::command::ParameterType::TSMF_RELATIVE_STREAM;
+			param_set->params[4].value = channel.tsmf_by_tsid ? channel.tsid : channel.tsmf_relative_stream;
 			param_set->params[5].type = px4::command::ParameterType::TSMF_SLOT_OFFSET;
 			param_set->params[5].value = static_cast<std::uint32_t>(channel.tsmf_slot_offset);
 			if (channel.tsmf_output_tlv) {
 				param_set->params[6].type = px4::command::ParameterType::TSMF_OUTPUT_TLV;
 				param_set->params[6].value = 1;
 			}
-			msg_info("SetChannel: TSMF relative stream=%u, slot offset=%d\n",
-				static_cast<unsigned int>(channel.tsmf_relative_stream),
-				channel.tsmf_slot_offset);
+			if (channel.tsmf_by_tsid)
+				msg_info("SetChannel: TSMF TSID=%u, slot offset=%d\n", channel.tsid, channel.tsmf_slot_offset);
+			else
+				msg_info("SetChannel: TSMF relative stream=%u, slot offset=%d\n",
+					static_cast<unsigned int>(channel.tsmf_relative_stream),
+					channel.tsmf_slot_offset);
 			if (channel.tsmf_output_tlv)
 				msg_info("SetChannel: TSMF output=raw TLV (dantto4k input)\n");
 		}

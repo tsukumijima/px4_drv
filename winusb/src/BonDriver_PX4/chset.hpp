@@ -15,7 +15,7 @@ namespace px4 {
 class ChannelSet final {
 public:
 	struct ChannelInfo final {
-		ChannelInfo() noexcept : ptx_ch(0), tsid(0), freq_khz(0), isdbc_freq_offset_khz(0), has_isdbc_freq_offset(false), isdbc_modulation(0), tsmf_relative_stream(0), tsmf_slot_offset(0), tsmf_output_tlv(false), is_tsmf(false) {}
+		ChannelInfo() noexcept : ptx_ch(0), tsid(0), freq_khz(0), isdbc_freq_offset_khz(0), has_isdbc_freq_offset(false), isdbc_modulation(0), tsmf_relative_stream(0), tsmf_slot_offset(0), tsmf_output_tlv(false), tsmf_by_tsid(false), is_tsmf(false) {}
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
@@ -33,6 +33,7 @@ public:
 		/* Optional eleventh field: 1 selects reconstructed raw TLV output.
 		 * Normal TSMF channels keep this false and output MPEG-TS. */
 		bool tsmf_output_tlv;
+		bool tsmf_by_tsid;
 		bool is_tsmf;
 	};
 	struct SpaceInfo final {

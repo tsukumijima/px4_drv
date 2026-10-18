@@ -13,7 +13,7 @@ namespace px4 {
 #pragma pack(push, 8)
 
 namespace command {
-	static const std::uint32_t VERSION = 0x00040003U;
+	static const std::uint32_t VERSION = 0x00040004U;
 
 	enum class CtrlCmdCode : std::uint32_t {
 		UNDEFINED = 0,
@@ -84,6 +84,7 @@ namespace command {
 		/* Select raw TLV output after TSMF slot selection.  This is used
 		 * only by the dantto4k input path; ordinary TSMF remains MPEG-TS. */
 		TSMF_OUTPUT_TLV,
+		TSMF_TSID = 8,
 		STREAM_ID = 16,
 	};
 
