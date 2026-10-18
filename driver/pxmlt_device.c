@@ -438,12 +438,6 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
-		/* TSMF はパケットの位置で TS を選ぶため、分離前は null パケットも受け取る */
-		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
-			params->tsmf_relative_stream < 0 && params->tsmf_tsid < 0);
-		if (ret)
-			break;
-
 		demod_params.isdbc.j83b = params->symbol_rate == 5600;
 
 		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
@@ -517,6 +511,12 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 			chrdev_group->id, chrdev->id, ret);
 		return ret;
 	}
+
+	/* TSMF はパケットの位置で TS を選ぶため、分離前は null パケットも受け取る
+	 * 地デジから切り替えるときに復調器の起動より前で除去を外すと、ブリッジへの反映が数秒遅れることがあり、選局を終えてから外す方が実機で早く反映された */
+	if (params->system == PTX_ISDB_C_SYSTEM)
+		return pxmlt_chrdev_set_null_packet_filter(chrdev,
+			params->tsmf_relative_stream < 0 && params->tsmf_tsid < 0);
 
 	return 0;
 }
