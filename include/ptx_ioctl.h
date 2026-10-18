@@ -11,7 +11,7 @@ enum ptx_system_type {
 	PTX_UNSPECIFIED_SYSTEM = 0x00000000,
 	PTX_ISDB_T_SYSTEM = 0x00000010,
 	PTX_ISDB_S_SYSTEM = 0x00000020,
-	/* 国内 CATV のトランスモジュレーション (ITU-T J.83 Annex C)。 */
+	/* 国内 CATV のトランスモジュレーション (ITU-T J.83 Annex C) */
 	PTX_ISDB_C_SYSTEM = 0x00000040
 };
 
@@ -50,6 +50,10 @@ struct ptxt_info {
 enum ptxt_param_code {
 	PTXT_UNDEFINED_PARAM = 0,
 	PTXT_BANDWIDTH_PARAM = 1,
+	PTXT_SYMBOL_RATE_PARAM = 2,
+	PTXT_TSMF_RELATIVE_STREAM_PARAM = 3,
+	PTXT_TSMF_TSID_PARAM = 4,
+	PTXT_TSMF_OUTPUT_TLV_PARAM = 5,
 	PTXT_STREAM_ID_PARAM = 16
 };
 
@@ -60,7 +64,7 @@ struct ptxt_additional_param {
 
 struct ptxt_params {
 	enum ptx_system_type system;
-	__u32 freq;				// ISDB-T: Hz, ISDB-S/S3: kHz
+	__u32 freq;				/* 中心周波数 (kHz) */
 	__u32 num_prop;
 	struct ptxt_additional_param *prop;
 };
