@@ -843,11 +843,6 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 		tsmf_ = false;
 	}
 
-	// TSMF はヘッダーからの位置で TS を選ぶため、ブリッジで null パケットを除くと位置がずれる
-	ret = SetNullPacketFilter(!tsmf);
-	if (ret)
-		return ret;
-
 	switch (params_.system) {
 	case px4::SystemType::ISDB_T:
 		demod_params.bandwidth = (params_.bandwidth) ? params_.bandwidth : 6;
@@ -925,6 +920,12 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 		dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_post_tune() failed. (ret: %d)\n");
 		return ret;
 	}
+
+	// TSMF はヘッダーからの位置で TS を選ぶため、ブリッジで null パケットを除くと位置がずれる
+	// 地デジから切り替えるときに復調器の起動より前で除去を外すと、ブリッジへの反映が数秒遅れることがあり、選局を終えてから外す方が実機で早く反映された
+	ret = SetNullPacketFilter(!tsmf);
+	if (ret)
+		return ret;
 
 	current_system_ = params_.system;
 	return ret;
@@ -1013,7 +1014,6 @@ int PxMltDevice::PxMltReceiver::SetNullPacketFilter(bool enable)
 	null_packet_filter_ = enable;
 	return 0;
 }
-
 int PxMltDevice::PxMltReceiver::SetLnbVoltage(std::int32_t voltage)
 {
 	if (!open_)
