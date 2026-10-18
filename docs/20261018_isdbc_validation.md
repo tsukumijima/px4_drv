@@ -106,6 +106,7 @@ BonDriver は 1024 パケット (約 188KB) のバッファーが埋まってか
 | 拡張 ioctl (`PTXT_SET_PARAMS` + `PTXT_TUNE`) の C51 と UHF 20ch | 誤り0件 |
 | 拡張 ioctl の C52 の相対 TS 0・TSID 17488・TSID 16895 | 誤り0件、指定した TS だけを出力 |
 | 拡張 ioctl の C52 の存在しない相対 TS 1 | `EAGAIN` で選局に失敗 |
+| 受信中の `PTX_GET_CNR` (C52 の TSID 17488 と UHF 20ch) | 28.1〜28.3dB と 33.1〜33.6dB (UHF 20ch は Windows 版の 32.9dB と同程度) |
 | 地デジ 27ch と BS15 (ISDB-C の選局の前後) | 受信でき、地デジの CC の不連続は Windows と同じ放送側によるものだけ |
 
 ## 確かめられていないこと
