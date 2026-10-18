@@ -39,7 +39,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
   - 同梱の `WinSCard.dll` を利用するアプリケーションの実行ファイルと同じフォルダに配置すると、内蔵カードリーダーを優先して利用できるようになる
   - Windows が認識している外付けカードリーダーも引き続き利用できる
 - チャンネル切り替え、USB の切断・再接続、内蔵カードリーダーとの同時利用に関する安定性を改善 (v0.6.0 以降)
-- PX-MLT 系 (PX-MLT5PE / PX-MLT8PE / DTV02A-5TS-P / DTV02A-4TS-P) で、ケーブルテレビのトランスモジュレーションである ISDB-C (ITU-T J.83 Annex C) と、スカパー！プレミアムサービス光 (J.83 Annex B) の受信に対応
+- PX-MLT 系 (PX-MLT5PE / PX-MLT8PE / DTV02A-5TS-P / DTV02A-4TS-P) で、トランスモジュレーション方式 CATV の ISDB-C (ITU-T J.83 Annex C) と、スカパー！プレミアムサービス光 (J.83 Annex B) の受信に対応
   - [n0atl 氏のフォーク](https://github.com/n0atl/px4_drv) と [aoiro-labo 氏のフォーク](https://github.com/aoiro-labo/px4_drv) で進められていた対応を基に、64QAM / 256QAM の受信、TSMF で多重された TS の分離、4K 放送用の生 TLV 出力に対応
   - TSMF で多重された TS は、相対 TS 番号のほか、radi-sh 氏の BonDriver_BDA と同じく TSID でも指定できる
   - 地デジと BS/CS の受信は、ISDB-C に対応する前と同じ処理で行う
@@ -551,7 +551,7 @@ BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などの�
 
 ## ケーブルテレビ (ISDB-C) の受信
 
-PX-MLT 系 (PX-MLT5PE / PX-MLT8PE / DTV02A-5TS-P / DTV02A-4TS-P) は、ケーブルテレビ局が BS・地デジ・専門チャンネルを再送信するトランスモジュレーションの放送 (ISDB-C / ITU-T J.83 Annex C) と、スカパー！プレミアムサービス光 (J.83 Annex B) を受信できます。  
+PX-MLT 系 (PX-MLT5PE / PX-MLT8PE / DTV02A-5TS-P / DTV02A-4TS-P) は、ケーブルテレビ局が BS・地デジ・専門チャンネルを再送信するトランスモジュレーション方式 CATV の放送 (ISDB-C / ITU-T J.83 Annex C) と、スカパー！プレミアムサービス光 (J.83 Annex B) を受信できます。  
 受信にはケーブルテレビの回線が必要で、契約していない有料チャンネルは復号できません。  
 地デジと BS/CS の選局と TS の処理は、ISDB-C に対応する前と同じです。
 
@@ -613,7 +613,7 @@ TSMF の TS・J.83 Annex B・生 TLV を指定する場合は、拡張 ioctl を
 | `PTXT_TSMF_OUTPUT_TLV_PARAM` | `1` にすると、TSMF の TS を生 TLV として出力する |
 
 受信中の C/N は `PTX_GET_CNR` で読み出せます。  
-ISDB-C には PT 互換の値の定義がないため、地デジや BS/CS とは異なり、C/N (dB) を1000倍した値を返します (J.83 Annex B では `ENOSYS` で失敗します)。
+ISDB-C には PT 互換の値の定義がないため、地デジや BS/CS とは異なり、C/N (dB) を1000倍した値を返します。
 
 ## LNB電源の出力
 
