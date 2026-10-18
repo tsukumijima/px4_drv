@@ -11,6 +11,8 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#include <linux/log2.h>
+#include <linux/math64.h>
 
 #include "px4_device_params.h"
 #include "firmware.h"
@@ -801,6 +803,24 @@ static const struct {
 	{ 0x16, 0x1e66 }, { 0x15, 0x1dd6 }, { 0x14, 0x1d90 }
 };
 
+/* カーネル内では浮動小数点を使えないため、自然対数の100倍を固定小数点の log2 から求める */
+static u32 pxmlt_ln_x100(u16 x)
+{
+	u32 n = ilog2(x), frac = 0;
+	u64 m = (u64)x << (16 - n);
+	int i;
+
+	for (i = 15; i >= 0; i--) {
+		m = (m * m) >> 16;
+		if (m >= (1 << 17)) {
+			frac |= 1 << i;
+			m >>= 1;
+		}
+	}
+
+	return (u32)div_u64(((((u64)n << 16) | frac) * 69315) + (1000 << 15), 1000 << 16);
+}
+
 static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 {
 	int ret = 0;
@@ -890,6 +910,27 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 			}
 		}
 
+		break;
+	}
+
+	case PTX_ISDB_C_SYSTEM:
+	{
+		u16 val;
+		s32 cn;
+
+		/* J.83B の換算式は参照できる公開ドライバーにないため、C/N を返さない */
+		if (chrdev->params.symbol_rate == 5600) {
+			ret = -ENOSYS;
+			break;
+		}
+
+		ret = cxd2856er_read_cnr_raw_isdbc(&chrdevm->cxd2856er, &val);
+		if (ret)
+			break;
+
+		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じ Linux の cxd2841er.c の式で dB の1000倍の値を返す */
+		cn = (val) ? -95 * (s32)pxmlt_ln_x100(max_t(u16, val, 126)) + 95941 : 0;
+		*value = (cn > 0) ? cn : 0;
 		break;
 	}
 
