@@ -562,20 +562,24 @@ static int cxd2856er_save_isdbc_regs(struct cxd2856er_demod *demod)
 	return 0;
 }
 
-static void cxd2856er_restore_isdbc_regs(struct cxd2856er_demod *demod)
+static int cxd2856er_restore_isdbc_regs(struct cxd2856er_demod *demod)
 {
-	int i;
+	int ret, i;
 
 	if (!demod->isdbc_saved)
-		return;
+		return 0;
 
 	for (i = 0; i < 5; i++) {
-		if (cxd2856er_write_slvt_reg(demod, 0x00, cxd2856er_isdbc_regs[i][0]) ||
-		    cxd2856er_write_slvt_reg(demod, cxd2856er_isdbc_regs[i][1], demod->isdbc_saved_regs[i]))
-			return;
+		ret = cxd2856er_write_slvt_reg(demod, 0x00, cxd2856er_isdbc_regs[i][0]);
+		if (!ret)
+			ret = cxd2856er_write_slvt_reg(demod, cxd2856er_isdbc_regs[i][1], demod->isdbc_saved_regs[i]);
+		/* 失敗したときは保存した値を残し、次に ISDB-T/S を起動するときに書き戻しをやり直す */
+		if (ret)
+			return ret;
 	}
 
 	demod->isdbc_saved = false;
+	return 0;
 }
 
 /* cxd2878_sleep() の SONY_DTV_SYSTEM_J83B に従い、共通のアナログ停止処理の前に J.83B 固有の設定を戻す */
@@ -656,6 +660,7 @@ int cxd2856er_sleep(struct cxd2856er_demod *demod)
 
 	switch (demod->system) {
 	case CXD2856ER_ISDB_C_SYSTEM:
+		/* 書き戻しに失敗しても停止は続け、保存した値は次の ISDB-T/S の起動で書き戻す */
 		cxd2856er_restore_isdbc_regs(demod);
 		/* ISDB-C は地上波と同じアナログ受信経路を使うため、ISDB-T と同じ手順で停止する */
 		cxd2856er_sleep_isdbt(demod);
@@ -1367,9 +1372,13 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
 		params->isdbc.j83b;
 
-	/* ISDB-C の起動が途中で失敗して停止処理を通らなかった場合も、ISDB-T/S の起動の前に書き戻す */
-	if (system != CXD2856ER_ISDB_C_SYSTEM)
-		cxd2856er_restore_isdbc_regs(demod);
+	/* ISDB-C の起動が途中で失敗して停止処理を通らなかった場合も、ISDB-T/S の起動の前に書き戻す
+	 * 書き戻せないまま起動すると ISDB-C の設定が残った状態で受信するため、起動を中断する */
+	if (system != CXD2856ER_ISDB_C_SYSTEM) {
+		ret = cxd2856er_restore_isdbc_regs(demod);
+		if (ret)
+			return ret;
+	}
 
 	/* J.83B と ISDB-C は内部の設定が異なるため、停止状態を経由して再設定する */
 	if (demod->state == CXD2856ER_ACTIVE_STATE && (j83b || demod->j83b_active)) {
