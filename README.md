@@ -612,6 +612,9 @@ TSMF の TS・J.83 Annex B・生 TLV を指定する場合は、拡張 ioctl を
 | `PTXT_TSMF_TSID_PARAM` | TSMF の TS を選ぶ TSID (相対 TS 番号と両方を指定した場合は TSID を使う) |
 | `PTXT_TSMF_OUTPUT_TLV_PARAM` | `1` にすると、TSMF の TS を生 TLV として出力する |
 
+受信中の C/N は `PTX_GET_CNR` で読み出せます。  
+ISDB-C には PT 互換の値の定義がないため、地デジや BS/CS とは異なり、C/N (dB) を1000倍した値を返します (J.83 Annex B では `ENOSYS` で失敗します)。
+
 ## LNB電源の出力
 
 ### PLEX PX-W3U4/Q3U4/W3PE4/Q3PE4
