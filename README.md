@@ -573,19 +573,17 @@ TSID で指定すると、ケーブルテレビ局が相対 TS 番号の割り�
 
 | 列 | 内容 |
 |---|---|
-| 1〜4 | 名前・空間番号・チャンネル番号・物理チャンネル番号 (CATV の C13〜C22 は 3〜12、C23〜C63 は 22〜62、UHF の 13〜62ch は 63〜112) |
-| 5 | TSID (第9列が `-1` のときだけ使う) |
-| 6 | 中心周波数 (kHz)。`0` なら物理チャンネル番号から求める |
-| 7 | 周波数補正 (kHz) |
-| 8 | 方式。`0` は ISDB-C、`J83B` は J.83 Annex B |
-| 9 | TSMF で多重された搬送波から受信する TS。`0`〜`14` は相対 TS 番号、`-1` は第5列の TSID で選ぶ |
-| 10 | `1` で TSMF の TS を生 TLV で出力する (4K 放送を [BonDriver_dantto4k](https://github.com/nekohkr/dantto4k) へ渡す場合だけ使う) |
+| 1〜4 | 名前・空間番号・チャンネル番号・物理チャンネル番号 (recpt1 と同じく、VHF の 1〜3ch は 0〜2、CATV の C13〜C22 は 3〜12、VHF の 4〜12ch は 13〜21、C23〜C63 は 22〜62、UHF の 13〜62ch は 63〜112) |
+| 5 | TSID (第7列が `-1` のときだけ使う) |
+| 6 | 方式。`0` は ISDB-C、`J83B` は J.83 Annex B |
+| 7 | TSMF で多重された搬送波から受信する TS。`0`〜`14` は相対 TS 番号、`-1` は第5列の TSID で選ぶ |
+| 8 | `1` で TSMF の TS を生 TLV で出力する (4K 放送を [BonDriver_dantto4k](https://github.com/nekohkr/dantto4k) へ渡す場合だけ使う) |
 
 TSMF で多重された C52 から、相対 TS 番号 0 の TS と、TSID 17488 の TS を受信する例です。
 
 ```text
-C52-相対TS0	0	0	51	0	0	0	0	0
-C52-TSID17488	0	1	51	17488	0	0	0	-1
+C52-相対TS0	0	0	51	0	0	0
+C52-TSID17488	0	1	51	17488	0	-1
 ```
 
 指定した TS が TSMF のヘッダーにない場合は、選局に失敗します。
@@ -597,7 +595,7 @@ recpt1 などの既存の受信ソフトウェアはこの放送方式に対応�
 
 TSMF を使わない ISDB-C は、既存の ioctl で選局できます。  
 `PTX_SET_SYSTEM_MODE` で放送方式を ISDB-C (`PTX_ISDB_C_SYSTEM`) にしてから、`PTX_SET_CHANNEL` で選局します。  
-`freq_no` は CATV の C13〜C22 が 3〜12、C23〜C63 が 22〜62、UHF の 13〜62ch が 63〜112 で、`slot` には周波数補正 (kHz) を指定します。
+`freq_no` は ChSet の物理チャンネル番号と同じで、`slot` には周波数補正 (kHz) を指定します。
 
 TSMF の TS・J.83 Annex B・生 TLV を指定する場合は、拡張 ioctl を次の順に呼び出します。
 
