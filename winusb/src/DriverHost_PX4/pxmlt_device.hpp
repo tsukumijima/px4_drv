@@ -51,19 +51,17 @@ struct PxMltDeviceConfig final {
 		unsigned int receiver_max_packets;
 		int psb_purge_timeout;
 		bool discard_null_packets;
-		/* Requested through DiscardNullPackets=true when the experimental
-		 * ISDB-C path is enabled.  It is applied at the final TS output. */
+		/* ISDB-C 有効時は、DiscardNullPackets を入力側から出力側の除去へ切り替える。 */
 		bool discard_null_packets_on_output;
-		/* Requested through DiscardTsmfHeaderPackets.  Enabled only while
-		 * this receiver is tuned to ISDB-C. */
+		/* DiscardTsmfHeaderPackets は ISDB-C の受信時にだけ適用する。 */
 		bool discard_tsmf_header_packets;
-		/* Explicit opt-in for the unverified CXD2856ER J.83C profile. */
+		/* ISDB-C の実験用プロファイルは、利用に明示的な有効化が必要。 */
 		bool experimental_isdbc;
-		/* 0: use BonDriver request; 64 or 256: override it for diagnostics. */
+		/* 0 は BonDriver の指定に従い、64/256 は診断用に変調方式を上書きする。 */
 		unsigned int force_isdbc_modulation;
-		/* Sony/TBS DVB-C 6 MHz 参照値との比較用。既定 false。 */
+		/* cxd2878.c の DVB-C 6 MHz 設定との比較用。 */
 		bool isdbc_reference_profile;
-		/* 信号で検証するまで ISDB-C 要求を J.83B に置換する暫定設定。 */
+		/* ISDB-C 要求を J.83B 256QAM・5.6 Msps の設定に置き換える。 */
 		bool experimental_j83b;
 		bool experimental_j83b_monitor;
 	} device;

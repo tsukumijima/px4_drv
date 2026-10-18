@@ -235,7 +235,7 @@ int main(void)
 		CHECK(sample.carrier_offset_raw == 8191 && sample.timing_integral_raw == 2147483647);
 		puts("J83B stages/FEC masks, signed extrema, inactive guard, 19 locked/16 unlocked I/O boundaries: PASS");
 	}
-	/* J.83B 無効の全既存 C プロファイル。HEAD 版と I2C 列を比較可能な指紋。 */
+	/* J.83B 無効時の各 ISDB-C プロファイルについて、I2C 操作列を比較できるハッシュを出力する。 */
 	for (ref = 0; ref < 2; ref++) {
 		for (qam = 64; qam <= 256; qam *= 4) {
 			reset(&demod, &tuner);
@@ -253,7 +253,7 @@ int main(void)
 #ifndef J83B_BASELINE
 	{
 		unsigned int count, fail, mode;
-		/* 共通 RF 経路の T/C は S 切替前に停止し、失敗を隠さない。 */
+		/* 地上波・ケーブル共通の RF 経路は、衛星への切り替え前に停止し、停止時のエラーを返す。 */
 		for (mode = CXD2858ER_ISDB_T_SYSTEM; mode <= CXD2858ER_ISDB_C_SYSTEM; mode++) {
 			if (mode == CXD2858ER_ISDB_S_SYSTEM)
 				continue;
@@ -336,7 +336,7 @@ int main(void)
 		CHECK(bus.regs[1][0x41][0xcf] == 0x77);
 		CHECK(bus.regs[1][0x40][0x14] == 0x1f);
 		CHECK(memcmp(&bus.regs[1][0x40][0x26], "\x09\x9a\x00\xee", 4) == 0);
-		/* 全 wakeup I/O 境界で失敗を注入。次の T 選局で残留状態を解除。 */
+		/* 起動時の各 I/O を失敗させ、次の地上波選局で J.83B 固有の設定を解除できることを確認する。 */
 		for (fail = 1; fail <= count; fail++) {
 			reset(&demod, &tuner);
 			memset(&params, 0, sizeof(params));
@@ -349,7 +349,7 @@ int main(void)
 			CHECK(!demod.j83b_active);
 		}
 		printf("J83B register/lock/restore and %u wakeup I/O failure boundaries: PASS\n", count);
-		/* 既存 C への復帰と J.83B 固有 sleep の各失敗境界。 */
+		/* J.83B の停止時に各 I/O を失敗させ、ISDB-C へ復帰できることを確認する。 */
 		reset(&demod, &tuner);
 		memset(&params, 0, sizeof(params));
 		params.isdbc.experimental_j83b = true;

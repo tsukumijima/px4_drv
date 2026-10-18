@@ -51,16 +51,12 @@ public:
 		void Start() noexcept;
 		void Stop() noexcept;
 		void StopRequest() noexcept;
-		/* The input side must retain null packets for a TSMF frame.  This
-		 * filter runs at the final output stage: after TSMF selection when
-		 * enabled, and directly on ordinary TS otherwise. */
+		/* TSMF のスロット位置を保つため、null パケットは出力時に除去する。 */
 		void SetDiscardNullPacketsOnOutput(bool enabled) noexcept;
-		/* PID 0x002f is a TSMF multi-frame header.  It is an ISDB-C-only
-		 * output filter and is never applied to terrestrial or satellite TS. */
+		/* TSMF ヘッダー (PID 0x002f) は解析に必要なため、ISDB-C の出力時にだけ除去する。 */
 		void SetDiscardTsmfHeaderPacketsOnIsdbCOutput(bool enabled) noexcept;
 		void SetTsmfRelativeStream(bool enabled, std::uint8_t stream, std::int32_t slot_offset, bool output_tlv = false, std::int32_t tsid = -1) noexcept;
-		/* Raw TS packets received from USB since the last reset, counted before
-		 * TSMF or output-PID filtering. */
+		/* USB 入力の確認には、TSMF や PID の選別前に数えたパケット数を使う。 */
 		void ResetInputPacketCount() noexcept;
 		std::uint64_t GetInputPacketCount() const noexcept;
 		bool IsTsmfStreamReady() noexcept;
@@ -100,17 +96,17 @@ public:
 		std::int32_t tsmf_slot_offset_;
 		int tsmf_slot_;
 		std::array<std::uint8_t, 15> tsmf_stream_enabled_;
-		/* TSMF extension stream_type: 0 means a segmented TLV stream. */
+		/* TSMF 拡張情報の stream_type は、0が分割 TLV を表す。 */
 		std::array<std::uint8_t, 15> tsmf_stream_type_;
 		std::array<std::uint8_t, 52> tsmf_slot_stream_;
-		/* A TLV packet can span several selected 188-byte TSMF slots. */
+		/* TLV パケットは複数の TSMF スロットにまたがるため、完成するまで蓄積する。 */
 		static constexpr std::size_t TSMF_TLV_MAX_SIZE = 65536;
 		std::array<std::uint8_t, TSMF_TLV_MAX_SIZE> tsmf_tlv_buf_;
 		std::array<std::uint8_t, TSMF_TLV_MAX_SIZE> tsmf_tlv_output_buf_;
 		std::size_t tsmf_tlv_size_;
 		std::uint64_t tsmf_tlv_output_count_;
 		std::uint64_t tsmf_tlv_output_bytes_;
-		/* TSMF diagnostics.  These counters are reset for every tune. */
+		/* TSMF 診断用の計数値は選局ごとに初期化する。 */
 		std::uint64_t tsmf_input_packets_;
 		std::uint64_t tsmf_selected_packets_;
 		std::uint64_t tsmf_rejected_packets_;
@@ -149,7 +145,7 @@ public:
 	virtual int ReadStat(px4::command::StatType type, std::int32_t &value) = 0;
 
 protected:
-	/* 機種固有の正規化を自動 QAM 判定より先に行う。既存機種は変更なし。 */
+	/* J.83B など機種固有の変調方式の指定は、自動 QAM 判定より先に適用する。 */
 	virtual int PrepareTune() { return 0; }
 	virtual int SetFrequency() = 0;
 	virtual int SetStreamId() = 0;

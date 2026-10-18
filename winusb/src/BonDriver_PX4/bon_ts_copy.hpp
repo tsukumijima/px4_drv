@@ -4,7 +4,7 @@
 
 namespace px4 {
 
-// コピー型APIには宛先容量がないため、既知のクライアントの確保量内に制限する。
+// コピー型 API はコピー先バッファの容量を受け取らないため、既知のクライアントの確保サイズ内に制限する
 constexpr std::size_t BON_TS_COPY_SIZE = 188 * 256;
 
 template<class Queue>

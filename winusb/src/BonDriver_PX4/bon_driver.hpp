@@ -85,7 +85,7 @@ private:
 	bool lnb_power_;
 	bool lnb_power_state_;
 	std::int32_t isdbc_frequency_offset_khz_;
-	/* 0: automatic, 64 or 256: force the experimental ISDB-C profile. */
+	/* 0 は自動判定 (64QAM、256QAM の順)、64/256 は固定指定。 */
 	std::uint32_t isdbc_modulation_;
 	std::uint32_t pipe_timeout_;
 	std::uint32_t tune_timeout_;

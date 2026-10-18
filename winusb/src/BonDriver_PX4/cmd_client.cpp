@@ -88,11 +88,7 @@ bool CtrlCmdClient::GetParams(px4::command::ParameterSet &param_set) noexcept
 
 bool CtrlCmdClient::SetParams(const px4::command::ParameterSet &param_set) noexcept
 {
-	/*
-	 * Keep the original fixed-size wire format for ISDB-T (zero parameters)
-	 * and ISDB-S (one parameter).  Only ISDB-C needs the new variable-length
-	 * form because it supplies bandwidth, symbol rate and modulation.
-	 */
+	/* ISDB-T (0個) と ISDB-S (1個) は、既存の固定長コマンドで送信できる。 */
 	if (param_set.num <= 1) {
 		px4::command::CtrlParamsCmd params_cmd;
 
@@ -103,11 +99,7 @@ bool CtrlCmdClient::SetParams(const px4::command::ParameterSet &param_set) noexc
 		return Call(params_cmd);
 	}
 
-	/*
-	 * ParameterSet::params is a variable-length trailing array.  Copying it
-	 * through CtrlParamsCmd used to send only params[0], which made ISDB-C's
-	 * three parameters fail the DriverHost length validation before Tune().
-	 */
+	/* ISDB-C は複数のパラメーターを送るため、末尾配列の要素数に応じた長さでコマンドを組み立てる。 */
 	const std::size_t num = std::max<std::size_t>(1, param_set.num);
 	const std::size_t length = offsetof(px4::command::CtrlParamsCmd, param_set.params)
 				 + (sizeof(px4::command::Parameter) * num);
