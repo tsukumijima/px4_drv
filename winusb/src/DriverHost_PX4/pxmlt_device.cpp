@@ -1148,17 +1148,11 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 		{
 			std::uint16_t val;
 
-			// J.83B の換算式は参照できる公開ドライバーにないため、C/N を返さない
-			if (params_.symbol_rate == 5600) {
-				ret = -ENOSYS;
-				break;
-			}
-
 			ret = cxd2856er_read_cnr_raw_isdbc(&cxd2856er_, &val);
 			if (ret)
 				break;
 
-			// Linux の cxd2841er.c の 64QAM・256QAM 用の換算式
+			// Linux の cxd2841er.c の 64QAM・256QAM 用の換算式 (J.83B も cxd2878.c に従い同じ式を使う)
 			if (val)
 				value = static_cast<std::int32_t>(-9500 * std::log((val < 126) ? 126 : val) + 95941);
 
