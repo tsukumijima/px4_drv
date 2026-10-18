@@ -35,6 +35,22 @@ bool ReceiverBase::GetParameters(px4::command::ParameterSet &param_set) noexcept
 			param_set.params[i].value = params_.bandwidth;
 			break;
 
+		case px4::command::ParameterType::SYMBOL_RATE:
+			param_set.params[i].value = params_.symbol_rate;
+			break;
+
+		case px4::command::ParameterType::TSMF_RELATIVE_STREAM:
+			param_set.params[i].value = static_cast<std::uint32_t>(params_.tsmf_relative_stream);
+			break;
+
+		case px4::command::ParameterType::TSMF_TSID:
+			param_set.params[i].value = static_cast<std::uint32_t>(params_.tsmf_tsid);
+			break;
+
+		case px4::command::ParameterType::TSMF_OUTPUT_TLV:
+			param_set.params[i].value = params_.tsmf_output_tlv;
+			break;
+
 		case px4::command::ParameterType::STREAM_ID:
 			param_set.params[i].value = params_.stream_id;
 			break;
