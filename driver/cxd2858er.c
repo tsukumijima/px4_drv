@@ -470,10 +470,8 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 	data[1] = 0x02;
 	data[2] = 0x1e;
 	data[3] = 0x67;
-	/* cxd2878.c helene_tune_terr(): cable の REF_R は水晶周波数依存。
-	 * PXMLT は 16 MHz。既存値は比較用に参照フラグ false で保持する。 */
-	data[4] = (tuner->config.isdbc_reference_profile || tuner->config.experimental_j83b) &&
-		(tuner->config.xtal == 16000) ? 0x10 : 0x18;
+	/* cxd2878.c helene_tune_terr(): cable の REF_R は水晶周波数に依存する */
+	data[4] = (tuner->config.xtal == 16000) ? 0x10 : 0x18;
 	data[5] = 0x1c;
 	data[6] = 0x78;
 	data[7] = 0x08;
