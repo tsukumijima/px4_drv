@@ -19,6 +19,7 @@
 #include <linux/fs.h>
 #include <linux/version.h>
 #include <linux/vmalloc.h>
+#include <linux/mm.h>
 #include <linux/spinlock.h>
 #include <linux/jiffies.h>
 
