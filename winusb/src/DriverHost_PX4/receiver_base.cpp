@@ -2,6 +2,7 @@
 
 #include "receiver_base.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <windows.h>
 
@@ -161,10 +162,13 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 {
 	int ret = 0;
 	std::lock_guard<std::mutex> lock(lock_);
+	// ISDB-C の再試行と入力確認は、選局開始時からの期限を共有する
+	const auto tune_begin = std::chrono::steady_clock::now();
+	const auto tune_deadline = tune_begin + std::chrono::milliseconds(timeout);
 	if (PrepareTune())
 		return false;
-	const bool isdbc_auto_qam = params_.system == px4::SystemType::ISDB_C &&
-		params_.modulation == 0;
+	const bool isdbc = params_.system == px4::SystemType::ISDB_C;
+	const bool isdbc_auto_qam = isdbc && params_.modulation == 0;
 
 	/*
 	 * The public BonDriver interface has no ISDB-C modulation selector.
@@ -182,45 +186,81 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 	}
 
 	auto tune_once = [&](std::uint32_t attempt_timeout, int &lock_checks, bool &locked) noexcept {
+		auto attempt_deadline = tune_begin + std::chrono::milliseconds(attempt_timeout);
+		if (isdbc && std::chrono::steady_clock::now() >= attempt_deadline) {
+			ret = -ETIMEDOUT;
+			return false;
+		}
 		ret = SetFrequency();
 		if (ret)
 			return false;
+		if (!isdbc)
+			attempt_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(attempt_timeout);
 
 		/* A previous channel may still have a small amount of bridge data in
 		 * flight.  Drain that before opening the raw-TS observation window. */
-		if (isdbc_auto_qam) {
-			Sleep(100);
+		if (isdbc) {
+			const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(attempt_deadline - std::chrono::steady_clock::now()).count();
+			if (remaining <= 0) {
+				ret = -ETIMEDOUT;
+				return false;
+			}
+			Sleep(static_cast<DWORD>((std::min<std::int64_t>)(100, remaining)));
 			stream_buf_->ResetInputPacketCount();
+			// 再試行では変調方式が変わるため、ヘッダーも受信し直す
+			if (params_.tsmf_mode)
+				stream_buf_->SetTsmfRelativeStream(true,
+					static_cast<std::uint8_t>(params_.tsmf_relative_stream),
+					static_cast<std::int32_t>(params_.tsmf_slot_offset),
+					params_.tsmf_output_tlv != 0);
 		}
 
-		auto begin = std::chrono::steady_clock::now();
+		bool input_checked = false;
 		for (lock_checks = 0; true; lock_checks++) {
+			if (isdbc && std::chrono::steady_clock::now() >= attempt_deadline) {
+				ret = -ETIMEDOUT;
+				break;
+			}
 			ret = CheckLock(locked);
-			if ((!ret && locked) || ret == -ECANCELED)
+			if (ret == -ECANCELED)
 				break;
 
-			auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin);
-			if (duration.count() >= attempt_timeout) {
+			if (!ret && locked) {
+				if (!isdbc)
+					break;
+				if (!input_checked) {
+					// 変調方式が一致しなくてもロックを報告するため、USB 側の入力で受信を確認する
+					const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(attempt_deadline - std::chrono::steady_clock::now()).count();
+					if (remaining <= 0) {
+						ret = -ETIMEDOUT;
+						break;
+					}
+					Sleep(static_cast<DWORD>((std::min<std::int64_t>)(200, remaining)));
+					if (stream_buf_->GetInputPacketCount() == 0) {
+						msg_info("ISDB-C: %uQAM reported lock but produced no TS packets.\n",
+							params_.modulation);
+						locked = false;
+						ret = -ETIMEDOUT;
+						return false;
+					}
+					input_checked = true;
+				}
+				if (std::chrono::steady_clock::now() < attempt_deadline &&
+					(!params_.tsmf_mode || stream_buf_->IsTsmfStreamReady()))
+					break;
+			}
+
+			if (std::chrono::steady_clock::now() >= attempt_deadline) {
 				ret = -ETIMEDOUT;
 				break;
 			}
 
-			Sleep(20);
-		}
-
-		if (!ret && locked && isdbc_auto_qam) {
-			/* A CXD2856ER 256QAM carrier can report TS lock while the 64QAM
-			 * profile yields no packets.  Verify USB-side TS, not only the
-			 * demodulator status bit. */
-			Sleep(200);
-			if (stream_buf_->GetInputPacketCount() == 0) {
-				msg_info("ISDB-C: %uQAM reported lock but produced no TS packets.\n",
-					 params_.modulation);
-				locked = false;
-				/* Reuse the existing tune-timeout result: the caller only needs a
-				 * non-cancelled failure in order to try the next QAM profile. */
-				ret = -ETIMEDOUT;
-				return false;
+			if (isdbc) {
+				const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(attempt_deadline - std::chrono::steady_clock::now()).count();
+				if (remaining > 0)
+					Sleep(static_cast<DWORD>((std::min<std::int64_t>)(20, remaining)));
+			} else {
+				Sleep(20);
 			}
 		}
 
@@ -235,18 +275,20 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 
 	bool tune_ok = tune_once(first_timeout, i, locked);
 	if (!tune_ok && isdbc_auto_qam && ret != -ECANCELED) {
-		const std::uint32_t second_timeout = timeout - first_timeout;
 		params_.modulation = 256;
 		locked = false;
 		msg_info("ISDB-C: 64QAM did not produce a usable TS; retrying 256QAM.\n");
-		tune_ok = tune_once(second_timeout, i, locked);
+		tune_ok = tune_once(timeout, i, locked);
 	}
 
 	if (!tune_ok)
 		return false;
 
-	if ((params_.system == px4::SystemType::ISDB_T || params_.system == px4::SystemType::ISDB_C) && (options_ & RECEIVER_WAIT_AFTER_LOCK_TC_T) && (i < 35))
+	if ((params_.system == px4::SystemType::ISDB_T || params_.system == px4::SystemType::ISDB_C) && (options_ & RECEIVER_WAIT_AFTER_LOCK_TC_T) && (i < 35)) {
+		if (isdbc && std::chrono::steady_clock::now() + std::chrono::milliseconds((35 - i) * 10) >= tune_deadline)
+			return false;
 		Sleep((35 - i) * 10);
+	}
 
 	if ((params_.system == px4::SystemType::ISDB_S) && !(options_ & RECEIVER_SAT_SET_STREAM_ID_BEFORE_TUNE)) {
 		ret = SetStreamId();
@@ -254,10 +296,13 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 			return false;
 	}
 
-	if (options_ & RECEIVER_WAIT_AFTER_LOCK)
+	if (options_ & RECEIVER_WAIT_AFTER_LOCK) {
+		if (isdbc && std::chrono::steady_clock::now() + std::chrono::milliseconds(200) >= tune_deadline)
+			return false;
 		Sleep(200);
+	}
 
-	return true;
+	return !isdbc || std::chrono::steady_clock::now() < tune_deadline;
 }
 
 bool ReceiverBase::ReadStats(px4::command::StatSet &stat_set)
@@ -416,6 +461,13 @@ void ReceiverBase::StreamBuffer::ResetInputPacketCount() noexcept
 std::uint64_t ReceiverBase::StreamBuffer::GetInputPacketCount() const noexcept
 {
 	return input_packet_count_.load(std::memory_order_relaxed);
+}
+
+bool ReceiverBase::StreamBuffer::IsTsmfStreamReady() noexcept
+{
+	std::lock_guard<std::mutex> lock(tsmf_mtx_);
+	return tsmf_header_packets_ != 0 && tsmf_relative_stream_ < tsmf_stream_enabled_.size() &&
+		tsmf_stream_enabled_[tsmf_relative_stream_] != 0;
 }
 
 ReceiverBase::StreamBuffer::WriteDiagnostics ReceiverBase::StreamBuffer::GetWriteDiagnostics() const noexcept
