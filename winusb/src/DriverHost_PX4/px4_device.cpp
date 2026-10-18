@@ -357,7 +357,10 @@ ReceiverBase* Px4Device::GetReceiver(int id) const
 
 bool Px4Device::HasCardReader() const noexcept
 {
-	/* Q3 系は4チューナーずつ2デバイスで構成されるが、物理カードスロットは主デバイス側の1個だけ */
+	/*
+	 * Q3 系は4チューナーずつ2デバイスで構成され、カードスロットは主デバイス側の1個だけとして扱う
+	 * 実機で確かめられているのは PX-Q3U4 だけ
+	 */
 	switch (usb_dev_.descriptor.idProduct) {
 	case 0x084a:
 	case 0x024a:
@@ -426,7 +429,7 @@ int Px4Device::ResetCard()
 	return card_open_ ? it930x_bcas_reset_card(&it930x_) : -ENODEV;
 }
 
-int Px4Device::SetCardBaudrate(::it930x_uart_baudrate baudrate)
+int Px4Device::SetCardBaudrate(std::uint32_t baudrate)
 {
 	std::lock_guard<std::recursive_mutex> lock(lock_);
 	return card_open_ ? it930x_bcas_set_baudrate(&it930x_, baudrate) : -ENODEV;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * PTX driver for Digibest ISDB2056 device (isdb2056_device.c)
+ * PTX driver for Digibest ISDB2056 and PLEX PX-M1UR device (isdb2056_device.c)
  *
  * Copyright (c) 2018-2021 nns779
  */
@@ -251,12 +251,17 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 	dev_dbg(isdb2056->dev,
 		"isdb2056_chrdev_open %u\n", chrdev_group->id);
 
-	ret = isdb2056_backend_set_power(isdb2056, true);
-	if (ret) {
-		dev_err(isdb2056->dev,
-			"isdb2056_chrdev_open %u: isdb2056_backend_set_power(true) failed. (ret: %d)\n",
-			chrdev_group->id, ret);
-		goto fail_backend_power;
+	mutex_lock(&isdb2056->lock);
+
+	/* カードが基板の電源を使っている場合は入れ直さず、受信回路の初期化だけを行う */
+	if (!isdb2056->card_powered) {
+		ret = isdb2056_backend_set_power(isdb2056, true);
+		if (ret) {
+			dev_err(isdb2056->dev,
+				"isdb2056_chrdev_open %u: isdb2056_backend_set_power(true) failed. (ret: %d)\n",
+				chrdev_group->id, ret);
+			goto fail_backend_power;
+		}
 	}
 
 	ret = isdb2056_backend_init(isdb2056);
@@ -337,16 +342,21 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		goto fail_backend;
 	}
 
+	isdb2056->tuner_open = true;
 	kref_get(&isdb2056->kref);
+
+	mutex_unlock(&isdb2056->lock);
 	return 0;
 
 fail_backend:
 	isdb2056_backend_term(isdb2056);
 
 fail_backend_init:
-	isdb2056_backend_set_power(isdb2056, false);
+	if (!isdb2056->card_powered)
+		isdb2056_backend_set_power(isdb2056, false);
 
 fail_backend_power:
+	mutex_unlock(&isdb2056->lock);
 	return ret;
 }
 
@@ -362,8 +372,14 @@ static int isdb2056_chrdev_release(struct ptx_chrdev *chrdev)
 		"isdb2056_chrdev_release %u: kref count: %u\n",
 		chrdev_group->id, kref_read(&isdb2056->kref));
 
+	mutex_lock(&isdb2056->lock);
+
 	isdb2056_backend_term(isdb2056);
-	isdb2056_backend_set_power(isdb2056, false);
+	isdb2056->tuner_open = false;
+	if (!isdb2056->card_powered)
+		isdb2056_backend_set_power(isdb2056, false);
+
+	mutex_unlock(&isdb2056->lock);
 
 	kref_put(&isdb2056->kref, isdb2056_device_release);
 	return 0;
@@ -529,6 +545,7 @@ static int isdb2056_chrdev_tune(struct ptx_chrdev *chrdev,
 
 		switch (isdb2056->isdb2056_model) {
 		case ISDB2056_MODEL:
+		case PXM1UR_MODEL:
 			ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x07, 0x77);
 			break;
 		case ISDB2056N_MODEL:
@@ -544,6 +561,7 @@ static int isdb2056_chrdev_tune(struct ptx_chrdev *chrdev,
 
 		switch (isdb2056->isdb2056_model) {
 		case ISDB2056_MODEL:
+		case PXM1UR_MODEL:
 			ret = tc90522_write_reg(&chrdev2056->tc90522_s, 0x08, 0x10);
 			break;
 		case ISDB2056N_MODEL:
@@ -930,6 +948,7 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 	chrdev2056->tc90522_s.i2c = &it930x->i2c_master[2];
 	switch (isdb2056->isdb2056_model) {
 	case ISDB2056_MODEL:
+	case PXM1UR_MODEL:
 		// ISDB2056 TS demodulator: Toshiba TC90532XBG
 		chrdev2056->tc90522_s.i2c_addr = 0x11;
 		chrdev2056->tc90522_s.is_secondary = false;
@@ -973,6 +992,22 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 	return 0;
 }
 
+static int isdb2056_device_set_card_power(void *context, bool on)
+{
+	struct isdb2056_device *isdb2056 = context;
+	int ret = 0;
+
+	/* 受信中のチューナーがあれば、基板の電源はチューナー側で入ったままになっている */
+	if (!isdb2056->tuner_open)
+		ret = isdb2056_backend_set_power(isdb2056, on);
+
+	/* 停止は成否にかかわらず停止済みとして記録し、投入は成功したときだけ記録する */
+	if (!on || !ret)
+		isdb2056->card_powered = on;
+
+	return ret;
+}
+
 int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 			 enum isdb2056_model isdb2056_model,
 			 struct ptx_chrdev_context *chrdev_ctx,
@@ -994,6 +1029,10 @@ int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 	get_device(dev);
 
 	kref_init(&isdb2056->kref);
+	mutex_init(&isdb2056->lock);
+	isdb2056->tuner_open = false;
+	isdb2056->card_powered = false;
+	isdb2056->card = NULL;
 	isdb2056->dev = dev;
 	isdb2056->isdb2056_model = isdb2056_model;
 	isdb2056->quit_completion = quit_completion;
@@ -1097,6 +1136,21 @@ int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 	stream_ctx->chrdev = &chrdev_group->chrdev[0];
 
 	atomic_set(&isdb2056->available, 1);
+
+	{
+		struct px4_card_backend card_backend = {
+			.it930x = it930x,
+			.lock = &isdb2056->lock,
+			.available = &isdb2056->available,
+			.set_power = isdb2056_device_set_card_power,
+			.context = isdb2056,
+		};
+
+		/* カードリーダーを登録できなくても、チューナーは使えるようにする */
+		ret = px4_card_register(dev, &card_backend, &isdb2056->card);
+		if (ret)
+			dev_warn(dev, "Card reader registration failed: %d\n", ret);
+	}
 	return 0;
 
 fail_chrdev:
@@ -1111,6 +1165,7 @@ fail_bus:
 	kfree(isdb2056->stream_ctx);
 
 fail:
+	mutex_destroy(&isdb2056->lock);
 	put_device(dev);
 	return ret;
 }
@@ -1127,6 +1182,7 @@ static void isdb2056_device_release(struct kref *kref)
 	itedtv_bus_term(&isdb2056->it930x.bus);
 
 	kfree(isdb2056->stream_ctx);
+	mutex_destroy(&isdb2056->lock);
 	put_device(isdb2056->dev);
 
 	complete(isdb2056->quit_completion);
@@ -1139,7 +1195,13 @@ void isdb2056_device_term(struct isdb2056_device *isdb2056)
 		"isdb2056_device_term: kref count: %u\n",
 		kref_read(&isdb2056->kref));
 
+	/* カードの操作と並行しても、登録の解除後にハードウェアへ触れないよう、ロックの下で切り替える */
+	mutex_lock(&isdb2056->lock);
 	atomic_xchg(&isdb2056->available, 0);
+	mutex_unlock(&isdb2056->lock);
+
+	px4_card_unregister(isdb2056->card);
+	isdb2056->card = NULL;
 	ptx_chrdev_group_destroy(isdb2056->chrdev_group);
 
 	kref_put(&isdb2056->kref, isdb2056_device_release);

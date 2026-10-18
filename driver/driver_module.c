@@ -14,6 +14,7 @@
 
 #include "revision.h"
 #include "px4_usb.h"
+#include "px4_card.h"
 #include "firmware.h"
 
 static int __init m_init(void)
@@ -41,9 +42,16 @@ static int __init m_init(void)
 #endif
 		"\n");
 
-	ret = px4_usb_register();
+	/* 内蔵カードリーダーを使えなくても、チューナーは使えるようにする */
+	ret = px4_card_init();
 	if (ret)
+		pr_warn("m_init: px4_card_init() failed. Built-in card readers are disabled. (ret: %d)\n", ret);
+
+	ret = px4_usb_register();
+	if (ret) {
+		px4_card_exit();
 		return ret;
+	}
 
 	return 0;
 }
@@ -51,6 +59,7 @@ static int __init m_init(void)
 static void __exit m_cleanup(void)
 {
 	px4_usb_unregister();
+	px4_card_exit();
 }
 
 module_init(m_init);

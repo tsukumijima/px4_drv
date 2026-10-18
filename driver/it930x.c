@@ -890,21 +890,25 @@ int it930x_set_gpio_mode(struct it930x_bridge *it930x,
 
 	mutex_lock(&priv->gpio_lock);
 
-	if (priv->status[gpio].mode == mode)
-		goto exit;
+	/*
+	 * キャッシュは書き込みに成功した後でだけ更新する
+	 * 失敗時に先に更新すると、次回の同じ設定がキャッシュ一致で読み飛ばされ、
+	 * 抜き差しするまでレジスタが未設定のまま残る
+	 */
+	if (priv->status[gpio].mode != mode) {
+		ret = it930x_write_reg(it930x, gpio_en_regs[gpio], val);
+		if (ret)
+			goto exit;
 
-	priv->status[gpio].mode = mode;
-
-	ret = it930x_write_reg(it930x, gpio_en_regs[gpio], val);
-	if (ret)
-		goto exit;
+		priv->status[gpio].mode = mode;
+	}
 
 	if (!enable || priv->status[gpio].enable)
 		goto exit;
 
-	priv->status[gpio].enable = true;
-
 	ret = it930x_write_reg(it930x, gpio_en_regs[gpio] + 1, 1);
+	if (!ret)
+		priv->status[gpio].enable = true;
 
 exit:
 	mutex_unlock(&priv->gpio_lock);
@@ -947,9 +951,9 @@ int it930x_enable_gpio(struct it930x_bridge *it930x, int gpio, bool enable)
 	    (priv->status[gpio].enable && enable))
 		goto exit;
 
-	priv->status[gpio].enable = (enable) ? true : false;
-
 	ret = it930x_write_reg(it930x, gpio_on_regs[gpio], (enable) ? 1 : 0);
+	if (!ret)
+		priv->status[gpio].enable = (enable) ? true : false;
 
 exit:
 	mutex_unlock(&priv->gpio_lock);
@@ -1167,17 +1171,16 @@ int it930x_purge_psb(struct it930x_bridge *it930x, int timeout)
 #define IT930X_REG_UART_RX_READY	0x496a
 #define IT930X_REG_UART_RX_LENGTH	0x496b
 
-static int it930x_set_uart_baudrate(struct it930x_bridge *it930x,
-				    enum it930x_uart_baudrate baudrate)
+static int it930x_set_uart_baudrate(struct it930x_bridge *it930x, u32 baudrate)
 {
 	u8 value;
 	struct it930x_ctrl_buf write_buf;
 
-	if (baudrate == IT930X_UART_BAUDRATE_9600)
+	if (baudrate == 9600)
 		value = 0;
-	else if (baudrate == IT930X_UART_BAUDRATE_19200)
+	else if (baudrate == 19200)
 		value = 1;
-	else if (baudrate == IT930X_UART_BAUDRATE_38400)
+	else if (baudrate == 38400)
 		/*
 		 * UART mode 1 では2が9600bps 相当へ戻るため、
 		 * 汎用 UART と同じ38400bps のリロード値を直接指定する
@@ -1227,7 +1230,7 @@ int it930x_bcas_reset_card(struct it930x_bridge *it930x)
 	if (ret)
 		return ret;
 
-	ret = it930x_set_uart_baudrate(it930x, IT930X_UART_BAUDRATE_9600);
+	ret = it930x_set_uart_baudrate(it930x, 9600);
 	if (ret)
 		return ret;
 
@@ -1348,8 +1351,7 @@ int it930x_bcas_detect_card(struct it930x_bridge *it930x, bool *detected)
 	return 0;
 }
 
-int it930x_bcas_set_baudrate(struct it930x_bridge *it930x,
-			     enum it930x_uart_baudrate baudrate)
+int it930x_bcas_set_baudrate(struct it930x_bridge *it930x, u32 baudrate)
 {
 	return it930x_set_uart_baudrate(it930x, baudrate);
 }

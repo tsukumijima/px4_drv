@@ -30,12 +30,6 @@
 #define IT930X_CMD_UART_SET_BAUDRATE	0x35
 #define IT930X_CMD_UART_SET_MODE	0x37
 
-enum it930x_uart_baudrate {
-	IT930X_UART_BAUDRATE_9600 = 0,
-	IT930X_UART_BAUDRATE_19200 = 1,
-	IT930X_UART_BAUDRATE_38400 = 2,
-};
-
 enum it930x_gpio_mode {
 	IT930X_GPIO_UNDEFINED = 0,
 	IT930X_GPIO_IN,
@@ -110,8 +104,8 @@ int it930x_bcas_check_ready(struct it930x_bridge *it930x, bool *ready);
 int it930x_bcas_get_data(struct it930x_bridge *it930x, u8 *buf, u8 *len);
 int it930x_bcas_send_data(struct it930x_bridge *it930x, const u8 *buf, u8 len);
 int it930x_bcas_detect_card(struct it930x_bridge *it930x, bool *detected);
-int it930x_bcas_set_baudrate(struct it930x_bridge *it930x,
-			     enum it930x_uart_baudrate baudrate);
+/* baudrate は bps で渡す (9600 、19200 、38400 のいずれか) */
+int it930x_bcas_set_baudrate(struct it930x_bridge *it930x, u32 baudrate);
 #ifdef __cplusplus
 }
 #endif
