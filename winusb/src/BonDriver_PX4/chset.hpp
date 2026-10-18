@@ -14,25 +14,32 @@ namespace px4 {
 
 class ChannelSet final {
 public:
+	enum class TsmfSelection {
+		NONE,
+		RELATIVE_STREAM,
+		TSID,
+	};
 	struct ChannelInfo final {
-		ChannelInfo() noexcept : ptx_ch(0), tsid(0), freq_khz(0), isdbc_freq_offset_khz(0), has_isdbc_freq_offset(false), isdbc_modulation(0), tsmf_relative_stream(0), tsmf_slot_offset(0), tsmf_output_tlv(false), tsmf_by_tsid(false), is_tsmf(false) {}
+		ChannelInfo() noexcept
+			: ptx_ch(0),
+			tsid(0),
+			freq(0),
+			freq_offset(0),
+			j83b(false),
+			tsmf(TsmfSelection::NONE),
+			tsmf_relative_stream(0),
+			tsmf_output_tlv(false)
+		{}
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
-		/* UHF 帯など、物理チャンネル番号から計算できない中心周波数を指定する。 */
-		std::uint32_t freq_khz;
-		/* 第7列の指定がある場合は、INI の値より優先して中心周波数を補正する。 */
-		std::int32_t isdbc_freq_offset_khz;
-		bool has_isdbc_freq_offset;
-		/* 0 は自動判定 (64QAM、256QAM の順)、64/256 は固定指定。 */
-		std::uint16_t isdbc_modulation;
+		// 以降は ISDB-C の行だけで使い、freq が 0 なら物理チャンネル番号から中心周波数を求める
+		std::uint32_t freq;
+		std::int32_t freq_offset;
+		bool j83b;
+		TsmfSelection tsmf;
 		std::uint8_t tsmf_relative_stream;
-		/* 第9列は52スロットのマップに適用するオフセット。 */
-		std::int32_t tsmf_slot_offset;
-		/* 第11列が1の場合だけ、TSMF の分割パケットを生 TLV に復元して出力する。 */
 		bool tsmf_output_tlv;
-		bool tsmf_by_tsid;
-		bool is_tsmf;
 	};
 	struct SpaceInfo final {
 		explicit SpaceInfo(px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept : SpaceInfo(L"", system) {}
@@ -63,6 +70,7 @@ private:
 	bool AddSpace(uint32_t space_id, const std::wstring *name, px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept;
 	bool AddChannel(uint32_t space_id, uint32_t ch_id, const ChannelInfo& ch) noexcept;
 	static void Split(char **head, char **tail, char c) noexcept;
+	static bool ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept;
 
 	bool strict_;
 	mutable std::shared_mutex mtx_;

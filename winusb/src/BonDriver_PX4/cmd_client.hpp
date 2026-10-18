@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <memory>
 
 #include "command.hpp"
@@ -41,7 +40,6 @@ public:
 	bool ReadStats(px4::command::StatSet &stat_set) noexcept;
 
 private:
-	bool Call(void *cmd, std::size_t length) noexcept;
 	template <typename T> bool Call(T &cmd) noexcept;
 
 	std::unique_ptr<px4::PipeClient> pipe_;

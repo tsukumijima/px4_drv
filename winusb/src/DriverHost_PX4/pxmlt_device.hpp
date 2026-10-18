@@ -39,7 +39,7 @@ enum class PxMltDeviceModel {
 struct PxMltDeviceConfig final {
 	PxMltDeviceConfig()
 		: usb{ 816, 816, 5, false },
-		device{ 2048, 2000, true, false, false, false, 0, false, false }
+		device{ 2048, 2000, true }
 	{}
 	struct {
 		unsigned int xfer_packets;
@@ -51,19 +51,6 @@ struct PxMltDeviceConfig final {
 		unsigned int receiver_max_packets;
 		int psb_purge_timeout;
 		bool discard_null_packets;
-		/* ISDB-C 有効時は、DiscardNullPackets を入力側から出力側の除去へ切り替える。 */
-		bool discard_null_packets_on_output;
-		/* DiscardTsmfHeaderPackets は ISDB-C の受信時にだけ適用する。 */
-		bool discard_tsmf_header_packets;
-		/* ISDB-C の実験用プロファイルは、利用に明示的な有効化が必要。 */
-		bool experimental_isdbc;
-		/* 0 は BonDriver の指定に従い、64/256 は診断用に変調方式を上書きする。 */
-		unsigned int force_isdbc_modulation;
-		/* cxd2878.c の DVB-C 6 MHz 設定との比較用。 */
-		bool isdbc_reference_profile;
-		/* ISDB-C 要求を J.83B 256QAM・5.6 Msps の設定に置き換える。 */
-		bool experimental_j83b;
-		bool experimental_j83b_monitor;
 	} device;
 };
 
@@ -125,11 +112,12 @@ private:
 		int ReadStat(px4::command::StatType type, std::int32_t &value) override;
 
 	protected:
-		int PrepareTune() override;
 		int SetFrequency() override;
 		int SetStreamId() override;
 
 	private:
+		int SetNullPacketFilter(bool enable);
+
 		static const struct PxMltReceiverCnTableIsdbS final {
 			uint16_t val;
 			uint32_t cnr;
@@ -147,6 +135,8 @@ private:
 		cxd2858er_tuner cxd2858er_;
 		px4::SystemType current_system_;
 		bool streaming_;
+		bool tsmf_;
+		bool null_packet_filter_;
 	};
 
 	void LoadConfig();

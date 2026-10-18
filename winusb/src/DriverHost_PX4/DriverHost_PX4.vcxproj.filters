@@ -36,6 +36,9 @@
     <ClCompile Include="..\..\..\driver\tc90522.c">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\driver\tsmf.c">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="..\common\config.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -135,6 +138,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\driver\tc90522.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\driver\tsmf.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="..\common\command.hpp">

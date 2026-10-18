@@ -4,8 +4,6 @@
 
 #include <cstdint>
 #include <cstddef>
-#include <array>
-#include <atomic>
 #include <memory>
 #include <mutex>
 #include <condition_variable>
@@ -15,6 +13,7 @@
 #include "type.hpp"
 #include "command.hpp"
 #include "ringbuffer.hpp"
+#include "tsmf.h"
 
 namespace px4 {
 
@@ -24,25 +23,16 @@ public:
 		px4::SystemType system;
 		std::uint32_t freq;
 		std::uint32_t bandwidth;
-		std::uint32_t symbol_rate;
-		std::uint32_t modulation;
-		std::uint32_t tsmf_mode;
-		std::uint32_t tsmf_relative_stream;
-		// TSID 0 や 0xffff も照合対象にするため、未指定は -1 で表す
-		std::int32_t tsmf_tsid;
-		std::uint32_t tsmf_slot_offset;
-		std::uint32_t tsmf_output_tlv;
 		std::uint32_t stream_id;
+		// 以降は ISDB-C だけで使い、TSMF の TS を指定しない項目は -1
+		std::uint32_t symbol_rate;
+		std::int32_t tsmf_relative_stream;
+		std::int32_t tsmf_tsid;
+		bool tsmf_output_tlv;
 	};
 
 	class StreamBuffer final {
 	public:
-		struct WriteDiagnostics {
-			std::uint64_t rejected_bytes;
-			std::uint64_t rejected_writes;
-			std::uint64_t purge_write_discarded_bytes;
-			std::uint64_t purge_requests;
-		};
 		StreamBuffer();
 		~StreamBuffer();
 
@@ -51,72 +41,30 @@ public:
 		void Start() noexcept;
 		void Stop() noexcept;
 		void StopRequest() noexcept;
-		/* TSMF のスロット位置を保つため、null パケットは出力時に除去する。 */
-		void SetDiscardNullPacketsOnOutput(bool enabled) noexcept;
-		/* TSMF ヘッダー (PID 0x002f) は解析に必要なため、ISDB-C の出力時にだけ除去する。 */
-		void SetDiscardTsmfHeaderPacketsOnIsdbCOutput(bool enabled) noexcept;
-		void SetTsmfRelativeStream(bool enabled, std::uint8_t stream, std::int32_t slot_offset, bool output_tlv = false, std::int32_t tsid = -1) noexcept;
-		/* USB 入力の確認には、TSMF や PID の選別前に数えたパケット数を使う。 */
-		void ResetInputPacketCount() noexcept;
-		std::uint64_t GetInputPacketCount() const noexcept;
-		bool IsTsmfStreamReady() noexcept;
-		WriteDiagnostics GetWriteDiagnostics() const noexcept;
 		bool Write(const void *buf, std::size_t &size) noexcept;
 		void NotifyWrite() noexcept;
 		void HandleRead(std::size_t buf_size, std::function<bool(const void *buf, std::size_t size)> handler);
 		bool Purge() noexcept;
+		// TSMF で多重された搬送波の選局から次の選局までの間だけ、指定した TS を選んで出力する
+		void StartTsmf(std::int32_t relative_stream, std::int32_t tsid, bool output_tlv, bool discard_null_packets);
+		void StopTsmf() noexcept;
+		void RestartTsmf() noexcept;
+		bool IsTsmfStreamFound() noexcept;
 
 	private:
-		bool WriteRingBuffer(const void *buf, std::size_t &size) noexcept;
-		bool TsmfSelectPacket(const std::uint8_t *packet) noexcept;
-		bool TsmfParseHeader(const std::uint8_t *packet) noexcept;
-		bool TsmfExtractTlvPacket(const std::uint8_t *packet, std::size_t &output_size) noexcept;
-		bool TsmfAppendTlv(const std::uint8_t *data, std::size_t size) noexcept;
+		bool WriteTsmf(const void *buf, std::size_t &size) noexcept;
 
 		std::mutex mtx_;
-		std::mutex tsmf_mtx_;
 		px4::RingBuffer ringbuf_;
 		std::atomic_bool stop_;
-		std::atomic_uint64_t input_packet_count_;
-		std::atomic_uint64_t rejected_bytes_;
-		std::atomic_uint64_t rejected_writes_;
-		std::atomic_uint64_t purge_write_discarded_bytes_;
-		std::atomic_uint64_t purge_requests_;
 		std::condition_variable cond_;
 		std::size_t write_size_;
 		std::size_t threshold_size_;
-		bool discard_null_packets_on_output_;
-		bool discard_tsmf_header_packets_on_isdbc_output_;
-		bool tsmf_enabled_;
-		bool tsmf_output_tlv_;
-		bool tsmf_logged_header_;
-		bool tsmf_logged_tlv_type_mismatch_;
-		std::uint8_t tsmf_relative_stream_;
-		std::int32_t tsmf_tsid_;
-		std::int32_t tsmf_slot_offset_;
-		int tsmf_slot_;
-		std::array<std::uint8_t, 15> tsmf_stream_enabled_;
-		/* TSMF 拡張情報の stream_type は、0が分割 TLV を表す。 */
-		std::array<std::uint8_t, 15> tsmf_stream_type_;
-		std::array<std::uint8_t, 52> tsmf_slot_stream_;
-		/* TLV パケットは複数の TSMF スロットにまたがるため、完成するまで蓄積する。 */
-		static constexpr std::size_t TSMF_TLV_MAX_SIZE = 65536;
-		std::array<std::uint8_t, TSMF_TLV_MAX_SIZE> tsmf_tlv_buf_;
-		std::array<std::uint8_t, TSMF_TLV_MAX_SIZE> tsmf_tlv_output_buf_;
-		std::size_t tsmf_tlv_size_;
-		std::uint64_t tsmf_tlv_output_count_;
-		std::uint64_t tsmf_tlv_output_bytes_;
-		/* TSMF 診断用の計数値は選局ごとに初期化する。 */
-		std::uint64_t tsmf_input_packets_;
-		std::uint64_t tsmf_selected_packets_;
-		std::uint64_t tsmf_rejected_packets_;
-		std::uint64_t tsmf_header_packets_;
-		std::uint64_t tsmf_tei_packets_;
-		std::uint64_t tsmf_null_packets_;
-		std::uint64_t tsmf_discontinuity_indicators_;
-		std::uint64_t tsmf_cc_gaps_;
-		std::array<std::uint8_t, 8192> tsmf_last_cc_;
-		std::array<std::uint8_t, 8192> tsmf_cc_valid_;
+
+		std::atomic_bool tsmf_;
+		std::mutex tsmf_mtx_;
+		// TLV の蓄積領域を含めて大きいため、TSMF を指定した受信機だけに確保する
+		std::unique_ptr<tsmf_filter> tsmf_filter_;
 	};
 
 	ReceiverBase(unsigned int options);
@@ -145,8 +93,6 @@ public:
 	virtual int ReadStat(px4::command::StatType type, std::int32_t &value) = 0;
 
 protected:
-	/* J.83B など機種固有の変調方式の指定は、自動 QAM 判定より先に適用する。 */
-	virtual int PrepareTune() { return 0; }
 	virtual int SetFrequency() = 0;
 	virtual int SetStreamId() = 0;
 
@@ -160,6 +106,8 @@ protected:
 	std::shared_ptr<StreamBuffer> stream_buf_;
 
 private:
+	bool TuneIsdbC(std::uint32_t timeout);
+
 	std::mutex lock_;
 };
 

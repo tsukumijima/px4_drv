@@ -1,6 +1,6 @@
 // cmd_client.cpp
 
-#include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <new>
 
@@ -88,7 +88,6 @@ bool CtrlCmdClient::GetParams(px4::command::ParameterSet &param_set) noexcept
 
 bool CtrlCmdClient::SetParams(const px4::command::ParameterSet &param_set) noexcept
 {
-	/* ISDB-T (0個) と ISDB-S (1個) は、既存の固定長コマンドで送信できる。 */
 	if (param_set.num <= 1) {
 		px4::command::CtrlParamsCmd params_cmd;
 
@@ -99,28 +98,21 @@ bool CtrlCmdClient::SetParams(const px4::command::ParameterSet &param_set) noexc
 		return Call(params_cmd);
 	}
 
-	/* ISDB-C は複数のパラメーターを送るため、末尾配列の要素数に応じた長さでコマンドを組み立てる。 */
-	const std::size_t num = std::max<std::size_t>(1, param_set.num);
-	const std::size_t length = offsetof(px4::command::CtrlParamsCmd, param_set.params)
-				 + (sizeof(px4::command::Parameter) * num);
-	std::unique_ptr<std::uint8_t[]> buffer(new (std::nothrow) std::uint8_t[length]());
-	px4::command::CtrlParamsCmd *params_cmd;
+	// ISDB-C は複数のパラメーターを送るため、末尾の配列の要素数に合わせた長さで送る
+	const std::size_t offset = offsetof(px4::command::CtrlParamsCmd, param_set);
+	const std::size_t length = offsetof(px4::command::CtrlParamsCmd, param_set.params) + (sizeof(px4::command::Parameter) * param_set.num);
+	std::unique_ptr<std::uint8_t[]> buf(new (std::nothrow) std::uint8_t[length]);
 
-	if (!buffer)
+	if (!buf)
 		return false;
 
-	params_cmd = reinterpret_cast<px4::command::CtrlParamsCmd *>(buffer.get());
+	auto params_cmd = reinterpret_cast<px4::command::CtrlParamsCmd *>(buf.get());
+
 	params_cmd->cmd = px4::command::CtrlCmdCode::SET_PARAMS;
 	params_cmd->status = px4::command::CtrlStatusCode::NONE;
-	params_cmd->param_set.system = param_set.system;
-	params_cmd->param_set.freq = param_set.freq;
-	params_cmd->param_set.num = param_set.num;
+	std::memcpy(&params_cmd->param_set, &param_set, length - offset);
 
-	if (param_set.num)
-		memcpy(params_cmd->param_set.params, param_set.params,
-		       sizeof(px4::command::Parameter) * param_set.num);
-
-	return Call(params_cmd, length);
+	return (pipe_ && pipe_->Call(params_cmd, length) && params_cmd->status == px4::command::CtrlStatusCode::SUCCEEDED);
 }
 
 bool CtrlCmdClient::ClearParams() noexcept
@@ -190,16 +182,10 @@ bool CtrlCmdClient::ReadStats(px4::command::StatSet &stat_set) noexcept
 template <typename T>
 bool CtrlCmdClient::Call(T& cmd) noexcept
 {
-	return Call(&cmd, sizeof(cmd));
-}
-
-bool CtrlCmdClient::Call(void *cmd, std::size_t length) noexcept
-{
 	if (!pipe_)
 		return false;
 
-	px4::command::CtrlCmdHeader *header = reinterpret_cast<px4::command::CtrlCmdHeader *>(cmd);
-	return (pipe_->Call(cmd, length) && header->status == px4::command::CtrlStatusCode::SUCCEEDED);
+	return (pipe_->Call(&cmd, sizeof(cmd)) && cmd.status == px4::command::CtrlStatusCode::SUCCEEDED);
 }
 
 } // namespace px4

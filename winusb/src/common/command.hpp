@@ -77,13 +77,9 @@ namespace command {
 		UNDEFINED = 0,
 		BANDWIDTH = 1,
 		SYMBOL_RATE,
-		MODULATION,
-		TSMF_MODE,
 		TSMF_RELATIVE_STREAM,
-		TSMF_SLOT_OFFSET,
-		/* BonDriver_dantto4k 向けに、TSMF の選別後に生 TLV を復元して出力する。 */
+		TSMF_TSID,
 		TSMF_OUTPUT_TLV,
-		TSMF_TSID = 8,
 		STREAM_ID = 16,
 	};
 

@@ -62,6 +62,12 @@ foreach ($build_platform in $build_platforms) {
     if ($LASTEXITCODE -ne 0) {
         throw "Ring buffer purge test failed. platform: $build_platform"
     }
+
+    # 模擬 I2C で ISDB-C・J.83B の設定と失敗時の復帰を検証
+    & "build/$build_platform/Release-static/j83b_driver_test.exe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "J83B driver test failed. platform: $build_platform"
+    }
 }
 
 # dist/ フォルダにビルドされたファイルをコピー
