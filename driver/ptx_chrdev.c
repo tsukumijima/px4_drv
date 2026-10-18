@@ -235,10 +235,11 @@ static int ptx_chrdev_prepare_tsmf(struct ptx_chrdev *chrdev)
 	return 0;
 }
 
-static int ptx_chrdev_wait_tsmf(struct ptx_chrdev *chrdev, unsigned long deadline)
+static int ptx_chrdev_wait_tsmf(struct ptx_chrdev *chrdev)
 {
 	struct ptx_tsmf_stream *stream = chrdev->tsmf;
-	unsigned long flags;
+	/* ヘッダーは数 ms ごとに届くため、ロックした後に十分な時間を取って探す (ロック待ちの時間とは分ける) */
+	unsigned long deadline = jiffies + msecs_to_jiffies(3000), flags;
 	bool capture = !chrdev->streaming;
 	int ret, stop_ret;
 
@@ -291,6 +292,7 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 	};
 	u32 i;
 
+	/* チューナーの周波数のレジスターは20ビットで、地上波とケーブルは kHz、衛星は (kHz + 2) / 4 で書くため、その範囲だけを受け付ける */
 	if ((params.system != PTX_ISDB_T_SYSTEM && params.system != PTX_ISDB_S_SYSTEM &&
 	     params.system != PTX_ISDB_C_SYSTEM) || !(chrdev->system_cap & params.system) ||
 	    !params.freq || params.freq > (params.system == PTX_ISDB_S_SYSTEM ? 0x3ffffd : 0xfffff) ||
@@ -350,13 +352,11 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type system)
 {
 	int ret = 0;
-	unsigned long deadline = 0;
 
 	if (chrdev->params.system == PTX_ISDB_C_SYSTEM || chrdev->tsmf_active) {
 		ret = ptx_chrdev_prepare_tsmf(chrdev);
 		if (ret)
 			return ret;
-		deadline = jiffies + msecs_to_jiffies(3000);
 	}
 
 	do {
@@ -415,7 +415,7 @@ static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type syste
 	} while (0);
 
 	if (!ret && chrdev->tsmf_active)
-		ret = ptx_chrdev_wait_tsmf(chrdev, deadline);
+		ret = ptx_chrdev_wait_tsmf(chrdev);
 
 	return ret;
 }
@@ -1277,30 +1277,31 @@ void ptx_chrdev_group_destroy(struct ptx_chrdev_group *chrdev_group)
 	return;
 }
 
-static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, void *buf)
+static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t len)
 {
 	struct ptx_tsmf_stream *stream = chrdev->tsmf;
 	const u8 *out;
-	size_t len;
+	size_t size;
 	unsigned long flags;
 	int ret = 0;
 
 	spin_lock_irqsave(&stream->lock, flags);
-	len = tsmf_filter_packet(&stream->filter, buf, &out);
-	if (!len)
-		goto out;
+	for (; len >= 188; buf += 188, len -= 188) {
+		size = tsmf_filter_packet(&stream->filter, buf, &out);
+		if (!size)
+			continue;
 
-	ret = ringbuffer_write_atomic(chrdev->ringbuf, out, &len);
-	if (unlikely(ret && ret != -EOVERFLOW))
-		goto out;
-	chrdev->ringbuf_write_size += len;
-	if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
-		wake_up(&chrdev->ringbuf_wait);
-		chrdev->ringbuf_write_size -= chrdev->ringbuf_threshold_size;
+		ret = ringbuffer_write_atomic(chrdev->ringbuf, out, &size);
+		if (unlikely(ret && ret != -EOVERFLOW))
+			break;
+		chrdev->ringbuf_write_size += size;
+		if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
+			wake_up(&chrdev->ringbuf_wait);
+			chrdev->ringbuf_write_size -= chrdev->ringbuf_threshold_size;
+		}
 	}
-
-out:
 	spin_unlock_irqrestore(&stream->lock, flags);
+
 	return ret;
 }
 
@@ -1309,7 +1310,7 @@ int ptx_chrdev_put_stream(struct ptx_chrdev *chrdev, void *buf, size_t len)
 	int ret = 0;
 
 	if (unlikely(smp_load_acquire(&chrdev->tsmf_active)))
-		return ptx_chrdev_put_stream_tsmf(chrdev, buf);
+		return ptx_chrdev_put_stream_tsmf(chrdev, buf, len);
 
 	ret = ringbuffer_write_atomic(chrdev->ringbuf, buf, &len);
 	if (unlikely(ret && ret != -EOVERFLOW))
