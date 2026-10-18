@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -11,6 +13,143 @@
 #include "io_queue.hpp"
 #include "bon_ts_copy.hpp"
 #include "pipe.hpp"
+
+std::array<unsigned char, 188> MakeTsmfHeader(unsigned int relative, bool enabled)
+{
+	std::array<unsigned char, 188> packet{};
+	packet[0] = 0x47;
+	packet[2] = 0x2f;
+	packet[3] = 0x10;
+	packet[4] = 0x1a;
+	packet[5] = 0x86;
+	packet[6] = 1;
+	if (enabled) packet[7 + relative / 8] = static_cast<unsigned char>(0x80 >> (relative % 8));
+	packet[73] = static_cast<unsigned char>((relative + 1) << 4);
+	std::uint32_t crc = 0xffffffff;
+	for (std::size_t i = 4; i < 184; ++i) {
+		crc ^= static_cast<std::uint32_t>(packet[i]) << 24;
+		for (unsigned int bit = 0; bit < 8; ++bit)
+			crc = (crc & 0x80000000) ? (crc << 1) ^ 0x04c11db7 : crc << 1;
+	}
+	for (unsigned int i = 0; i < 4; ++i)
+		packet[184 + i] = static_cast<unsigned char>(crc >> (24 - i * 8));
+	return packet;
+}
+
+class TuneReceiver final : public px4::ReceiverBase {
+public:
+	enum class Input { None, Raw, Header, Disabled, BadCRC, DelayedHeader, SecondQam, StaleHeader };
+	Input input;
+	unsigned int attempts = 0;
+	unsigned int lock_delay = 0;
+	unsigned int frequency_delay = 0;
+	int lock_error = 0;
+	std::chrono::steady_clock::time_point frequency_begin;
+
+	TuneReceiver(px4::SystemType system, std::uint32_t modulation, int relative, Input value, unsigned int options = 0)
+		: ReceiverBase(options), input(value)
+	{
+		params_.system = system;
+		params_.modulation = modulation;
+		params_.tsmf_mode = relative >= 0;
+		params_.tsmf_relative_stream = relative >= 0 ? relative : 0;
+		stream_buf_->SetTsmfRelativeStream(relative >= 0, static_cast<std::uint8_t>(params_.tsmf_relative_stream), 0);
+		if (!stream_buf_->Alloc(188 * 1024)) std::abort();
+		stream_buf_->Start();
+	}
+	~TuneReceiver() { stream_buf_->Stop(); }
+	int Open() override { return 0; }
+	void Close() override {}
+	int SetLnbVoltage(std::int32_t) override { return 0; }
+	int SetCapture(bool) override { return 0; }
+	int ReadStat(px4::command::StatType, std::int32_t &) override { return 0; }
+	int SetStreamId() override { return 0; }
+	int SetFrequency() override
+	{
+		++attempts;
+		frequency_begin = std::chrono::steady_clock::now();
+		Sleep(frequency_delay);
+		return 0;
+	}
+	int CheckLock(bool &locked) override
+	{
+		const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - frequency_begin).count();
+		locked = elapsed >= lock_delay && !(input == Input::StaleHeader && params_.modulation == 64);
+		if (lock_error) return lock_error;
+		if (input == Input::None || (input == Input::SecondQam && params_.modulation != 256)) return 0;
+		std::array<unsigned char, 188> packet{};
+		packet[0] = 0x47;
+		packet[2] = 0x20;
+		packet[3] = 0x10;
+		if (input == Input::Header || input == Input::Disabled || input == Input::BadCRC ||
+			(input == Input::DelayedHeader && elapsed >= 400) ||
+			(input == Input::StaleHeader && params_.modulation == 64)) {
+			packet = MakeTsmfHeader(params_.tsmf_relative_stream, input != Input::Disabled);
+			if (input == Input::BadCRC) packet[187] ^= 1;
+		}
+		std::size_t size = packet.size();
+		stream_buf_->Write(packet.data(), size);
+		return 0;
+	}
+};
+
+bool TestTuneInput()
+{
+	using Input = TuneReceiver::Input;
+	using System = px4::SystemType;
+	struct TestCase {
+		const char *name;
+		System system;
+		std::uint32_t modulation;
+		int relative;
+		Input input;
+		bool expected;
+		unsigned int attempts;
+	};
+	const TestCase cases[] = {
+		{"terrestrial without input", System::ISDB_T, 0, -1, Input::None, true, 1},
+		{"satellite without input", System::ISDB_S, 0, -1, Input::None, true, 1},
+		{"fixed 64 without input", System::ISDB_C, 64, -1, Input::None, false, 1},
+		{"fixed 256 without input", System::ISDB_C, 256, -1, Input::None, false, 1},
+		{"fixed 64 with input", System::ISDB_C, 64, -1, Input::Raw, true, 1},
+		{"fixed 256 with input", System::ISDB_C, 256, -1, Input::Raw, true, 1},
+		{"missing TSMF header", System::ISDB_C, 256, 0, Input::Raw, false, 1},
+		{"disabled relative stream", System::ISDB_C, 256, 1, Input::Disabled, false, 1},
+		{"TSMF relative 0", System::ISDB_C, 64, 0, Input::Header, true, 1},
+		{"TSMF relative 14", System::ISDB_C, 256, 14, Input::Header, true, 1},
+		{"bad TSMF CRC", System::ISDB_C, 256, 0, Input::BadCRC, false, 1},
+		{"delayed TSMF header", System::ISDB_C, 256, 0, Input::DelayedHeader, true, 1},
+		{"automatic 256 fallback", System::ISDB_C, 0, -1, Input::SecondQam, true, 2},
+		{"stale header across fallback", System::ISDB_C, 0, 0, Input::StaleHeader, false, 2},
+	};
+	for (const auto &test : cases) {
+		TuneReceiver receiver(test.system, test.modulation, test.relative, test.input);
+		if (receiver.Tune(1000) != test.expected || receiver.attempts != test.attempts) {
+			std::fprintf(stderr, "Tune case failed: %s\n", test.name);
+			return false;
+		}
+	}
+	TuneReceiver timeout(System::ISDB_C, 0, -1, Input::None);
+	const auto begin = std::chrono::steady_clock::now();
+	if (timeout.Tune(200) || std::chrono::steady_clock::now() - begin >= std::chrono::milliseconds(350)) return false;
+	TuneReceiver late_lock(System::ISDB_C, 64, -1, Input::Raw);
+	late_lock.lock_delay = 350;
+	if (late_lock.Tune(400)) return false;
+	TuneReceiver slow_frequency(System::ISDB_C, 64, -1, Input::Raw);
+	slow_frequency.frequency_delay = 120;
+	if (slow_frequency.Tune(100)) return false;
+	TuneReceiver settle(System::ISDB_C, 64, -1, Input::Raw, RECEIVER_WAIT_AFTER_LOCK_TC_T);
+	if (settle.Tune(400)) return false;
+	TuneReceiver terrestrial_settle(System::ISDB_T, 0, -1, Input::None, RECEIVER_WAIT_AFTER_LOCK_TC_T);
+	if (!terrestrial_settle.Tune(1)) return false;
+	TuneReceiver satellite_settle(System::ISDB_S, 0, -1, Input::None, RECEIVER_WAIT_AFTER_LOCK);
+	if (!satellite_settle.Tune(1)) return false;
+	TuneReceiver cancelled(System::ISDB_C, 0, -1, Input::Raw);
+	cancelled.lock_error = -ECANCELED;
+	if (cancelled.Tune(1000) || cancelled.attempts != 1) return false;
+	std::puts("stream_transfer_test: passed (fixed/automatic QAM input, TSMF validity, retry state, absolute tune deadline, T/S and cancellation)");
+	return true;
+}
 
 bool TestWriteDiagnostics()
 {
@@ -129,6 +268,7 @@ bool TestNativePipe(bool copy, std::size_t fragment, int sequence)
 
 int main()
 {
+	if (!TestTuneInput()) return 4;
 	if (!TestWriteDiagnostics()) return 1;
 	int sequence = 0;
 	for (const auto fragment : {std::size_t(4093), std::size_t(188 * 816)}) {

@@ -61,6 +61,7 @@ public:
 		 * TSMF or output-PID filtering. */
 		void ResetInputPacketCount() noexcept;
 		std::uint64_t GetInputPacketCount() const noexcept;
+		bool IsTsmfStreamReady() noexcept;
 		WriteDiagnostics GetWriteDiagnostics() const noexcept;
 		bool Write(const void *buf, std::size_t &size) noexcept;
 		void NotifyWrite() noexcept;
