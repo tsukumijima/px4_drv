@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <string>
 #include <map>
-#include <limits>
 #include <stdexcept>
 
 #include <windows.h>
@@ -11,14 +10,12 @@
 #include <shlwapi.h>
 
 #include "bon_driver.hpp"
-#include "bon_ts_copy.hpp"
 #include "config.hpp"
 #include "chset.hpp"
 #include "security_attributes.hpp"
 #include "pipe_client.hpp"
 #include "command.hpp"
 #include "util.hpp"
-#include "msg.h"
 
 namespace px4 {
 
@@ -32,11 +29,8 @@ BonDriver::BonDriver() noexcept
 	receivers_(),
 	lnb_power_(false),
 	lnb_power_state_(false),
-	isdbc_frequency_offset_khz_(0),
-	isdbc_modulation_(0),
 	pipe_timeout_(2000),
 	tune_timeout_(5000),
-	initial_channel_(-1),
 	ctrl_client_(nullptr),
 	data_pipe_(nullptr),
 	open_(FALSE),
@@ -63,10 +57,8 @@ bool BonDriver::Init()
 	try {
 		const std::wstring &dir_path = px4::util::path::GetDir();
 
-		if (!configs_.Load(px4::util::path::GetFileBase() + L".ini")) {
-			msg_err("Init: cannot load configuration\n");
+		if (!configs_.Load(px4::util::path::GetFileBase() + L".ini"))
 			return false;
-		}
 
 		std::size_t num_packets = 1024;
 		std::uintptr_t max_buffers = 64, min_buffers = 4;
@@ -77,21 +69,8 @@ bool BonDriver::Init()
 			const std::wstring &mode = bon_config.Get(L"System", L"ISDB-T");
 			WCHAR path[MAX_PATH];
 
-			if (px4::util::wtob(bon_config.Get(L"DebugLog", L"false"))) {
-				std::wstring log_path = bon_config.Get(L"DebugLogPath", px4::util::path::GetFileBase() + L".log");
-
-				// DLL は任意の作業フォルダーから読み込まれるため、相対パスは DLL のフォルダーを基準にする
-				if (PathIsRelativeW(log_path.c_str()) && PathCanonicalizeW(path, (dir_path + log_path).c_str()))
-					log_path = path;
-
-				if (msg_open_file(log_path.c_str()))
-					msg_set_mode(MSG_MODE_LOG_FILE);
-			}
-
 			if (!px4::util::ParseSystemStr(mode, systems_))
 				return false;
-
-			msg_info("Init: configured systems=0x%02x\n", static_cast<unsigned int>(systems_));
 
 			driver_host_path_ = bon_config.Get(L"DriverHostPath", dir_path + L"DriverHost_PX4.exe");
 			if (PathIsRelativeW(driver_host_path_.c_str()) && PathCanonicalizeW(path, (dir_path + driver_host_path_).c_str()))
@@ -140,32 +119,11 @@ bool BonDriver::Init()
 					display_error_message_ = true;
 				}
 			} catch (const std::out_of_range &) {}
-
-			try {
-				initial_channel_ = px4::util::wtoi(bon_config.Get(L"InitialChannel"));
-			} catch (const std::out_of_range &) {}
 		} else {
 			systems_ = px4::SystemType::ISDB_T;
 			driver_host_path_ = dir_path + L"DriverHost_PX4.exe";
 			name_ = L"PX4";
 		}
-
-		/* CATV 局による中心周波数のずれを、ChSet 全行の編集なしに補正できるようにする。 */
-		try {
-			isdbc_frequency_offset_khz_ = px4::util::wtoi(
-				configs_.Get(L"BonDriver.ISDB-C").Get(L"FrequencyOffsetKHz"));
-			msg_info("Init: ISDB-C frequency offset=%d kHz\n", isdbc_frequency_offset_khz_);
-		} catch (const std::out_of_range &) {}
-		try {
-			const auto modulation = px4::util::wtoui32(
-				configs_.Get(L"BonDriver.ISDB-C").Get(L"Modulation"));
-			if (modulation == 64 || modulation == 256) {
-				isdbc_modulation_ = modulation;
-				msg_info("Init: ISDB-C modulation forced to %uQAM\n", isdbc_modulation_);
-			} else if (modulation != 0) {
-				msg_warn("Init: unsupported ISDB-C modulation=%u; using automatic selection\n", modulation);
-			}
-		} catch (const std::out_of_range &) {}
 
 		if ((systems_ & px4::SystemType::ISDB_T) == px4::SystemType::ISDB_T) {
 			px4::ChannelSet chset_t;
@@ -279,7 +237,7 @@ void BonDriver::Term() noexcept
 const BOOL BonDriver::OpenTuner()
 {
 	BOOL ret = TRUE;
-	std::unique_lock<std::mutex> lock(mtx_);
+	std::lock_guard<std::mutex> lock(mtx_);
 
 	if (open_)
 		return TRUE;
@@ -370,15 +328,6 @@ const BOOL BonDriver::OpenTuner()
 		ioq_->Start();
 
 		open_ = TRUE;
-
-		if (initial_channel_ >= 0 && systems_ == px4::SystemType::ISDB_C) {
-			const DWORD initial_channel = static_cast<DWORD>(initial_channel_);
-
-			lock.unlock();
-			msg_info("OpenTuner: forcing initial ISDB-C channel=%lu\n", initial_channel);
-			SetChannel(0, initial_channel);
-			lock.lock();
-		}
 	} catch (const std::exception &e) {
 		ret = FALSE;
 		if (display_error_message_) MessageBoxA(nullptr, e.what(), "BonDriver_PX4 (BonDriver::OpenTuner)", MB_OK | MB_ICONERROR);
@@ -471,7 +420,7 @@ const BOOL BonDriver::GetTsStream(BYTE *pDst, DWORD *pdwSize, DWORD *pdwRemain)
 
 	std::size_t size, remain;
 
-	if (!ReadBonTsCopy(*ioq_, pDst, size, remain))
+	if (!ioq_->Read(pDst, size, remain, false))
 		return FALSE;
 
 	*pdwSize = static_cast<::DWORD>(size);
@@ -530,8 +479,6 @@ const BOOL BonDriver::IsTunerOpening(void)
 
 LPCTSTR BonDriver::EnumTuningSpace(const DWORD dwSpace)
 {
-	msg_info("EnumTuningSpace: space=%lu\n", dwSpace);
-
 	try {
 		return chset_.GetSpaceName(dwSpace).c_str();
 	} catch (const std::out_of_range&) {
@@ -541,8 +488,6 @@ LPCTSTR BonDriver::EnumTuningSpace(const DWORD dwSpace)
 
 LPCTSTR BonDriver::EnumChannelName(const DWORD dwSpace, const DWORD dwChannel)
 {
-	msg_info("EnumChannelName: space=%lu channel=%lu\n", dwSpace, dwChannel);
-
 	try {
 		return chset_.GetChannel(dwSpace, dwChannel).name.c_str();
 	} catch (const std::out_of_range&) {
@@ -552,24 +497,15 @@ LPCTSTR BonDriver::EnumChannelName(const DWORD dwSpace, const DWORD dwChannel)
 
 const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 {
-	msg_info("SetChannel: space=%lu channel=%lu open=%d\n", dwSpace, dwChannel, open_);
-
-	if (!open_) {
-		msg_warn("SetChannel: tuner is not open\n");
+	if (!open_)
 		return FALSE;
-	}
 
-	if (!chset_.ExistsChannel(dwSpace, dwChannel)) {
-		msg_warn("SetChannel: channel does not exist in the loaded ChannelSet\n");
+	if (!chset_.ExistsChannel(dwSpace, dwChannel))
 		return FALSE;
-	}
 
 	const px4::ChannelSet::ChannelInfo &channel = chset_.GetChannel(dwSpace, dwChannel);
 	px4::SystemType system = chset_.GetSpaceSystem(dwSpace);
 	std::uint32_t real_freq, num_param = 0;
-
-	msg_info("SetChannel: resolved system=0x%02x, ptx_ch=%u, tsid=%u, freq=%u kHz\n",
-		static_cast<unsigned int>(system), channel.ptx_ch, channel.tsid, channel.freq_khz);
 
 	switch (system) {
 	case px4::SystemType::ISDB_T:
@@ -606,40 +542,33 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		break;
 
 	case px4::SystemType::ISDB_C:
-		if (channel.freq_khz) {
-			/* UHF 帯などは、ChSet で直接指定された中心周波数を使う。 */
-			real_freq = channel.freq_khz;
+		if (channel.freq) {
+			real_freq = channel.freq;
 		} else if ((channel.ptx_ch >= 3 && channel.ptx_ch <= 12) || (channel.ptx_ch >= 22 && channel.ptx_ch <= 62)) {
-			// ISDB-C では、地上波の 143 kHz オフセットを加えずに CATV チャンネルの中心周波数を求める
+			// CATV C13-22ch, C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
 			real_freq = 93000 + (channel.ptx_ch * 6000);
 
 			if (channel.ptx_ch == 12)
 				real_freq += 2000;
+		} else if (channel.ptx_ch >= 63 && channel.ptx_ch <= 112) {
+			// UHF 13-62ch
+			real_freq = 95000 + (channel.ptx_ch * 6000);
 		} else {
+			// unknown channel
 			return FALSE;
 		}
 
-		{
-			const std::int32_t frequency_offset = channel.has_isdbc_freq_offset ?
-				channel.isdbc_freq_offset_khz : isdbc_frequency_offset_khz_;
-			const std::int64_t adjusted_freq = static_cast<std::int64_t>(real_freq) +
-				frequency_offset;
+		real_freq += channel.freq_offset;
+		num_param = 1;
+		if (channel.tsmf != px4::ChannelSet::TsmfSelection::NONE)
+			num_param++;
+		if (channel.tsmf_output_tlv)
+			num_param++;
 
-			if (adjusted_freq <= 0 || adjusted_freq > (std::numeric_limits<std::uint32_t>::max)()) {
-				msg_warn("SetChannel: invalid ISDB-C frequency correction\n");
-				return FALSE;
-			}
-			real_freq = static_cast<std::uint32_t>(adjusted_freq);
-			msg_info("SetChannel: ISDB-C frequency offset=%d kHz%s\n", frequency_offset,
-				channel.has_isdbc_freq_offset ? " (ChSet override)" : "");
-		}
-
-		num_param = channel.is_tsmf ? (channel.tsmf_output_tlv ? 7 : 6) : 3;
 		break;
 
 	default:
 		// unknown system
-		msg_warn("SetChannel: unsupported system\n");
 		return FALSE;
 	}
 
@@ -659,39 +588,24 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		param_set->params[0].value = channel.tsid;
 	}
 
-	if (system == px4::SystemType::ISDB_C && num_param) {
-		param_set->params[0].type = px4::command::ParameterType::BANDWIDTH;
-		param_set->params[0].value = 6;
-		param_set->params[1].type = px4::command::ParameterType::SYMBOL_RATE;
-		param_set->params[1].value = 5274;
-		param_set->params[2].type = px4::command::ParameterType::MODULATION;
-		/* 0 は DriverHost で 64QAM、256QAM の順に試すことを表し、ChSet で変調方式を省略できる。 */
-		param_set->params[2].value = channel.isdbc_modulation ?
-			channel.isdbc_modulation : isdbc_modulation_;
-		msg_info("SetChannel: ISDB-C modulation=%uQAM%s\n",
-			param_set->params[2].value,
-			channel.isdbc_modulation ? " (ChSet override)" :
-			(isdbc_modulation_ ? " (INI override)" : " (automatic)"));
-		if (channel.is_tsmf) {
-			param_set->params[3].type = px4::command::ParameterType::TSMF_MODE;
-			param_set->params[3].value = 1;
-			param_set->params[4].type = channel.tsmf_by_tsid ?
-				px4::command::ParameterType::TSMF_TSID : px4::command::ParameterType::TSMF_RELATIVE_STREAM;
-			param_set->params[4].value = channel.tsmf_by_tsid ? channel.tsid : channel.tsmf_relative_stream;
-			param_set->params[5].type = px4::command::ParameterType::TSMF_SLOT_OFFSET;
-			param_set->params[5].value = static_cast<std::uint32_t>(channel.tsmf_slot_offset);
-			if (channel.tsmf_output_tlv) {
-				param_set->params[6].type = px4::command::ParameterType::TSMF_OUTPUT_TLV;
-				param_set->params[6].value = 1;
-			}
-			if (channel.tsmf_by_tsid)
-				msg_info("SetChannel: TSMF TSID=%u, slot offset=%d\n", channel.tsid, channel.tsmf_slot_offset);
-			else
-				msg_info("SetChannel: TSMF relative stream=%u, slot offset=%d\n",
-					static_cast<unsigned int>(channel.tsmf_relative_stream),
-					channel.tsmf_slot_offset);
-			if (channel.tsmf_output_tlv)
-				msg_info("SetChannel: TSMF output=raw TLV (dantto4k input)\n");
+	if (system == px4::SystemType::ISDB_C) {
+		std::uint32_t i = 1;
+
+		// J.83 Annex C は 5.274 Msps、Annex B は 5.6 Msps の固定値
+		param_set->params[0].type = px4::command::ParameterType::SYMBOL_RATE;
+		param_set->params[0].value = (channel.j83b) ? 5600 : 5274;
+
+		if (channel.tsmf == px4::ChannelSet::TsmfSelection::RELATIVE_STREAM) {
+			param_set->params[i].type = px4::command::ParameterType::TSMF_RELATIVE_STREAM;
+			param_set->params[i++].value = channel.tsmf_relative_stream;
+		} else if (channel.tsmf == px4::ChannelSet::TsmfSelection::TSID) {
+			param_set->params[i].type = px4::command::ParameterType::TSMF_TSID;
+			param_set->params[i++].value = channel.tsid;
+		}
+
+		if (channel.tsmf_output_tlv) {
+			param_set->params[i].type = px4::command::ParameterType::TSMF_OUTPUT_TLV;
+			param_set->params[i].value = 1;
 		}
 	}
 
@@ -731,9 +645,6 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		// succeeded
 		space_ = dwSpace;
 		ch_ = dwChannel;
-		msg_info("SetChannel: succeeded\n");
-	} else {
-		msg_warn("SetChannel: failed (DriverHost rejected the tune or lock timed out)\n");
 	}
 
 	return !!ret;
@@ -777,7 +688,6 @@ extern "C" IBonDriver* CreateBonDriver()
 			return nullptr;
 
 		if (!bon->Init()) {
-			msg_err("CreateBonDriver: Init failed\n");
 			delete bon;
 			return nullptr;
 		}

@@ -254,6 +254,7 @@
     <ClCompile Include="..\..\..\driver\r850.c" />
     <ClCompile Include="..\..\..\driver\rt710.c" />
     <ClCompile Include="..\..\..\driver\tc90522.c" />
+    <ClCompile Include="..\..\..\driver\tsmf.c" />
     <ClCompile Include="..\common\config.cpp" />
     <ClCompile Include="..\common\msg.c" />
     <ClCompile Include="..\common\pipe.cpp" />
@@ -291,6 +292,7 @@
     <ClInclude Include="..\..\..\driver\r850.h" />
     <ClInclude Include="..\..\..\driver\rt710.h" />
     <ClInclude Include="..\..\..\driver\tc90522.h" />
+    <ClInclude Include="..\..\..\driver\tsmf.h" />
     <ClInclude Include="..\common\command.hpp" />
 	<ClInclude Include="..\common\card_command.hpp" />
     <ClInclude Include="..\common\config.hpp" />

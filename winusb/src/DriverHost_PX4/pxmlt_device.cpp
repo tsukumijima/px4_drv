@@ -107,39 +107,6 @@ void PxMltDevice::LoadConfig()
 	if (configs.Exists(L"DiscardNullPackets"))
 		config_.device.discard_null_packets = px4::util::wtob(configs.Get(L"DiscardNullPackets"));
 
-	if (configs.Exists(L"ExperimentalISDBC"))
-		config_.device.experimental_isdbc = px4::util::wtob(configs.Get(L"ExperimentalISDBC"));
-
-	if (configs.Exists(L"ExperimentalJ83B"))
-		config_.device.experimental_j83b = px4::util::wtob(configs.Get(L"ExperimentalJ83B"));
-	if (configs.Exists(L"ExperimentalJ83BMonitor"))
-		config_.device.experimental_j83b_monitor = px4::util::wtob(configs.Get(L"ExperimentalJ83BMonitor"));
-
-	if (configs.Exists(L"ISDBCReferenceProfile"))
-		config_.device.isdbc_reference_profile = px4::util::wtob(configs.Get(L"ISDBCReferenceProfile"));
-
-	if (configs.Exists(L"ForceISDBCModulation")) {
-		const auto &raw_value = configs.Get(L"ForceISDBCModulation");
-		const auto value = px4::util::wtoui(raw_value);
-		dev_info(&dev_, "px4::PxMltDevice::LoadConfig: ForceISDBCModulation raw=[%ls], parsed=%u\n",
-			raw_value.c_str(), value);
-		if (value == 0 || value == 64 || value == 256)
-			config_.device.force_isdbc_modulation = value;
-		else
-			dev_warn(&dev_, "px4::PxMltDevice::LoadConfig: ForceISDBCModulation=%u is invalid; using 0.\n", value);
-	}
-
-	if (configs.Exists(L"DiscardTsmfHeaderPackets"))
-		config_.device.discard_tsmf_header_packets = px4::util::wtob(configs.Get(L"DiscardTsmfHeaderPackets"));
-
-	/* TSMF はヘッダーに続く52スロットの位置で TS を選別するため、IT930x での null パケット除去は位置ずれを起こす。
-	 * ISDB-C 有効時の DiscardNullPackets は、最終出力での除去に適用する。 */
-	if (config_.device.experimental_isdbc && config_.device.discard_null_packets) {
-		dev_info(&dev_, "px4::PxMltDevice::LoadConfig: DiscardNullPackets=true will remove null packets at final TS output; keeping the input PID filter disabled.\n");
-		config_.device.discard_null_packets = false;
-		config_.device.discard_null_packets_on_output = true;
-	}
-
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: xfer_packets: %u\n", config_.usb.xfer_packets);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: urb_max_packets: %u\n", config_.usb.urb_max_packets);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: max_urbs: %u\n", config_.usb.max_urbs);
@@ -147,10 +114,6 @@ void PxMltDevice::LoadConfig()
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: receiver_max_packets: %u\n", config_.device.receiver_max_packets);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: psb_purge_timeout: %i\n", config_.device.psb_purge_timeout);
 	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: discard_null_packets: %s\n", (config_.device.discard_null_packets) ? "true" : "false");
-	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: discard_null_packets_on_output: %s\n", (config_.device.discard_null_packets_on_output) ? "true" : "false");
-	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: discard_tsmf_header_packets: %s\n", (config_.device.discard_tsmf_header_packets) ? "true" : "false");
-	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: experimental_isdbc: %s\n", (config_.device.experimental_isdbc) ? "true" : "false");
-	dev_dbg(&dev_, "px4::PxMltDevice::LoadConfig: force_isdbc_modulation: %uQAM\n", config_.device.force_isdbc_modulation);
 
 	return;
 }
@@ -684,7 +647,9 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	close_cond_(),
 	lnb_power_(false),
 	current_system_(px4::SystemType::UNSPECIFIED),
-	streaming_(false)
+	streaming_(false),
+	tsmf_(false),
+	null_packet_filter_(parent.config_.device.discard_null_packets)
 {
 	auto i2c_addr = parent_.params_[static_cast<int>(parent_.model_)][index_].i2c_addr;
 	auto i2c_bus = parent_.params_[static_cast<int>(parent_.model_)][index_].i2c_bus;
@@ -705,12 +670,8 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	cxd2858er_.i2c = &cxd2856er_.i2c_master;
 	cxd2858er_.i2c_addr = 0x60;
 	cxd2858er_.config.xtal = 16000;
-	cxd2858er_.config.isdbc_reference_profile = parent_.config_.device.isdbc_reference_profile;
 	cxd2858er_.config.ter.lna = true;
 	cxd2858er_.config.sat.lna = true;
-
-	GetStreamBuffer()->SetDiscardNullPacketsOnOutput(
-		parent_.config_.device.discard_null_packets_on_output);
 }
 
 PxMltDevice::PxMltReceiver::~PxMltReceiver()
@@ -862,23 +823,6 @@ void PxMltDevice::PxMltReceiver::Close()
 	return;
 }
 
-int PxMltDevice::PxMltReceiver::PrepareTune()
-{
-	if (params_.system != px4::SystemType::ISDB_C || !parent_.config_.device.experimental_j83b)
-		return 0;
-	/* J.83B は TSMF を使わず、要求を無視すると別のストリームを返すため、有効な TSMF パラメーターはハードウェア操作前に拒否する。
-	 * TSID が -1 で他の項目が全て0なら、TSMF 指定なしとして扱う。 */
-	if (params_.tsmf_mode || params_.tsmf_relative_stream || params_.tsmf_tsid >= 0 || params_.tsmf_slot_offset || params_.tsmf_output_tlv) {
-		dev_err(&parent_.dev_, "J.83B 5.6 Msps (experimental, unverified): TSMF parameters are unsupported.\n");
-		return -EINVAL;
-	}
-	/* J.83B は ISDB-C 要求を共用し、自動 QAM 判定前に 256QAM・5.6 Msps・6 MHz へ固定する。 */
-	params_.modulation = 256;
-	params_.symbol_rate = 5600;
-	params_.bandwidth = 6;
-	return 0;
-}
-
 int PxMltDevice::PxMltReceiver::SetFrequency()
 {
 	if (!open_)
@@ -889,13 +833,20 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	int ret = 0;
 	cxd2856er_system_params demod_params = { 0 };
 	std::unique_lock<std::mutex> lock(lock_);
-	/* TSMF ヘッダーは解析に必要なため出力時に除去し、対象は J.83B を除く ISDB-C に限定する。 */
-	GetStreamBuffer()->SetDiscardTsmfHeaderPacketsOnIsdbCOutput(
-		params_.system == px4::SystemType::ISDB_C &&
-		!parent_.config_.device.experimental_j83b &&
-		parent_.config_.device.discard_tsmf_header_packets);
 
 	current_system_ = px4::SystemType::UNSPECIFIED;
+
+	const bool tsmf = (params_.system == px4::SystemType::ISDB_C && (params_.tsmf_relative_stream >= 0 || params_.tsmf_tsid >= 0));
+
+	if (tsmf_ && !tsmf) {
+		stream_buf_->StopTsmf();
+		tsmf_ = false;
+	}
+
+	// TSMF はヘッダーからの位置で TS を選ぶため、ブリッジで null パケットを除くと位置がずれる
+	ret = SetNullPacketFilter(!tsmf);
+	if (ret)
+		return ret;
 
 	switch (params_.system) {
 	case px4::SystemType::ISDB_T:
@@ -914,29 +865,19 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 
 		break;
 
-	case px4::SystemType::ISDB_C: {
-		const auto modulation = parent_.config_.device.experimental_j83b ? 256 :
-			parent_.config_.device.force_isdbc_modulation ?
-			parent_.config_.device.force_isdbc_modulation : params_.modulation;
-		demod_params.isdbc.experimental_j83b = parent_.config_.device.experimental_j83b;
-		demod_params.isdbc.symbol_rate = params_.symbol_rate;
-		demod_params.isdbc.modulation = modulation;
-		demod_params.isdbc.experimental_profile = parent_.config_.device.experimental_isdbc;
-		demod_params.isdbc.reference_profile = parent_.config_.device.isdbc_reference_profile;
-		if (demod_params.isdbc.experimental_j83b)
-			dev_info(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): J.83B 5.6 Msps (experimental, unverified), freq=%u kHz, 256QAM\n", index_, params_.freq);
-		else
-			dev_info(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): ISDB-C freq=%u kHz, bandwidth=%u MHz, symbol_rate=%u ksym/s, modulation=%uQAM%s, experimental=%s\n",
-				 index_, params_.freq, params_.bandwidth, params_.symbol_rate, modulation,
-				 parent_.config_.device.force_isdbc_modulation ? " (DriverHost override)" : "",
-				 (demod_params.isdbc.experimental_profile) ? "true" : "false");
+	case px4::SystemType::ISDB_C:
+		if (tsmf) {
+			stream_buf_->StartTsmf(params_.tsmf_relative_stream, params_.tsmf_tsid, params_.tsmf_output_tlv, parent_.config_.device.discard_null_packets);
+			tsmf_ = true;
+		}
+
+		demod_params.isdbc.j83b = (params_.symbol_rate == 5600);
 
 		ret = cxd2856er_wakeup(&cxd2856er_, CXD2856ER_ISDB_C_SYSTEM, &demod_params);
 		if (ret)
 			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(CXD2856ER_ISDB_C_SYSTEM) failed. (ret: %d)\n", index_, ret);
 
 		break;
-	}
 
 	default:
 		ret = -EINVAL;
@@ -965,11 +906,9 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			break;
 
 		case px4::SystemType::ISDB_C:
-			cxd2858er_.config.experimental_j83b = parent_.config_.device.experimental_j83b;
-			cxd2858er_.config.isdbc_reference_profile = parent_.config_.device.isdbc_reference_profile;
-			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, params_.bandwidth);
+			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, demod_params.isdbc.j83b);
 			if (ret)
-				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_c(%u) failed. (ret: %d)\n", index_, params_.bandwidth, ret);
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_c(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
 
 			break;
 
@@ -1052,6 +991,29 @@ int PxMltDevice::PxMltReceiver::SetStreamId()
 	return ret;
 }
 
+int PxMltDevice::PxMltReceiver::SetNullPacketFilter(bool enable)
+{
+	if (!parent_.config_.device.discard_null_packets || null_packet_filter_ == enable)
+		return 0;
+
+	int ret = 0;
+	it930x_pid_filter filter;
+	std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
+
+	filter.block = true;
+	filter.num = 1;
+	filter.pid[0] = 0x1fff;
+
+	ret = it930x_set_pid_filter(&parent_.it930x_, static_cast<int>(index_), (enable) ? &filter : nullptr);
+	if (ret) {
+		dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetNullPacketFilter(%u): it930x_set_pid_filter() failed. (ret: %d)\n", index_, ret);
+		return ret;
+	}
+
+	null_packet_filter_ = enable;
+	return 0;
+}
+
 int PxMltDevice::PxMltReceiver::SetLnbVoltage(std::int32_t voltage)
 {
 	if (!open_)
@@ -1102,15 +1064,6 @@ int PxMltDevice::PxMltReceiver::SetCapture(bool capture)
 			stream_buf_->Start();
 		} else {
 			stream_buf_->Stop();
-			if (parent_.config_.device.experimental_isdbc && params_.system == px4::SystemType::ISDB_C) {
-				const auto diagnostics = stream_buf_->GetWriteDiagnostics();
-				dev_info(&parent_.dev_, "TS output diagnostics input=%u freq=%u receiver_max_packets=%u rejected_bytes=%llu rejected_writes=%llu purge_write_discarded_bytes=%llu purge_requests=%llu (capture interval, rejection may include inactive output)\n",
-					index_, params_.freq, parent_.config_.device.receiver_max_packets,
-					static_cast<unsigned long long>(diagnostics.rejected_bytes),
-					static_cast<unsigned long long>(diagnostics.rejected_writes),
-					static_cast<unsigned long long>(diagnostics.purge_write_discarded_bytes),
-					static_cast<unsigned long long>(diagnostics.purge_requests));
-			}
 		}
 		streaming_ = capture;
 	}
@@ -1194,25 +1147,9 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 		case px4::SystemType::ISDB_C:
 		{
 			std::uint16_t val;
-			/* 64QAM の換算式を J.83B 256QAM に適用する根拠がないため、C/N は未対応とする。
-			 * ロックは共通のステータスで判定する。 */
-			if (parent_.config_.device.experimental_j83b) {
-				if (parent_.config_.device.experimental_j83b_monitor) {
-					cxd2856er_j83b_monitor monitor;
-					ret = cxd2856er_read_j83b_monitor(&cxd2856er_, &monitor);
-					if (ret)
-						break;
-					dev_info(&parent_.dev_, "J83B monitor input=%u freq=%u QAMraw=%u CNRraw=%u IFAGCraw=%u (uncalibrated)\n",
-						index_, params_.freq, monitor.qam, monitor.cnr_raw, monitor.if_agc_raw);
-					dev_info(&parent_.dev_, "J83B stages input=%u freq=%u ARraw=%u TSraw=%u VQraw=%u ICWvalid=%u INTERraw=%u IQREVraw=%u OffsetRaw=%d TrialSRraw=%u TLFraw=%d TSMraw=%u BERvalid=%u BERerrors=%u BERexp=%u PERvalid=%u PERerrors=%u PERexp=%u RSvalid=%u RSerrors=%u\n",
-						index_, params_.freq, monitor.ar_status_raw, monitor.ts_status_raw,
-						monitor.vq_status_raw, monitor.interleave_valid, monitor.interleave_raw,
-						monitor.spectrum_raw, monitor.carrier_offset_raw, monitor.trial_symbol_rate_raw,
-						monitor.timing_integral_raw, monitor.sampling_rate_mode_raw,
-						monitor.ber_valid, monitor.ber_bit_errors, monitor.ber_period_exp,
-						monitor.per_valid, monitor.per_packet_errors, monitor.per_period_exp,
-						monitor.rs_valid, monitor.rs_packet_errors);
-				}
+
+			// J.83B の換算式は参照できる公開ドライバーにないため、C/N を返さない
+			if (params_.symbol_rate == 5600) {
 				ret = -ENOSYS;
 				break;
 			}
@@ -1221,11 +1158,10 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 			if (ret)
 				break;
 
-			/* 64QAM 用の C/N 推定式を使い、結果を mdB で返す。 */
-			if (val) {
-				const double estimate = static_cast<double>((val < 126) ? 126 : val);
-				value = static_cast<std::int32_t>(-9500.0 * std::log(estimate) + 95941.0);
-			}
+			// Linux の cxd2841er.c の 64QAM・256QAM 用の換算式
+			if (val)
+				value = static_cast<std::int32_t>(-9500 * std::log((val < 126) ? 126 : val) + 95941);
+
 			break;
 		}
 

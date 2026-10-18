@@ -4,24 +4,12 @@
 
 #include <mutex>
 #include <fstream>
-#include <cerrno>
-#include <cctype>
 #include <cstdlib>
+#include <cstring>
 
 #include "util.hpp"
 
 namespace px4 {
-
-static bool ParseInteger(const char *str, long long &value) noexcept
-{
-	char *end;
-	errno = 0;
-	value = std::strtoll(str, &end, 10);
-	const bool converted = end != str;
-	while (std::isspace(static_cast<unsigned char>(*end)))
-		end++;
-	return errno != ERANGE && converted && *end == '\0';
-}
 
 bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 {
@@ -36,7 +24,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 	while (true) {
 		char line[256];
 		std::streamsize gcount;
-		char *line_head, *tmp_head, *tmp_tail = nullptr;
+		char *tmp_head, *tmp_tail = nullptr;
 
 		if (!ifs.getline(line, 256))
 			break;
@@ -51,22 +39,17 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			gcount--;
 		}
 
-		// 空行をチャンネル0として読むと、先頭チャンネルが空の項目で上書きされる
-		line_head = line;
-		while (*line_head == ' ' || *line_head == '\t')
-			line_head++;
-
-		if (*line_head == '\0' || *line_head == ';') {
+		if (line[0] == ';') {
 			// comment
 			continue;
 		}
 
-		if (*line_head == '$') {
+		if (line[0] == '$') {
 			// tuning space
 			std::wstring name;
 			std::uint32_t space_id;
 
-			tmp_head = line_head + 1;
+			tmp_head = line + 1;
 
 			// name
 			Split(&tmp_head, &tmp_tail, '\t');
@@ -85,7 +68,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			std::uint32_t space_id, ch_id;
 			ChannelInfo ch;
 
-			tmp_head = line_head;
+			tmp_head = line;
 
 			// name
 			Split(&tmp_head, &tmp_tail, '\t');
@@ -114,95 +97,13 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 
 			// tsid
 			Split(&tmp_head, &tmp_tail, '\t');
-			const char *tsid_str = tmp_head;
 			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
 
-			// 第6列は中心周波数 (kHz) の直接指定
-			if (tmp_tail) {
-				Split(&tmp_head, &tmp_tail, '\t');
-				ch.freq_khz = px4::util::atoui32(tmp_head);
-
-				// 第7列は符号付きの周波数補正値 (kHz)
-				if (tmp_tail) {
-					Split(&tmp_head, &tmp_tail, '\t');
-					ch.isdbc_freq_offset_khz = px4::util::atoi32(tmp_head);
-					ch.has_isdbc_freq_offset = true;
-
-					// 第8列は相対 TS 番号 (0〜14)、TSID 指定 (-1)、通常 TS 用の変調方式 (64/256)
-					if (tmp_tail) {
-						Split(&tmp_head, &tmp_tail, '\t');
-						long long field8;
-						if (system == px4::SystemType::ISDB_C) {
-							if (!ParseInteger(tmp_head, field8) || field8 < -1 ||
-								(field8 > 14 && field8 != 64 && field8 != 256)) {
-								if (strict_)
-									return false;
-								continue;
-							}
-						} else {
-							field8 = px4::util::atoui32(tmp_head);
-						}
-						if (field8 == 64 || field8 == 256) {
-							ch.isdbc_modulation = static_cast<std::uint16_t>(field8);
-						} else {
-							if (field8 == -1) {
-								long long tsid;
-								if (!ParseInteger(tsid_str, tsid) || tsid < 0 || tsid > 65535) {
-									if (strict_)
-										return false;
-									continue;
-								}
-								ch.tsid = static_cast<std::uint16_t>(tsid);
-								ch.tsmf_by_tsid = true;
-							} else {
-								ch.tsmf_relative_stream = static_cast<std::uint8_t>(field8);
-							}
-							ch.is_tsmf = true;
-
-							// 第9列はスロット番号へ加えるオフセット
-							if (tmp_tail) {
-								Split(&tmp_head, &tmp_tail, '\t');
-								if (system == px4::SystemType::ISDB_C) {
-									long long value;
-									if (!ParseInteger(tmp_head, value) || value < -51 || value > 51) {
-										if (strict_)
-											return false;
-										continue;
-									}
-									ch.tsmf_slot_offset = static_cast<std::int32_t>(value);
-								} else {
-									ch.tsmf_slot_offset = px4::util::atoi32(tmp_head);
-								}
-
-								// 第10列は TSMF 用の変調方式
-								if (tmp_tail) {
-									Split(&tmp_head, &tmp_tail, '\t');
-									std::uint32_t modulation;
-									if (system == px4::SystemType::ISDB_C) {
-										long long value;
-										if (!ParseInteger(tmp_head, value) ||
-											(value != 0 && value != 64 && value != 256)) {
-											if (strict_)
-												return false;
-											continue;
-										}
-										modulation = static_cast<std::uint32_t>(value);
-									} else {
-										modulation = px4::util::atoui32(tmp_head);
-									}
-									if (modulation == 64 || modulation == 256)
-										ch.isdbc_modulation = static_cast<std::uint16_t>(modulation);
-
-									// 第11列が1なら生 TLV、それ以外は MPEG-TS を出力
-									if (tmp_tail) {
-										Split(&tmp_head, &tmp_tail, '\t');
-										ch.tsmf_output_tlv = px4::util::atoui32(tmp_head) == 1;
-									}
-								}
-							}
-						}
-					}
-				}
+			if (system == px4::SystemType::ISDB_C && !ParseIsdbC(&tmp_head, &tmp_tail, ch)) {
+				if (strict_)
+					return false;
+				else
+					continue;
 			}
 
 			if (!AddChannel(space_id, ch_id, ch))
@@ -316,6 +217,68 @@ void ChannelSet::Split(char **head, char **tail, char c) noexcept
 	*tail = t;
 
 	return;
+}
+
+bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
+{
+	auto next = [head, tail](long min, long max, long &value) noexcept {
+		char *end;
+
+		Split(head, tail, '\t');
+		value = std::strtol(*head, &end, 10);
+		return end != *head && *end == '\0' && value >= min && value <= max;
+	};
+	const char *tsid = *head;
+	char *end;
+	long value;
+
+	// 中心周波数 (kHz)
+	if (!*tail)
+		return true;
+	if (!next(0, 1000000, value))
+		return false;
+	ch.freq = static_cast<std::uint32_t>(value);
+
+	// 中心周波数の補正 (kHz)
+	if (!*tail)
+		return true;
+	if (!next(-3000, 3000, value))
+		return false;
+	ch.freq_offset = static_cast<std::int32_t>(value);
+
+	// 方式 (0 は J.83 Annex C、J83B は J.83 Annex B)
+	if (!*tail)
+		return true;
+	if (!next(0, 0, value)) {
+		if (std::strcmp(*head, "J83B"))
+			return false;
+		ch.j83b = true;
+	}
+
+	// TSMF で多重された TS の選択 (0-14 は相対 TS 番号、-1 は第5列の TSID)
+	if (!*tail)
+		return true;
+	if (ch.j83b || !next(-1, 14, value))
+		return false;
+	if (value < 0) {
+		// 第5列は既存の読み方では16ビットへ丸められるため、TSID で選ぶ行だけ範囲を確かめ直す
+		value = std::strtol(tsid, &end, 10);
+		if (end == tsid || *end != '\0' || value < 0 || value > 0xffff)
+			return false;
+		ch.tsmf = TsmfSelection::TSID;
+	} else {
+		ch.tsmf = TsmfSelection::RELATIVE_STREAM;
+		ch.tsmf_relative_stream = static_cast<std::uint8_t>(value);
+	}
+
+	// 1 なら TSMF の TS を BonDriver_dantto4k 向けの生 TLV で出力する
+	if (!*tail)
+		return true;
+	if (!next(0, 1, value))
+		return false;
+	ch.tsmf_output_tlv = (value != 0);
+
+	return true;
 }
 
 } // namespace px4
