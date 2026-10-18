@@ -19,7 +19,7 @@ Linux 版内蔵カードリーダー対応の確認の範囲は [実機確認の
 
 公式ドライバーには、PX-Q3U4 の2つの USB デバイスのどちらか片側でだけカードを扱う分岐はありませんでした。  
 `0x2C3C4` が USB デバイスごとの設定に `UART_Type=2` を固定で書き、`0x1FE30` がそれを反映し、`0x216AC` が UART のコマンド `0x37` に値 1 を送って B-CAS のモードにします。  
-カードへの要求 (`0x15B34`) も要求を受けた USB デバイス自身を使い、シリアル番号の末尾の桁での選別や、相方への転送はありません。
+カードへの要求 (`0x15B34`) も要求を受けた USB デバイス自身を使い、シリアル番号の末尾の桁での選別や、もう一方の USB デバイスへの転送はありません。
 
 このことは、両側にカードがつながっている証拠にはならず、公式ドライバーからはスロットの位置を判断できないことを意味します。  
 px4_drv が PX-Q3 系でシリアル番号の末尾の桁が 1 の側にだけカードリーダーを登録している根拠は、PX-Q3U4 でその側の ACAS と通信できたという外部の報告です。  
@@ -74,11 +74,11 @@ TS を捨てる単位と、処理の順序に違いがありました。
 
 | 原則と確かめること | Linux 版 | WinUSB 版 |
 |---|---|---|
-| 転送を止めてから資源を回収する。取り消しや処理の終了より先に解放しない | `itedtv_bus.c` の `itedtv_usb_stop_streaming` | `itedtv_bus_winusb.c` の `itedtv_usb_stop_streaming` |
+| 転送の取り消しと処理の終了を待ってから、バッファなどを解放する | `itedtv_bus.c` の `itedtv_usb_stop_streaming` | `itedtv_bus_winusb.c` の `itedtv_usb_stop_streaming` |
 | バッファは開始時に確保して使い回す。受信のたびに確保せず、際限なく滞留させない | `itedtv_bus.c` の `itedtv_usb_alloc_urb_buffers` | `itedtv_bus_winusb.c` の `itedtv_usb_alloc_work_buffers` |
 | 受信と制御の待ちを分ける。TS の処理の中でスリープ・カードの応答待ち・制御のロックの取得をしない | `itedtv_bus.c` の `itedtv_usb_complete` 、`it930x.c` の `it930x_ctrl_msg` | `itedtv_bus_winusb.c` の `itedtv_winusb_worker` 、共通の `it930x_ctrl_msg` |
 | 有効な長さの中で同期を探し、端数を保存する。分割された受信や同期の崩れで、意図しない欠落や範囲外の参照をしない | `px4_device.c` の `px4_device_stream_process` と `px4_device_stream_handler` | `px4_device.cpp` の `StreamProcess` と `StreamHandler` |
 | 制御の失敗は呼び出し元へ返す。選局や開始の失敗を成功に変えない | `px4_device.c` の `px4_chrdev_tune_t` と `px4_chrdev_tune_s` | `px4_device.cpp` の `Px4Receiver::SetFrequency` と `Px4Receiver::SetCapture` |
-| 共有の電源は全利用者で判断する。カードだけ・相方だけが使っているときに停止しても給電を保つ | `px4_mldev.c` の `px4_mldev_set_power` と `px4_mldev_set_card_power` | `px4_device.cpp` の `MultiDevice::SetPower` と `SetCardPower` |
+| 共有の電源は、すべての利用者を見て止めるかを決める。カードだけ、またはもう一方の USB デバイスだけが使っているときは、停止の要求があっても給電を保つ | `px4_mldev.c` の `px4_mldev_set_power` と `px4_mldev_set_card_power` | `px4_device.cpp` の `MultiDevice::SetPower` と `SetCardPower` |
 
 Linux 版内蔵カードリーダー対応をこの原則に照らした結果は、[実機確認の記録](20261014_linux_card_reader_validation.md) の「原著者の設計の原則との照合」にあります。
