@@ -291,6 +291,15 @@ bool ReceiverBase::StreamBuffer::Write(const void *buf, std::size_t &size) noexc
 
 void ReceiverBase::StreamBuffer::NotifyWrite() noexcept
 {
+	// TSMF で選んだ TS は低レートのことがあり、しきい値までためると読み出しが秒単位で遅れるため、出力があるたびに通知する
+	if (tsmf_) {
+		if (write_size_) {
+			cond_.notify_all();
+			write_size_ = 0;
+		}
+		return;
+	}
+
 	if (write_size_ >= threshold_size_) {
 		cond_.notify_all();
 		write_size_ -= threshold_size_;
