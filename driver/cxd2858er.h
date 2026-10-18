@@ -19,9 +19,6 @@
 
 struct cxd2858er_config {
 	u32 xtal;
-	bool isdbc_reference_profile;
-	/* J.83B は SONY_HELENE_DTV_J83B_5_6 の IF と帯域の設定を使う。 */
-	bool experimental_j83b;
 	struct {
 		bool lna;
 	} ter;
@@ -55,7 +52,7 @@ int cxd2858er_set_params_t(struct cxd2858er_tuner *tuner,
 			   enum cxd2858er_system system,
 			   u32 freq, u32 bandwidth);
 int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
-			   u32 freq, u32 bandwidth);
+			   u32 freq, bool j83b);
 int cxd2858er_set_params_s(struct cxd2858er_tuner *tuner,
 			   enum cxd2858er_system system,
 			   u32 freq, u32 symbol_rate);
