@@ -10,7 +10,6 @@
 
 #include <linux/kernel.h>
 #include <linux/delay.h>
-#include <linux/moduleparam.h>
 #include <linux/slab.h>
 
 #include "px4_device_params.h"
@@ -19,26 +18,6 @@
 
 #define PXMLT_DEVICE_TS_SYNC_COUNT	4
 #define PXMLT_DEVICE_TS_SYNC_SIZE	(188 * PXMLT_DEVICE_TS_SYNC_COUNT)
-
-/* ISDB-C は同じチューナーを使う全機種での受信確認が取れていないため、モジュール読み込み時に明示的に有効化する。 */
-static bool experimental_isdbc;
-module_param_named(experimental_isdbc, experimental_isdbc, bool, 0444);
-MODULE_PARM_DESC(experimental_isdbc,
-	"Enable experimental ISDB-C/J.83 Annex C on CXD2856ER/CXD2858ER PXMLT devices");
-
-static bool pxmlt_model_supports_isdbc(enum pxmlt_model model)
-{
-	switch (model) {
-	case PXMLT5PE_MODEL:
-	case PXMLT8PE3_MODEL:
-	case PXMLT8PE5_MODEL:
-	case ISDB6014_4TS_MODEL:
-		return true;
-
-	default:
-		return false;
-	}
-}
 
 struct pxmlt_stream_context {
 	struct ptx_chrdev *chrdev[PXMLT_CHRDEV_MAX_NUM];
@@ -386,6 +365,31 @@ static int pxmlt_chrdev_release(struct ptx_chrdev *chrdev)
 	return 0;
 }
 
+static int pxmlt_chrdev_set_null_packet_filter(struct ptx_chrdev *chrdev, bool enable)
+{
+	struct pxmlt_chrdev *chrdevm = chrdev->priv;
+	struct pxmlt_device *pxmlt = chrdevm->parent;
+	struct it930x_pid_filter filter;
+	int ret;
+
+	if (!px4_device_params.discard_null_packets ||
+	    chrdevm->null_packet_filter_disabled == !enable)
+		return 0;
+
+	filter.block = true;
+	filter.num = 1;
+	filter.pid[0] = 0x1fff;
+
+	mutex_lock(&pxmlt->lock);
+	ret = it930x_set_pid_filter(&pxmlt->it930x, chrdev->id,
+				  enable ? &filter : NULL);
+	if (!ret)
+		chrdevm->null_packet_filter_disabled = !enable;
+	mutex_unlock(&pxmlt->lock);
+
+	return ret;
+}
+
 static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 			     struct ptx_tune_params *params)
 {
@@ -399,6 +403,12 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		"pxmlt_chrdev_tune %u:%u\n", chrdev_group->id, chrdev->id);
 
 	memset(&demod_params, 0, sizeof(demod_params));
+
+	if (chrdevm->null_packet_filter_disabled && params->system != PTX_ISDB_C_SYSTEM) {
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev, true);
+		if (ret)
+			return ret;
+	}
 
 	switch (params->system) {
 	case PTX_ISDB_T_SYSTEM:
@@ -426,10 +436,13 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
-		demod_params.isdbc.symbol_rate = 5274;
-		demod_params.isdbc.modulation = CXD2856ER_ISDBC_64QAM;
-		demod_params.isdbc.experimental_profile = true;
-		demod_params.isdbc.reference_profile = false;
+		/* TSMF はパケットの位置で TS を選ぶため、分離前は null パケットも受け取る */
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
+			params->tsmf_relative_stream < 0 && params->tsmf_tsid < 0);
+		if (ret)
+			break;
+
+		demod_params.isdbc.j83b = params->symbol_rate == 5600;
 
 		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
 					       CXD2856ER_ISDB_C_SYSTEM, &demod_params);
@@ -477,10 +490,10 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 
 	case PTX_ISDB_C_SYSTEM:
 		ret = cxd2858er_set_params_c(&chrdevm->cxd2858er,
-					     params->freq, 6);
+					     params->freq, demod_params.isdbc.j83b);
 		if (ret)
 			dev_err(pxmlt->dev,
-				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_c(%u, 6) failed. (ret: %d)\n",
+				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_c(%u) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id,
 				params->freq, ret);
 
@@ -944,9 +957,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		struct it930x_stream_input *input = &it930x->config.input[i];
 		struct pxmlt_chrdev *chrdevm = &pxmlt->chrdevm[i];
 
-		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM;
-		if (experimental_isdbc && pxmlt_model_supports_isdbc(model))
-			chrdev_config[i].system_cap |= PTX_ISDB_C_SYSTEM;
+		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM | PTX_ISDB_C_SYSTEM;
 
 		input->enable = true;
 		input->is_parallel = false;
@@ -968,7 +979,6 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		chrdevm->cxd2858er.i2c = &chrdevm->cxd2856er.i2c_master;
 		chrdevm->cxd2858er.i2c_addr = 0x60;
 		chrdevm->cxd2858er.config.xtal = 16000;
-		chrdevm->cxd2858er.config.isdbc_reference_profile = false;
 		chrdevm->cxd2858er.config.ter.lna = true;
 		chrdevm->cxd2858er.config.sat.lna = true;
 	}
