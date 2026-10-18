@@ -150,9 +150,7 @@ bool BonDriver::Init()
 			name_ = L"PX4";
 		}
 
-		/* ISDB-C cable relays can be offset from the nominal 6 MHz channel
-		 * centre.  Keep this a user-visible signed correction so it can be
-		 * calibrated without editing every ChSet entry. */
+		/* CATV 局による中心周波数のずれを、ChSet 全行の編集なしに補正できるようにする。 */
 		try {
 			isdbc_frequency_offset_khz_ = px4::util::wtoi(
 				configs_.Get(L"BonDriver.ISDB-C").Get(L"FrequencyOffsetKHz"));
@@ -609,10 +607,10 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 	case px4::SystemType::ISDB_C:
 		if (channel.freq_khz) {
-			/* UHF and non-standard CATV relay frequencies are specified directly. */
+			/* UHF 帯などは、ChSet で直接指定された中心周波数を使う。 */
 			real_freq = channel.freq_khz;
 		} else if ((channel.ptx_ch >= 3 && channel.ptx_ch <= 12) || (channel.ptx_ch >= 22 && channel.ptx_ch <= 62)) {
-			// J.83C transmodulation: the carrier is centred on the 6 MHz cable channel.
+			// ISDB-C では、地上波の 143 kHz オフセットを加えずに CATV チャンネルの中心周波数を求める
 			real_freq = 93000 + (channel.ptx_ch * 6000);
 
 			if (channel.ptx_ch == 12)
@@ -667,13 +665,7 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		param_set->params[1].type = px4::command::ParameterType::SYMBOL_RATE;
 		param_set->params[1].value = 5274;
 		param_set->params[2].type = px4::command::ParameterType::MODULATION;
-		/*
-		 * 0 means automatic ISDB-C constellation selection in DriverHost.
-		 * It tries the 64QAM profile first, then retries with 256QAM when
-		 * there is no TS lock.  This keeps ChSet independent of a CATV
-		 * operator's per-channel QAM choice, like BonDriver_BDA's
-		 * TransModulation channel generation.
-		 */
+		/* 0 は DriverHost で 64QAM、256QAM の順に試すことを表し、ChSet で変調方式を省略できる。 */
 		param_set->params[2].value = channel.isdbc_modulation ?
 			channel.isdbc_modulation : isdbc_modulation_;
 		msg_info("SetChannel: ISDB-C modulation=%uQAM%s\n",

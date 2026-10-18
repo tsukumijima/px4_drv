@@ -132,10 +132,8 @@ void PxMltDevice::LoadConfig()
 	if (configs.Exists(L"DiscardTsmfHeaderPackets"))
 		config_.device.discard_tsmf_header_packets = px4::util::wtob(configs.Get(L"DiscardTsmfHeaderPackets"));
 
-	/* A TSMF frame is one header followed by exactly 52 slots.  Filtering
-	 * null packets in the IT930x before StreamBuffer sees them destroys that
-	 * positional relationship.  Reinterpret the existing setting as a request
-	 * for final output-side removal, not as a PID filter. */
+	/* TSMF はヘッダーに続く52スロットの位置で TS を選別するため、IT930x での null パケット除去は位置ずれを起こす。
+	 * ISDB-C 有効時の DiscardNullPackets は、最終出力での除去に適用する。 */
 	if (config_.device.experimental_isdbc && config_.device.discard_null_packets) {
 		dev_info(&dev_, "px4::PxMltDevice::LoadConfig: DiscardNullPackets=true will remove null packets at final TS output; keeping the input PID filter disabled.\n");
 		config_.device.discard_null_packets = false;
@@ -868,14 +866,13 @@ int PxMltDevice::PxMltReceiver::PrepareTune()
 {
 	if (params_.system != px4::SystemType::ISDB_C || !parent_.config_.device.experimental_j83b)
 		return 0;
-	/* J.83B は TSMF を使わない。要求を黙って捨てると別ストリームを返すため、
-	 * 有効な TSMF パラメーターはハードウェア操作前に拒否する。TSID は -1、他は0が未指定。 */
+	/* J.83B は TSMF を使わず、要求を無視すると別のストリームを返すため、有効な TSMF パラメーターはハードウェア操作前に拒否する。
+	 * TSID が -1 で他の項目が全て0なら、TSMF 指定なしとして扱う。 */
 	if (params_.tsmf_mode || params_.tsmf_relative_stream || params_.tsmf_tsid >= 0 || params_.tsmf_slot_offset || params_.tsmf_output_tlv) {
 		dev_err(&parent_.dev_, "J.83B 5.6 Msps (experimental, unverified): TSMF parameters are unsupported.\n");
 		return -EINVAL;
 	}
-	/* 公開プロトコルへ正式な系統を足す前の暫定置換。要求の QAM 指定と
-	 * ForceISDBCModulation を無視し、自動64→256再試行の判定前に固定する。 */
+	/* J.83B は ISDB-C 要求を共用し、自動 QAM 判定前に 256QAM・5.6 Msps・6 MHz へ固定する。 */
 	params_.modulation = 256;
 	params_.symbol_rate = 5600;
 	params_.bandwidth = 6;
@@ -892,9 +889,7 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	int ret = 0;
 	cxd2856er_system_params demod_params = { 0 };
 	std::unique_lock<std::mutex> lock(lock_);
-	/* TSMF headers must be retained until the TSMF selector has parsed them.
-	 * This filter is then applied only to ISDB-C output; T/S keep their TS
-	 * unchanged even when the device-level option is enabled. */
+	/* TSMF ヘッダーは解析に必要なため出力時に除去し、対象は J.83B を除く ISDB-C に限定する。 */
 	GetStreamBuffer()->SetDiscardTsmfHeaderPacketsOnIsdbCOutput(
 		params_.system == px4::SystemType::ISDB_C &&
 		!parent_.config_.device.experimental_j83b &&
@@ -1199,8 +1194,8 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 		case px4::SystemType::ISDB_C:
 		{
 			std::uint16_t val;
-			/* 既存の64QAM換算を J.83B 256QAM に流用する根拠がないため、
-			 * C/N 数値は未対応とする。ロックは別の共通ステータスで判定する。 */
+			/* 64QAM の換算式を J.83B 256QAM に適用する根拠がないため、C/N は未対応とする。
+			 * ロックは共通のステータスで判定する。 */
 			if (parent_.config_.device.experimental_j83b) {
 				if (parent_.config_.device.experimental_j83b_monitor) {
 					cxd2856er_j83b_monitor monitor;
@@ -1226,7 +1221,7 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 			if (ret)
 				break;
 
-			/* QAM 64 C/N estimate: -9.50 * ln(estimate / 24320), in mdB. */
+			/* 64QAM 用の C/N 推定式を使い、結果を mdB で返す。 */
 			if (val) {
 				const double estimate = static_cast<double>((val < 126) ? 126 : val);
 				value = static_cast<std::int32_t>(-9500.0 * std::log(estimate) + 95941.0);

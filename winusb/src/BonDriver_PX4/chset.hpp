@@ -19,19 +19,17 @@ public:
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
-		/* Optional explicit RF centre frequency, used by ISDB-C UHF relays. */
+		/* UHF 帯など、物理チャンネル番号から計算できない中心周波数を指定する。 */
 		std::uint32_t freq_khz;
-		/* Optional signed ISDB-C correction (seventh field); overrides the
-		 * global INI correction while retaining the nominal channel centre. */
+		/* 第7列の指定がある場合は、INI の値より優先して中心周波数を補正する。 */
 		std::int32_t isdbc_freq_offset_khz;
 		bool has_isdbc_freq_offset;
-		/* Optional ISDB-C modulation: 0 (automatic), 64, or 256 QAM. */
+		/* 0 は自動判定 (64QAM、256QAM の順)、64/256 は固定指定。 */
 		std::uint16_t isdbc_modulation;
 		std::uint8_t tsmf_relative_stream;
-		/* Optional ninth field: signed map offset for TSMF diagnostics. */
+		/* 第9列は52スロットのマップに適用するオフセット。 */
 		std::int32_t tsmf_slot_offset;
-		/* Optional eleventh field: 1 selects reconstructed raw TLV output.
-		 * Normal TSMF channels keep this false and output MPEG-TS. */
+		/* 第11列が1の場合だけ、TSMF の分割パケットを生 TLV に復元して出力する。 */
 		bool tsmf_output_tlv;
 		bool tsmf_by_tsid;
 		bool is_tsmf;

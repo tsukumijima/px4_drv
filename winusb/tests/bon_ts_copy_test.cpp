@@ -49,7 +49,7 @@ public:
 bool TestRealQueue(bool copy, std::size_t fragment)
 {
 	FragmentProvider provider(fragment);
-	// 小さいキューで再利用と背圧を発生させ、実装本体の分割読み出しを検証する。
+	// 小さいキューでバッファの再利用と書き込み待ちを発生させ、実装本体の分割読み出しを検証する
 	px4::IoQueue queue(px4::IoQueue::IoOperation::READ, provider, 188 * 1024, 4, 2, 0);
 	std::array<unsigned char, px4::BON_TS_COPY_SIZE + 32> guarded;
 	std::vector<unsigned char> received;
@@ -89,7 +89,7 @@ int main()
 	std::size_t size = 0, remain = 0;
 	for (int iteration = 0; iteration < 5; ++iteration) {
 		destination.fill(0xA5);
-		// 出力引数の初期値に依存せず、1024パケットの入力も分割して読む。
+		// 出力引数の初期値に依存せず、1024パケットの入力も分割して読む
 		size = iteration % 2 ? static_cast<std::size_t>(-1) : 0;
 		if (!px4::ReadBonTsCopy(queue, destination.data() + 16, size, remain)) return 1;
 		if (size > px4::BON_TS_COPY_SIZE) return 2;

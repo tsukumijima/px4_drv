@@ -100,7 +100,7 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 
 	params_.system = param_set.system;
 	params_.freq = param_set.freq;
-	/* TSMF parameters are optional and must not leak from the previous tune. */
+	/* 省略された TSMF パラメーターに、前回の選局設定が残らないよう初期化する。 */
 	params_.tsmf_mode = 0;
 	params_.tsmf_relative_stream = 0;
 	params_.tsmf_tsid = -1;
@@ -181,12 +181,7 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 	const bool isdbc = params_.system == px4::SystemType::ISDB_C;
 	const bool isdbc_auto_qam = isdbc && params_.modulation == 0;
 
-	/*
-	 * The public BonDriver interface has no ISDB-C modulation selector.
-	 * Treat an omitted modulation as an automatic 64QAM -> 256QAM probe.
-	 * This matches the practical behaviour of BDA receivers without making
-	 * every CATV channel appear twice in the application's channel list.
-	 */
+	/* BonDriver API には変調方式の指定がないため、省略時は 64QAM、256QAM の順で試す。 */
 	if (isdbc_auto_qam)
 		params_.modulation = 64;
 
@@ -213,8 +208,7 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 		if (!isdbc)
 			attempt_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(attempt_timeout);
 
-		/* A previous channel may still have a small amount of bridge data in
-		 * flight.  Drain that before opening the raw-TS observation window. */
+		/* 前のチャンネルのデータがブリッジに残り得るため、入力数を調べる前に読み捨てる。 */
 		if (isdbc) {
 			const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(attempt_deadline - std::chrono::steady_clock::now()).count();
 			if (remaining <= 0) {
@@ -502,7 +496,7 @@ bool ReceiverBase::StreamBuffer::WriteRingBuffer(const void *buf, std::size_t &s
 {
 	const auto requested = size;
 	const bool ret = ringbuf_.Write(buf, size);
-	// PID選別による除去と区別し、満杯・非稼働での拒否とパージ中の破棄を残す。
+	// PID 選別による除去と区別し、満杯・非稼働での拒否とパージ中の破棄を数える
 	if (size < requested) {
 		if (!ret) {
 			rejected_bytes_.fetch_add(requested - size, std::memory_order_relaxed);
@@ -516,7 +510,7 @@ bool ReceiverBase::StreamBuffer::WriteRingBuffer(const void *buf, std::size_t &s
 
 bool ReceiverBase::StreamBuffer::Write(const void *buf, std::size_t &size) noexcept
 {
-	/* Count raw input before any TSMF/null/header filtering. */
+	/* 出力側の選別で0バイトになった場合と区別するため、USB からの入力パケット数を先に数える。 */
 	if (size == 188 && buf && static_cast<const std::uint8_t *>(buf)[0] == 0x47)
 		input_packet_count_.fetch_add(1, std::memory_order_relaxed);
 
@@ -552,9 +546,7 @@ bool ReceiverBase::StreamBuffer::Write(const void *buf, std::size_t &size) noexc
 			tsmf_selected_packets_++;
 			if (packet[1] & 0x80)
 				tsmf_tei_packets_++;
-			/* This is an output-side continuity check.  Null packets have no
-			 * meaningful continuity, and an adaptation-field discontinuity
-			 * indicator explicitly resets the counter for its PID. */
+			/* null パケットは連続性を検査する対象外とし、不連続指示がある PID は連続性カウンターの比較をやり直す。 */
 			const std::uint16_t pid =
 				(static_cast<std::uint16_t>(packet[1] & 0x1f) << 8) | packet[2];
 			const std::uint8_t adaptation_control = packet[3] & 0x30;
@@ -588,10 +580,7 @@ bool ReceiverBase::StreamBuffer::Write(const void *buf, std::size_t &size) noexc
 					static_cast<unsigned long long>(tsmf_cc_gaps_));
 			}
 
-			/* A segmented TLV stream is transported in TSMF slots using the
-			 * special PID 0x002d layout.  It is not MPEG-TS; reconstruct its
-			 * raw byte stream for BonDriver_dantto4k instead of forwarding the
-			 * 188-byte container packet. */
+			/* 分割された TLV は PID 0x002d の特殊な形式で運ばれるため、BonDriver_dantto4k 向けに生 TLV を復元する。 */
 			if (tsmf_output_tlv_) {
 				const std::size_t stream_index = tsmf_relative_stream_;
 				if (stream_index >= tsmf_stream_type_.size() || tsmf_stream_type_[stream_index] != 0) {
@@ -628,9 +617,7 @@ bool ReceiverBase::StreamBuffer::Write(const void *buf, std::size_t &size) noexc
 			}
 		}
 
-		/* For TSMF, this point is reached only after a packet has survived
-		 * the 52-slot selector.  For ordinary TS, it is the direct output
-		 * path.  In both cases PID 0x1fff is now safe padding to discard. */
+		/* TSMF のスロット位置を保つため、null パケットの除去は相対 TS の選別後に行う。 */
 		if ((discard_null_packets_on_output_ ||
 			discard_tsmf_header_packets_on_isdbc_output_) && size == 188) {
 			const auto *packet = static_cast<const std::uint8_t *>(buf);
@@ -725,9 +712,8 @@ bool ReceiverBase::StreamBuffer::TsmfExtractTlvPacket(const std::uint8_t *packet
 	output_size = 0;
 	const std::uint16_t pid =
 		(static_cast<std::uint16_t>(packet[1] & 0x1f) << 8) | packet[2];
-	/* This deliberately mirrors the segmented-TLV layout used by
-	 * BonDriver_BDA: a three-byte prefix for continuations, and a pointer
-	 * byte at offset three on a packet-start indication. */
+	/* radi-sh 氏による BonDriver_BDA の TSMF.cpp と同じ分割形式を使う。
+	 * 継続パケットは先頭3バイトを除き、開始パケットは4バイト目のポインターで TLV の境界を求める。 */
 	if (packet[0] != 0x47 || (packet[1] & 0xa0) != 0 || pid != 0x002d) {
 		if (packet[1] & 0x80)
 			tsmf_tlv_size_ = 0;
@@ -752,8 +738,7 @@ bool ReceiverBase::StreamBuffer::TsmfExtractTlvPacket(const std::uint8_t *packet
 		output_size = tsmf_tlv_size_;
 		memcpy(tsmf_tlv_output_buf_.data(), tsmf_tlv_buf_.data(), output_size);
 	}
-	/* The current packet begins the next TLV packet.  Keep it until the
-	 * next start indication supplies its final fragment. */
+	/* 次の開始パケットに残りの断片が含まれるため、今回始まる TLV を蓄積する。 */
 	tsmf_tlv_size_ = 0;
 	return TsmfAppendTlv(packet + tlv_start, 188 - tlv_start);
 }

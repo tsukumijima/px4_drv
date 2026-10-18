@@ -51,9 +51,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			gcount--;
 		}
 
-		// Empty separator lines must not be interpreted as channel 0.  In
-		// particular, a blank line after a CATV space used to replace C13 (the
-		// first channel) with an empty entry.
+		// 空行をチャンネル0として読むと、先頭チャンネルが空の項目で上書きされる
 		line_head = line;
 		while (*line_head == ' ' || *line_head == '\t')
 			line_head++;
@@ -119,21 +117,18 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			const char *tsid_str = tmp_head;
 			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
 
-			// optional RF centre frequency in kHz (sixth field)
+			// 第6列は中心周波数 (kHz) の直接指定
 			if (tmp_tail) {
 				Split(&tmp_head, &tmp_tail, '\t');
 				ch.freq_khz = px4::util::atoui32(tmp_head);
 
-				// Optional signed ISDB-C correction in kHz (seventh field).
+				// 第7列は符号付きの周波数補正値 (kHz)
 				if (tmp_tail) {
 					Split(&tmp_head, &tmp_tail, '\t');
 					ch.isdbc_freq_offset_khz = px4::util::atoi32(tmp_head);
 					ch.has_isdbc_freq_offset = true;
 
-					// The eighth field is either a TSMF Relative stream number
-					// (0-14), or an ISDB-C constellation (64/256).  The latter
-					// form lets a regular channel select its QAM profile without
-					// dummy TSMF fields.
+					// 第8列は相対 TS 番号 (0〜14)、TSID 指定 (-1)、通常 TS 用の変調方式 (64/256)
 					if (tmp_tail) {
 						Split(&tmp_head, &tmp_tail, '\t');
 						long long field8;
@@ -164,7 +159,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 							}
 							ch.is_tsmf = true;
 
-							// Optional signed TSMF slot-map offset (ninth field).
+							// 第9列はスロット番号へ加えるオフセット
 							if (tmp_tail) {
 								Split(&tmp_head, &tmp_tail, '\t');
 								if (system == px4::SystemType::ISDB_C) {
@@ -179,7 +174,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 									ch.tsmf_slot_offset = px4::util::atoi32(tmp_head);
 								}
 
-								// Optional modulation after the TSMF fields (tenth field).
+								// 第10列は TSMF 用の変調方式
 								if (tmp_tail) {
 									Split(&tmp_head, &tmp_tail, '\t');
 									std::uint32_t modulation;
@@ -198,9 +193,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 									if (modulation == 64 || modulation == 256)
 										ch.isdbc_modulation = static_cast<std::uint16_t>(modulation);
 
-									/* Optional eleventh field: raw TLV output for a TSMF
-									 * stream.  It is deliberately opt-in so existing TSMF
-									 * entries continue returning ordinary MPEG-TS. */
+									// 第11列が1なら生 TLV、それ以外は MPEG-TS を出力
 									if (tmp_tail) {
 										Split(&tmp_head, &tmp_tail, '\t');
 										ch.tsmf_output_tlv = px4::util::atoui32(tmp_head) == 1;

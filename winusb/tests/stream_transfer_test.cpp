@@ -403,7 +403,7 @@ public:
 
 bool TestNativePipe(bool copy, std::size_t fragment, int sequence)
 {
-	// 本番の名前付きパイプを使わず、同じ Pipe/IoQueue 実装だけを接続する。
+	// 実機への接続を避けるため、Pipe と IoQueue の実装をプロセス固有の試験用パイプへ接続する
 	const auto name = L"\\\\.\\pipe\\px4_stream_fixture_" + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(sequence);
 	HANDLE server = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
 		PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 1, 188 * 4096, 256, 0, nullptr);
@@ -430,7 +430,7 @@ bool TestNativePipe(bool copy, std::size_t fragment, int sequence)
 			if (!output.Write(input.data() + offset, amount, written, cancel) || written != amount) { writer_ok = false; break; }
 			offset += written;
 		}
-		// サーバーを閉じると未読データが破棄されるため、読み出し後にEOFを届ける。
+		// サーバーを閉じると未読データが破棄されるため、読み出し完了後に EOF を通知する
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (writer_ok && consumed != input.size() && std::chrono::steady_clock::now() < deadline)
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
