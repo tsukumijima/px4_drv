@@ -1,5 +1,9 @@
 // cmd_client.cpp
 
+#include <algorithm>
+#include <cstring>
+#include <new>
+
 #include "cmd_client.hpp"
 
 namespace px4 {
@@ -84,13 +88,47 @@ bool CtrlCmdClient::GetParams(px4::command::ParameterSet &param_set) noexcept
 
 bool CtrlCmdClient::SetParams(const px4::command::ParameterSet &param_set) noexcept
 {
-	px4::command::CtrlParamsCmd params_cmd;
+	/*
+	 * Keep the original fixed-size wire format for ISDB-T (zero parameters)
+	 * and ISDB-S (one parameter).  Only ISDB-C needs the new variable-length
+	 * form because it supplies bandwidth, symbol rate and modulation.
+	 */
+	if (param_set.num <= 1) {
+		px4::command::CtrlParamsCmd params_cmd;
 
-	params_cmd.cmd = px4::command::CtrlCmdCode::SET_PARAMS;
-	params_cmd.status = px4::command::CtrlStatusCode::NONE;
-	params_cmd.param_set = param_set;
+		params_cmd.cmd = px4::command::CtrlCmdCode::SET_PARAMS;
+		params_cmd.status = px4::command::CtrlStatusCode::NONE;
+		params_cmd.param_set = param_set;
 
-	return Call(params_cmd);
+		return Call(params_cmd);
+	}
+
+	/*
+	 * ParameterSet::params is a variable-length trailing array.  Copying it
+	 * through CtrlParamsCmd used to send only params[0], which made ISDB-C's
+	 * three parameters fail the DriverHost length validation before Tune().
+	 */
+	const std::size_t num = std::max<std::size_t>(1, param_set.num);
+	const std::size_t length = offsetof(px4::command::CtrlParamsCmd, param_set.params)
+				 + (sizeof(px4::command::Parameter) * num);
+	std::unique_ptr<std::uint8_t[]> buffer(new (std::nothrow) std::uint8_t[length]());
+	px4::command::CtrlParamsCmd *params_cmd;
+
+	if (!buffer)
+		return false;
+
+	params_cmd = reinterpret_cast<px4::command::CtrlParamsCmd *>(buffer.get());
+	params_cmd->cmd = px4::command::CtrlCmdCode::SET_PARAMS;
+	params_cmd->status = px4::command::CtrlStatusCode::NONE;
+	params_cmd->param_set.system = param_set.system;
+	params_cmd->param_set.freq = param_set.freq;
+	params_cmd->param_set.num = param_set.num;
+
+	if (param_set.num)
+		memcpy(params_cmd->param_set.params, param_set.params,
+		       sizeof(px4::command::Parameter) * param_set.num);
+
+	return Call(params_cmd, length);
 }
 
 bool CtrlCmdClient::ClearParams() noexcept
@@ -160,10 +198,16 @@ bool CtrlCmdClient::ReadStats(px4::command::StatSet &stat_set) noexcept
 template <typename T>
 bool CtrlCmdClient::Call(T& cmd) noexcept
 {
+	return Call(&cmd, sizeof(cmd));
+}
+
+bool CtrlCmdClient::Call(void *cmd, std::size_t length) noexcept
+{
 	if (!pipe_)
 		return false;
 
-	return (pipe_->Call(&cmd, sizeof(cmd)) && cmd.status == px4::command::CtrlStatusCode::SUCCEEDED);
+	px4::command::CtrlCmdHeader *header = reinterpret_cast<px4::command::CtrlCmdHeader *>(cmd);
+	return (pipe_->Call(cmd, length) && header->status == px4::command::CtrlStatusCode::SUCCEEDED);
 }
 
 } // namespace px4

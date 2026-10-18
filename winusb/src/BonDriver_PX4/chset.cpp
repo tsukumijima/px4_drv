@@ -22,7 +22,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 	while (true) {
 		char line[256];
 		std::streamsize gcount;
-		char *tmp_head, *tmp_tail = nullptr;
+		char *line_head, *tmp_head, *tmp_tail = nullptr;
 
 		if (!ifs.getline(line, 256))
 			break;
@@ -37,17 +37,24 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			gcount--;
 		}
 
-		if (line[0] == ';') {
+		// Empty separator lines must not be interpreted as channel 0.  In
+		// particular, a blank line after a CATV space used to replace C13 (the
+		// first channel) with an empty entry.
+		line_head = line;
+		while (*line_head == ' ' || *line_head == '\t')
+			line_head++;
+
+		if (*line_head == '\0' || *line_head == ';') {
 			// comment
 			continue;
 		}
 
-		if (line[0] == '$') {
+		if (*line_head == '$') {
 			// tuning space
 			std::wstring name;
 			std::uint32_t space_id;
 
-			tmp_head = line + 1;
+			tmp_head = line_head + 1;
 
 			// name
 			Split(&tmp_head, &tmp_tail, '\t');
@@ -66,7 +73,7 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			std::uint32_t space_id, ch_id;
 			ChannelInfo ch;
 
-			tmp_head = line;
+			tmp_head = line_head;
 
 			// name
 			Split(&tmp_head, &tmp_tail, '\t');
@@ -96,6 +103,56 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			// tsid
 			Split(&tmp_head, &tmp_tail, '\t');
 			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
+
+			// optional RF centre frequency in kHz (sixth field)
+			if (tmp_tail) {
+				Split(&tmp_head, &tmp_tail, '\t');
+				ch.freq_khz = px4::util::atoui32(tmp_head);
+
+				// Optional signed ISDB-C correction in kHz (seventh field).
+				if (tmp_tail) {
+					Split(&tmp_head, &tmp_tail, '\t');
+					ch.isdbc_freq_offset_khz = px4::util::atoi32(tmp_head);
+					ch.has_isdbc_freq_offset = true;
+
+					// The eighth field is either a TSMF Relative stream number
+					// (0-14), or an ISDB-C constellation (64/256).  The latter
+					// form lets a regular channel select its QAM profile without
+					// dummy TSMF fields.
+					if (tmp_tail) {
+						Split(&tmp_head, &tmp_tail, '\t');
+						const auto field8 = px4::util::atoui32(tmp_head);
+						if (field8 == 64 || field8 == 256) {
+							ch.isdbc_modulation = static_cast<std::uint16_t>(field8);
+						} else {
+							ch.tsmf_relative_stream = static_cast<std::uint8_t>(field8);
+							ch.is_tsmf = true;
+
+							// Optional signed TSMF slot-map offset (ninth field).
+							if (tmp_tail) {
+								Split(&tmp_head, &tmp_tail, '\t');
+								ch.tsmf_slot_offset = px4::util::atoi32(tmp_head);
+
+								// Optional modulation after the TSMF fields (tenth field).
+								if (tmp_tail) {
+									Split(&tmp_head, &tmp_tail, '\t');
+									const auto modulation = px4::util::atoui32(tmp_head);
+									if (modulation == 64 || modulation == 256)
+										ch.isdbc_modulation = static_cast<std::uint16_t>(modulation);
+
+									/* Optional eleventh field: raw TLV output for a TSMF
+									 * stream.  It is deliberately opt-in so existing TSMF
+									 * entries continue returning ordinary MPEG-TS. */
+									if (tmp_tail) {
+										Split(&tmp_head, &tmp_tail, '\t');
+										ch.tsmf_output_tlv = px4::util::atoui32(tmp_head) == 1;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 
 			if (!AddChannel(space_id, ch_id, ch))
 				return false;

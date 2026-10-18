@@ -10,7 +10,9 @@
 enum ptx_system_type {
 	PTX_UNSPECIFIED_SYSTEM = 0x00000000,
 	PTX_ISDB_T_SYSTEM = 0x00000010,
-	PTX_ISDB_S_SYSTEM = 0x00000020
+	PTX_ISDB_S_SYSTEM = 0x00000020,
+	/* ITU-T J.83 Annex C / Japanese cable transmodulation. */
+	PTX_ISDB_C_SYSTEM = 0x00000040
 };
 
 enum ptx_stream_type {
