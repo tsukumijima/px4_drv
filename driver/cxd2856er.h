@@ -53,7 +53,7 @@ union cxd2856er_system_params {
 		u32 modulation;
 		bool experimental_profile;
 		bool reference_profile;
-		/* 既定無効。J.83B 5.6 Msps の信号でロック・TS は未検証。 */
+		/* ISDB-C と同じ公開 API 上の系統で J.83B 5.6 Msps の内部設定を選ぶ。 */
 		bool experimental_j83b;
 	} isdbc;
 };
@@ -69,10 +69,10 @@ struct cxd2856er_demod {
 	struct cxd2856er_config config;
 	enum cxd2856er_state state;
 	enum cxd2856er_system system;
-	/* Tune diagnostics only: reset on each tune and used to rate-limit log. */
+	/* 状態ログの間引きに使い、選局ごとに初期化する。 */
 	u32 isdbt_lock_checks;
 	u32 isdbc_lock_checks;
-	/* 内部モードの寿命管理用。公開系統は ISDB-C のまま。 */
+	/* 公開 API 上の系統は ISDB-C と共通のため、J.83B 固有の停止処理が必要かを別に保持する。 */
 	bool j83b_active;
 };
 
