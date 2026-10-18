@@ -1,6 +1,7 @@
 // bon_driver.cpp
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <map>
 #include <stdexcept>
@@ -390,17 +391,16 @@ const DWORD BonDriver::GetReadyCount(void)
 
 const BOOL BonDriver::GetTsStream(BYTE *pDst, DWORD *pdwSize, DWORD *pdwRemain)
 {
-	if (!pDst || !pdwSize)
+	BYTE *src;
+
+	if (!pDst)
 		return FALSE;
 
-	std::size_t size, remain;
-
-	if (!ioq_->Read(pDst, size, remain, false))
+	// コピー型はコピー先の容量を受け取らないため、他の BonDriver と同じくポインター型で取り出した1つのバッファー分をコピーする
+	if (!GetTsStream(&src, pdwSize, pdwRemain))
 		return FALSE;
 
-	*pdwSize = static_cast<::DWORD>(size);
-	if (pdwRemain)
-		*pdwRemain = static_cast<::DWORD>(remain);
+	std::memcpy(pDst, src, *pdwSize);
 
 	return TRUE;
 }
