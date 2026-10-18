@@ -4,10 +4,24 @@
 
 #include <mutex>
 #include <fstream>
+#include <cerrno>
+#include <cctype>
+#include <cstdlib>
 
 #include "util.hpp"
 
 namespace px4 {
+
+static bool ParseInteger(const char *str, long long &value) noexcept
+{
+	char *end;
+	errno = 0;
+	value = std::strtoll(str, &end, 10);
+	const bool converted = end != str;
+	while (std::isspace(static_cast<unsigned char>(*end)))
+		end++;
+	return errno != ERANGE && converted && *end == '\0';
+}
 
 bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 {
@@ -121,7 +135,19 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 					// dummy TSMF fields.
 					if (tmp_tail) {
 						Split(&tmp_head, &tmp_tail, '\t');
-						const auto field8 = px4::util::atoui32(tmp_head);
+						std::uint32_t field8;
+						if (system == px4::SystemType::ISDB_C) {
+							long long value;
+							if (!ParseInteger(tmp_head, value) || value < 0 ||
+								(value > 14 && value != 64 && value != 256)) {
+								if (strict_)
+									return false;
+								continue;
+							}
+							field8 = static_cast<std::uint32_t>(value);
+						} else {
+							field8 = px4::util::atoui32(tmp_head);
+						}
 						if (field8 == 64 || field8 == 256) {
 							ch.isdbc_modulation = static_cast<std::uint16_t>(field8);
 						} else {
@@ -131,12 +157,34 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 							// Optional signed TSMF slot-map offset (ninth field).
 							if (tmp_tail) {
 								Split(&tmp_head, &tmp_tail, '\t');
-								ch.tsmf_slot_offset = px4::util::atoi32(tmp_head);
+								if (system == px4::SystemType::ISDB_C) {
+									long long value;
+									if (!ParseInteger(tmp_head, value) || value < -51 || value > 51) {
+										if (strict_)
+											return false;
+										continue;
+									}
+									ch.tsmf_slot_offset = static_cast<std::int32_t>(value);
+								} else {
+									ch.tsmf_slot_offset = px4::util::atoi32(tmp_head);
+								}
 
 								// Optional modulation after the TSMF fields (tenth field).
 								if (tmp_tail) {
 									Split(&tmp_head, &tmp_tail, '\t');
-									const auto modulation = px4::util::atoui32(tmp_head);
+									std::uint32_t modulation;
+									if (system == px4::SystemType::ISDB_C) {
+										long long value;
+										if (!ParseInteger(tmp_head, value) ||
+											(value != 0 && value != 64 && value != 256)) {
+											if (strict_)
+												return false;
+											continue;
+										}
+										modulation = static_cast<std::uint32_t>(value);
+									} else {
+										modulation = px4::util::atoui32(tmp_head);
+									}
 									if (modulation == 64 || modulation == 256)
 										ch.isdbc_modulation = static_cast<std::uint16_t>(modulation);
 
