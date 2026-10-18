@@ -32,6 +32,7 @@ ReceiverBase::ReceiverBase(unsigned int options)
 	lock_()
 {
 	memset(&params_, 0, sizeof(params_));
+	params_.tsmf_tsid = -1;
 	stream_buf_.reset(new StreamBuffer());
 }
 
@@ -68,6 +69,9 @@ bool ReceiverBase::GetParameters(px4::command::ParameterSet &param_set) noexcept
 		case px4::command::ParameterType::TSMF_RELATIVE_STREAM:
 			param_set.params[i].value = params_.tsmf_relative_stream;
 			break;
+		case px4::command::ParameterType::TSMF_TSID:
+			param_set.params[i].value = static_cast<std::uint32_t>(params_.tsmf_tsid);
+			break;
 
 		case px4::command::ParameterType::TSMF_SLOT_OFFSET:
 			param_set.params[i].value = params_.tsmf_slot_offset;
@@ -99,6 +103,7 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 	/* TSMF parameters are optional and must not leak from the previous tune. */
 	params_.tsmf_mode = 0;
 	params_.tsmf_relative_stream = 0;
+	params_.tsmf_tsid = -1;
 	params_.tsmf_slot_offset = 0;
 	params_.tsmf_output_tlv = 0;
 
@@ -123,6 +128,11 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 		case px4::command::ParameterType::TSMF_RELATIVE_STREAM:
 			params_.tsmf_relative_stream = param_set.params[i].value;
 			break;
+		case px4::command::ParameterType::TSMF_TSID:
+			if (param_set.params[i].value > 65535)
+				return false;
+			params_.tsmf_tsid = static_cast<std::int32_t>(param_set.params[i].value);
+			break;
 
 		case px4::command::ParameterType::TSMF_SLOT_OFFSET:
 			params_.tsmf_slot_offset = param_set.params[i].value;
@@ -145,7 +155,7 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 	stream_buf_->SetTsmfRelativeStream(params_.tsmf_mode != 0,
 		static_cast<std::uint8_t>(params_.tsmf_relative_stream),
 		static_cast<std::int32_t>(params_.tsmf_slot_offset),
-		params_.tsmf_output_tlv != 0);
+		params_.tsmf_output_tlv != 0, params_.tsmf_tsid);
 
 	return true;
 }
@@ -155,6 +165,7 @@ void ReceiverBase::ClearParameters() noexcept
 	std::lock_guard<std::mutex> lock(lock_);
 
 	memset(&params_, 0, sizeof(params_));
+	params_.tsmf_tsid = -1;
 	stream_buf_->SetTsmfRelativeStream(false, 0, 0, false);
 }
 
@@ -195,7 +206,7 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 		if (isdbc && params_.tsmf_mode && params_.tsmf_output_tlv)
 			stream_buf_->SetTsmfRelativeStream(true,
 				static_cast<std::uint8_t>(params_.tsmf_relative_stream),
-				static_cast<std::int32_t>(params_.tsmf_slot_offset), true);
+				static_cast<std::int32_t>(params_.tsmf_slot_offset), true, params_.tsmf_tsid);
 		ret = SetFrequency();
 		if (ret)
 			return false;
@@ -217,7 +228,7 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 				stream_buf_->SetTsmfRelativeStream(true,
 					static_cast<std::uint8_t>(params_.tsmf_relative_stream),
 					static_cast<std::int32_t>(params_.tsmf_slot_offset),
-					params_.tsmf_output_tlv != 0);
+					params_.tsmf_output_tlv != 0, params_.tsmf_tsid);
 		}
 
 		bool input_checked = false;
@@ -337,6 +348,7 @@ ReceiverBase::StreamBuffer::StreamBuffer()
 	tsmf_logged_header_(false),
 	tsmf_logged_tlv_type_mismatch_(false),
 	tsmf_relative_stream_(0),
+	tsmf_tsid_(-1),
 	tsmf_slot_offset_(0),
 	tsmf_slot_(-1),
 	tsmf_stream_enabled_{},
@@ -388,6 +400,8 @@ void ReceiverBase::StreamBuffer::Start() noexcept
 	{
 		std::lock_guard<std::mutex> lock(tsmf_mtx_);
 		tsmf_slot_ = -1;
+		if (tsmf_tsid_ >= 0)
+			tsmf_relative_stream_ = 15;
 		tsmf_logged_header_ = false;
 		tsmf_logged_tlv_type_mismatch_ = false;
 		tsmf_tlv_size_ = 0;
@@ -429,13 +443,14 @@ void ReceiverBase::StreamBuffer::SetDiscardTsmfHeaderPacketsOnIsdbCOutput(bool e
 	discard_tsmf_header_packets_on_isdbc_output_ = enabled;
 }
 
-void ReceiverBase::StreamBuffer::SetTsmfRelativeStream(bool enabled, std::uint8_t stream, std::int32_t slot_offset, bool output_tlv) noexcept
+void ReceiverBase::StreamBuffer::SetTsmfRelativeStream(bool enabled, std::uint8_t stream, std::int32_t slot_offset, bool output_tlv, std::int32_t tsid) noexcept
 {
 	std::lock_guard<std::mutex> lock(tsmf_mtx_);
 
 	tsmf_enabled_ = enabled;
 	tsmf_output_tlv_ = enabled && output_tlv;
-	tsmf_relative_stream_ = stream;
+	tsmf_tsid_ = tsid;
+	tsmf_relative_stream_ = (tsid >= 0) ? 15 : stream;
 	tsmf_slot_offset_ = slot_offset;
 	tsmf_slot_ = -1;
 	tsmf_logged_header_ = false;
@@ -658,6 +673,20 @@ bool ReceiverBase::StreamBuffer::TsmfParseHeader(const std::uint8_t *packet) noe
 		const std::uint8_t slot = packet[73 + (i / 2)];
 		tsmf_slot_stream_[i] = (i & 1) ? (slot & 0x0f) : (slot >> 4);
 	}
+	if (tsmf_tsid_ >= 0) {
+		std::uint8_t relative = 15;
+		for (std::size_t i = 0; i < tsmf_stream_enabled_.size(); i++) {
+			const std::uint16_t tsid = (static_cast<std::uint16_t>(packet[9 + i * 4]) << 8) | packet[10 + i * 4];
+			if (tsid == tsmf_tsid_) {
+				relative = static_cast<std::uint8_t>(i);
+				break;
+			}
+		}
+		// 相対 TS 番号の変更前後では、TLV の断片を連結できない
+		if (relative != tsmf_relative_stream_)
+			tsmf_tlv_size_ = 0;
+		tsmf_relative_stream_ = relative;
+	}
 
 	tsmf_slot_ = 0;
 	tsmf_header_packets_++;
@@ -736,6 +765,8 @@ bool ReceiverBase::StreamBuffer::TsmfSelectPacket(const std::uint8_t *packet) no
 
 	if (packet[0] != 0x47 || tsmf_slot_ < 0 || tsmf_slot_ >= 52) {
 		tsmf_slot_ = -1;
+		if (tsmf_tsid_ >= 0)
+			tsmf_relative_stream_ = 15;
 		tsmf_tlv_size_ = 0;
 		return false;
 	}
@@ -797,6 +828,8 @@ bool ReceiverBase::StreamBuffer::Purge() noexcept
 	{
 		std::lock_guard<std::mutex> lock(tsmf_mtx_);
 		tsmf_slot_ = -1;
+		if (tsmf_tsid_ >= 0)
+			tsmf_relative_stream_ = 15;
 		tsmf_tlv_size_ = 0;
 	}
 	return ringbuf_.Purge();

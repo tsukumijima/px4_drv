@@ -869,8 +869,8 @@ int PxMltDevice::PxMltReceiver::PrepareTune()
 	if (params_.system != px4::SystemType::ISDB_C || !parent_.config_.device.experimental_j83b)
 		return 0;
 	/* J.83B は TSMF を使わない。要求を黙って捨てると別ストリームを返すため、
-	 * 有効な TSMF パラメーターはハードウェア操作前に拒否する。全て0は無効指定。 */
-	if (params_.tsmf_mode || params_.tsmf_relative_stream || params_.tsmf_slot_offset || params_.tsmf_output_tlv) {
+	 * 有効な TSMF パラメーターはハードウェア操作前に拒否する。TSID は -1、他は0が未指定。 */
+	if (params_.tsmf_mode || params_.tsmf_relative_stream || params_.tsmf_tsid >= 0 || params_.tsmf_slot_offset || params_.tsmf_output_tlv) {
 		dev_err(&parent_.dev_, "J.83B 5.6 Msps (experimental, unverified): TSMF parameters are unsupported.\n");
 		return -EINVAL;
 	}
