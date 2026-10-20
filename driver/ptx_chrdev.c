@@ -191,6 +191,10 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 	if (chrdev->ops && chrdev->ops->release)
 		ret = chrdev->ops->release(chrdev);
 
+	/* ISDB-C は地デジと同じチャンネル番号で選局するため、放送方式を指定せずに選局する次の利用者が地デジのつもりで ISDB-C を選局しないよう、方式を戻す */
+	if (chrdev->params.system == PTX_ISDB_C_SYSTEM)
+		chrdev->params.system = PTX_UNSPECIFIED_SYSTEM;
+
 	mutex_unlock(&chrdev->lock);
 
 	atomic_dec_return(&chrdev->open);
