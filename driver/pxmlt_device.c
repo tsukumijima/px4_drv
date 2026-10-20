@@ -11,6 +11,8 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#include <linux/log2.h>
+#include <linux/math64.h>
 
 #include "px4_device_params.h"
 #include "firmware.h"
@@ -365,6 +367,31 @@ static int pxmlt_chrdev_release(struct ptx_chrdev *chrdev)
 	return 0;
 }
 
+static int pxmlt_chrdev_set_null_packet_filter(struct ptx_chrdev *chrdev, bool enable)
+{
+	struct pxmlt_chrdev *chrdevm = chrdev->priv;
+	struct pxmlt_device *pxmlt = chrdevm->parent;
+	struct it930x_pid_filter filter;
+	int ret;
+
+	if (!px4_device_params.discard_null_packets ||
+	    chrdevm->null_packet_filter_disabled == !enable)
+		return 0;
+
+	filter.block = true;
+	filter.num = 1;
+	filter.pid[0] = 0x1fff;
+
+	mutex_lock(&pxmlt->lock);
+	ret = it930x_set_pid_filter(&pxmlt->it930x, chrdev->id,
+				  enable ? &filter : NULL);
+	if (!ret)
+		chrdevm->null_packet_filter_disabled = !enable;
+	mutex_unlock(&pxmlt->lock);
+
+	return ret;
+}
+
 static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 			     struct ptx_tune_params *params)
 {
@@ -378,6 +405,12 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		"pxmlt_chrdev_tune %u:%u\n", chrdev_group->id, chrdev->id);
 
 	memset(&demod_params, 0, sizeof(demod_params));
+
+	if (chrdevm->null_packet_filter_disabled && params->system != PTX_ISDB_C_SYSTEM) {
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev, true);
+		if (ret)
+			return ret;
+	}
 
 	switch (params->system) {
 	case PTX_ISDB_T_SYSTEM:
@@ -400,6 +433,24 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		if (ret)
 			dev_err(pxmlt->dev,
 				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(CXD2856ER_ISDB_S_SYSTEM) failed. (ret: %d)\n",
+				chrdev_group->id, chrdev->id, ret);
+
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+		/* TSMF はパケットの位置で TS を選ぶため、分離前は null パケットも受け取る */
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
+			params->tsmf_relative_stream < 0 && params->tsmf_tsid < 0);
+		if (ret)
+			break;
+
+		demod_params.isdbc.j83b = params->symbol_rate == 5600;
+
+		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
+					       CXD2856ER_ISDB_C_SYSTEM, &demod_params);
+		if (ret)
+			dev_err(pxmlt->dev,
+				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(CXD2856ER_ISDB_C_SYSTEM) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id, ret);
 
 		break;
@@ -434,6 +485,17 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		if (ret)
 			dev_err(pxmlt->dev,
 				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_s(%u, 28860) failed. (ret: %d)\n",
+				chrdev_group->id, chrdev->id,
+				params->freq, ret);
+
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+		ret = cxd2858er_set_params_c(&chrdevm->cxd2858er,
+					     params->freq, demod_params.isdbc.j83b);
+		if (ret)
+			dev_err(pxmlt->dev,
+				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_c(%u) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id,
 				params->freq, ret);
 
@@ -476,6 +538,10 @@ static int pxmlt_chrdev_check_lock(struct ptx_chrdev *chrdev, bool *locked)
 
 	case PTX_ISDB_S_SYSTEM:
 		ret = cxd2856er_is_ts_locked_isdbs(&chrdevm->cxd2856er, locked);
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+		ret = cxd2856er_is_ts_locked_isdbc(&chrdevm->cxd2856er, locked);
 		break;
 
 	default:
@@ -737,6 +803,24 @@ static const struct {
 	{ 0x16, 0x1e66 }, { 0x15, 0x1dd6 }, { 0x14, 0x1d90 }
 };
 
+/* カーネル内では浮動小数点を使えないため、自然対数の100倍を固定小数点の log2 から求める */
+static u32 pxmlt_ln_x100(u16 x)
+{
+	u32 n = ilog2(x), frac = 0;
+	u64 m = (u64)x << (16 - n);
+	int i;
+
+	for (i = 15; i >= 0; i--) {
+		m = (m * m) >> 16;
+		if (m >= (1 << 17)) {
+			frac |= 1 << i;
+			m >>= 1;
+		}
+	}
+
+	return (u32)div_u64(((((u64)n << 16) | frac) * 69315) + (1000 << 15), 1000 << 16);
+}
+
 static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 {
 	int ret = 0;
@@ -829,6 +913,21 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 		break;
 	}
 
+	case PTX_ISDB_C_SYSTEM:
+	{
+		u16 val;
+		s32 cn;
+
+		ret = cxd2856er_read_cnr_raw_isdbc(&chrdevm->cxd2856er, &val);
+		if (ret)
+			break;
+
+		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じ式で dB の1000倍の値を返す (J.83B も cxd2878.c に従い同じ式を使う) */
+		cn = (val) ? -95 * (s32)pxmlt_ln_x100(max_t(u16, val, 126)) + 95941 : 0;
+		*value = (cn > 0) ? cn : 0;
+		break;
+	}
+
 	default:
 		ret = -EINVAL;
 		break;
@@ -893,7 +992,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		struct it930x_stream_input *input = &it930x->config.input[i];
 		struct pxmlt_chrdev *chrdevm = &pxmlt->chrdevm[i];
 
-		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM;
+		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM | PTX_ISDB_C_SYSTEM;
 
 		input->enable = true;
 		input->is_parallel = false;

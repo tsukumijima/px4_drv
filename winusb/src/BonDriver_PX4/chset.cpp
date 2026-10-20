@@ -4,6 +4,8 @@
 
 #include <mutex>
 #include <fstream>
+#include <cstdlib>
+#include <cstring>
 
 #include "util.hpp"
 
@@ -96,6 +98,13 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			// tsid
 			Split(&tmp_head, &tmp_tail, '\t');
 			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
+
+			if (system == px4::SystemType::ISDB_C && !ParseIsdbC(&tmp_head, &tmp_tail, ch)) {
+				if (strict_)
+					return false;
+				else
+					continue;
+			}
 
 			if (!AddChannel(space_id, ch_id, ch))
 				return false;
@@ -208,6 +217,54 @@ void ChannelSet::Split(char **head, char **tail, char c) noexcept
 	*tail = t;
 
 	return;
+}
+
+bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
+{
+	auto next = [head, tail](long min, long max, long &value) noexcept {
+		char *end;
+
+		Split(head, tail, '\t');
+		value = std::strtol(*head, &end, 10);
+		return end != *head && *end == '\0' && value >= min && value <= max;
+	};
+	const char *tsid = *head;
+	char *end;
+	long value;
+
+	// 方式 (0 は J.83 Annex C、J83B は J.83 Annex B)
+	if (!*tail)
+		return true;
+	if (!next(0, 0, value)) {
+		if (std::strcmp(*head, "J83B"))
+			return false;
+		ch.j83b = true;
+	}
+
+	// TSMF で多重された TS の選択 (0-14 は相対 TS 番号、-1 は第5列の TSID)
+	if (!*tail)
+		return true;
+	if (ch.j83b || !next(-1, 14, value))
+		return false;
+	if (value < 0) {
+		// 第5列は既存の読み方では16ビットへ丸められるため、TSID で選ぶ行だけ範囲を確かめ直す
+		value = std::strtol(tsid, &end, 10);
+		if (end == tsid || *end != '\0' || value < 0 || value > 0xffff)
+			return false;
+		ch.tsmf = TsmfSelection::TSID;
+	} else {
+		ch.tsmf = TsmfSelection::RELATIVE_STREAM;
+		ch.tsmf_relative_stream = static_cast<std::uint8_t>(value);
+	}
+
+	// 1 なら TSMF の TS を BonDriver_dantto4k 向けの生 TLV で出力する
+	if (!*tail)
+		return true;
+	if (!next(0, 1, value))
+		return false;
+	ch.tsmf_output_tlv = (value != 0);
+
+	return true;
 }
 
 } // namespace px4

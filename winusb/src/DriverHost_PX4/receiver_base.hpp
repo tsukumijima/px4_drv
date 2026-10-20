@@ -13,6 +13,7 @@
 #include "type.hpp"
 #include "command.hpp"
 #include "ringbuffer.hpp"
+#include "tsmf.h"
 
 namespace px4 {
 
@@ -23,6 +24,11 @@ public:
 		std::uint32_t freq;
 		std::uint32_t bandwidth;
 		std::uint32_t stream_id;
+		// 以降は ISDB-C だけで使い、TSMF の TS を指定しない項目は -1
+		std::uint32_t symbol_rate;
+		std::int32_t tsmf_relative_stream;
+		std::int32_t tsmf_tsid;
+		bool tsmf_output_tlv;
 	};
 
 	class StreamBuffer final {
@@ -39,14 +45,26 @@ public:
 		void NotifyWrite() noexcept;
 		void HandleRead(std::size_t buf_size, std::function<bool(const void *buf, std::size_t size)> handler);
 		bool Purge() noexcept;
+		// TSMF で多重された搬送波の選局から次の選局までの間だけ、指定した TS を選んで出力する
+		void StartTsmf(std::int32_t relative_stream, std::int32_t tsid, bool output_tlv, bool discard_null_packets);
+		void StopTsmf() noexcept;
+		void RestartTsmf() noexcept;
+		bool IsTsmfStreamFound() noexcept;
 
 	private:
+		bool WriteTsmf(const void *buf, std::size_t &size) noexcept;
+
 		std::mutex mtx_;
 		px4::RingBuffer ringbuf_;
 		std::atomic_bool stop_;
 		std::condition_variable cond_;
 		std::size_t write_size_;
 		std::size_t threshold_size_;
+
+		std::atomic_bool tsmf_;
+		std::mutex tsmf_mtx_;
+		// TLV の蓄積領域を含めて大きいため、TSMF を指定した受信機だけに確保する
+		std::unique_ptr<tsmf_filter> tsmf_filter_;
 	};
 
 	ReceiverBase(unsigned int options);
@@ -88,6 +106,8 @@ protected:
 	std::shared_ptr<StreamBuffer> stream_buf_;
 
 private:
+	bool TuneIsdbC(std::uint32_t timeout);
+
 	std::mutex lock_;
 };
 

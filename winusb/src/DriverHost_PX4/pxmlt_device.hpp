@@ -116,6 +116,8 @@ private:
 		int SetStreamId() override;
 
 	private:
+		int SetNullPacketFilter(bool enable);
+
 		static const struct PxMltReceiverCnTableIsdbS final {
 			uint16_t val;
 			uint32_t cnr;
@@ -133,6 +135,8 @@ private:
 		cxd2858er_tuner cxd2858er_;
 		px4::SystemType current_system_;
 		bool streaming_;
+		bool tsmf_;
+		bool null_packet_filter_;
 	};
 
 	void LoadConfig();

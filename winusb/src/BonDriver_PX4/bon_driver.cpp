@@ -182,6 +182,31 @@ bool BonDriver::Init()
 				chset_.Merge(chset_s);
 		}
 
+		if ((systems_ & px4::SystemType::ISDB_C) == px4::SystemType::ISDB_C) {
+			px4::ChannelSet chset_c;
+			bool result;
+
+			try {
+				std::wstring chset_path = configs_.Get(L"BonDriver.ISDB-C").Get(L"ChSetPath");
+				WCHAR path[MAX_PATH];
+
+				if (PathIsRelativeW(chset_path.c_str()) && PathCanonicalizeW(path, (dir_path + chset_path).c_str()))
+					chset_path = path;
+
+				result = chset_c.Load(chset_path, px4::SystemType::ISDB_C);
+			} catch (const std::out_of_range&) {
+				result = false;
+			}
+
+			if (!result) {
+				chset_c.Clear();
+				result = chset_c.Load(dir_path + L"BonDriver_PX4-C.ChSet.txt", px4::SystemType::ISDB_C);
+			}
+
+			if (result)
+				chset_.Merge(chset_c);
+		}
+
 		receivers_.Load(configs_);
 
 		quit_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -516,6 +541,30 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 		break;
 
+	case px4::SystemType::ISDB_C:
+		if (channel.ptx_ch <= 62) {
+			// VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
+			// 番号の割り当ては recpt1 と同じで、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
+			real_freq = 93000 + (channel.ptx_ch * 6000);
+
+			if (channel.ptx_ch >= 12 && channel.ptx_ch <= 16)
+				real_freq += 2000;
+		} else if (channel.ptx_ch >= 63 && channel.ptx_ch <= 112) {
+			// UHF 13-62ch
+			real_freq = 95000 + (channel.ptx_ch * 6000);
+		} else {
+			// unknown channel
+			return FALSE;
+		}
+
+		num_param = 1;
+		if (channel.tsmf != px4::ChannelSet::TsmfSelection::NONE)
+			num_param++;
+		if (channel.tsmf_output_tlv)
+			num_param++;
+
+		break;
+
 	default:
 		// unknown system
 		return FALSE;
@@ -535,6 +584,27 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 	if (system == px4::SystemType::ISDB_S && num_param) {
 		param_set->params[0].type = px4::command::ParameterType::STREAM_ID;
 		param_set->params[0].value = channel.tsid;
+	}
+
+	if (system == px4::SystemType::ISDB_C) {
+		std::uint32_t i = 1;
+
+		// J.83 Annex C は 5.274 Msps、Annex B は 5.6 Msps の固定値
+		param_set->params[0].type = px4::command::ParameterType::SYMBOL_RATE;
+		param_set->params[0].value = (channel.j83b) ? 5600 : 5274;
+
+		if (channel.tsmf == px4::ChannelSet::TsmfSelection::RELATIVE_STREAM) {
+			param_set->params[i].type = px4::command::ParameterType::TSMF_RELATIVE_STREAM;
+			param_set->params[i++].value = channel.tsmf_relative_stream;
+		} else if (channel.tsmf == px4::ChannelSet::TsmfSelection::TSID) {
+			param_set->params[i].type = px4::command::ParameterType::TSMF_TSID;
+			param_set->params[i++].value = channel.tsid;
+		}
+
+		if (channel.tsmf_output_tlv) {
+			param_set->params[i].type = px4::command::ParameterType::TSMF_OUTPUT_TLV;
+			param_set->params[i].value = 1;
+		}
 	}
 
 	bool ret = true;
@@ -567,6 +637,9 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 	delete[] reinterpret_cast<std::uint8_t*>(param_set);
 
+	// TSMF で選んだ TS は毎秒数十 KB のことがあり、バッファーが埋まるまで待つと最初のデータまで数秒かかるため、ISDB-C だけ 200ms で途中まででも渡す
+	// 地デジや BS/CS は 192KB を 0.1 秒前後で埋めるので、従来どおり埋まるまで待つ
+	ioq_->SetReadFlushInterval(std::chrono::milliseconds((system == px4::SystemType::ISDB_C) ? 200 : 0));
 	PurgeTsStream();
 
 	if (ret) {

@@ -21,7 +21,8 @@ IoQueue::IoQueue(IoOperation io_op, IoProvider &iop, std::size_t buf_size, std::
 	total_buf_num_(0),
 	current_ofs_(0),
 	data_ignore_count_(data_ignore_count),
-	data_ignore_remain_(0)
+	data_ignore_remain_(0),
+	read_flush_interval_(0)
 {
 	while (min--)
 		IncreaseFreeBuffer();
@@ -160,6 +161,11 @@ void IoQueue::PurgeDataBuffer()
 	free_cond_.notify_all();
 
 	return;
+}
+
+void IoQueue::SetReadFlushInterval(std::chrono::milliseconds interval) noexcept
+{
+	read_flush_interval_ = interval.count();
 }
 
 bool IoQueue::Read(void *buf, std::size_t &size, std::size_t &remain_count, bool blocking)
@@ -363,6 +369,7 @@ void IoQueue::ReadWorker()
 
 		std::size_t rofs = 0;
 		bool quit = false;
+		const auto begin = std::chrono::steady_clock::now();
 
 		while (rofs < buf_size_) {
 			std::size_t rlen = buf_size_ - rofs;
@@ -373,6 +380,12 @@ void IoQueue::ReadWorker()
 			}
 
 			rofs += rlen;
+
+			// 低レートの TS ではバッファーが埋まるまで数秒かかるため、指定があればその時間で途中まででも渡す
+			// 地デジから切り替えたときは読み始めたバッファーにも新しい指定を効かせるため、読むたびに確かめる
+			const std::chrono::milliseconds flush_interval(read_flush_interval_.load());
+			if (flush_interval.count() && rofs && (std::chrono::steady_clock::now() - begin) >= flush_interval)
+				break;
 		}
 
 		buf->actual_length = rofs;

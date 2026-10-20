@@ -14,11 +14,28 @@ namespace px4 {
 
 class ChannelSet final {
 public:
+	enum class TsmfSelection {
+		NONE,
+		RELATIVE_STREAM,
+		TSID,
+	};
 	struct ChannelInfo final {
-		ChannelInfo() noexcept : ptx_ch(0), tsid(0) {}
+		ChannelInfo() noexcept
+			: ptx_ch(0),
+			tsid(0),
+			j83b(false),
+			tsmf(TsmfSelection::NONE),
+			tsmf_relative_stream(0),
+			tsmf_output_tlv(false)
+		{}
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
+		// 以降は ISDB-C の行だけで使う
+		bool j83b;
+		TsmfSelection tsmf;
+		std::uint8_t tsmf_relative_stream;
+		bool tsmf_output_tlv;
 	};
 	struct SpaceInfo final {
 		explicit SpaceInfo(px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept : SpaceInfo(L"", system) {}
@@ -49,6 +66,7 @@ private:
 	bool AddSpace(uint32_t space_id, const std::wstring *name, px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept;
 	bool AddChannel(uint32_t space_id, uint32_t ch_id, const ChannelInfo& ch) noexcept;
 	static void Split(char **head, char **tail, char c) noexcept;
+	static bool ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept;
 
 	bool strict_;
 	mutable std::shared_mutex mtx_;

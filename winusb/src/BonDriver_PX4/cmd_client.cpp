@@ -1,5 +1,9 @@
 // cmd_client.cpp
 
+#include <cstddef>
+#include <cstring>
+#include <new>
+
 #include "cmd_client.hpp"
 
 namespace px4 {
@@ -84,13 +88,31 @@ bool CtrlCmdClient::GetParams(px4::command::ParameterSet &param_set) noexcept
 
 bool CtrlCmdClient::SetParams(const px4::command::ParameterSet &param_set) noexcept
 {
-	px4::command::CtrlParamsCmd params_cmd;
+	if (param_set.num <= 1) {
+		px4::command::CtrlParamsCmd params_cmd;
 
-	params_cmd.cmd = px4::command::CtrlCmdCode::SET_PARAMS;
-	params_cmd.status = px4::command::CtrlStatusCode::NONE;
-	params_cmd.param_set = param_set;
+		params_cmd.cmd = px4::command::CtrlCmdCode::SET_PARAMS;
+		params_cmd.status = px4::command::CtrlStatusCode::NONE;
+		params_cmd.param_set = param_set;
 
-	return Call(params_cmd);
+		return Call(params_cmd);
+	}
+
+	// ISDB-C は複数のパラメーターを送るため、末尾の配列の要素数に合わせた長さで送る
+	const std::size_t offset = offsetof(px4::command::CtrlParamsCmd, param_set);
+	const std::size_t length = offsetof(px4::command::CtrlParamsCmd, param_set.params) + (sizeof(px4::command::Parameter) * param_set.num);
+	std::unique_ptr<std::uint8_t[]> buf(new (std::nothrow) std::uint8_t[length]);
+
+	if (!buf)
+		return false;
+
+	auto params_cmd = reinterpret_cast<px4::command::CtrlParamsCmd *>(buf.get());
+
+	params_cmd->cmd = px4::command::CtrlCmdCode::SET_PARAMS;
+	params_cmd->status = px4::command::CtrlStatusCode::NONE;
+	std::memcpy(&params_cmd->param_set, &param_set, length - offset);
+
+	return (pipe_ && pipe_->Call(params_cmd, length) && params_cmd->status == px4::command::CtrlStatusCode::SUCCEEDED);
 }
 
 bool CtrlCmdClient::ClearParams() noexcept

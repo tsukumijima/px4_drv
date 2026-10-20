@@ -3,6 +3,18 @@
  * Sony CXD2858ER driver (cxd2858er.c)
  *
  * Copyright (c) 2018-2021 nns779
+ *
+ * ISDB-C 用に参照した Linux helene.c (GPL-2.0-or-later):
+ * https://github.com/torvalds/linux/blob/v6.12/drivers/media/dvb-frontends/helene.c
+ * Copyright 2012 Sony Corporation
+ * Copyright (C) 2014 NetUP Inc.
+ * Copyright (C) 2014 Abylay Ospan <aospan@netup.ru>
+ *
+ * J.83B 用に参照した cxd2878.c:
+ * https://github.com/koreapyj/cxd28xx/blob/c5fa27eecbe80633cbb365cc44656daea1c0e2e3/cxd2878.c
+ * Copyright (c) 2022 Sony Semiconductor Solutions Corporation
+ * Copyright (c) 2021 Davin zhang <Davin@tbsdtv.com>
+ * Copyright (c) 2026 Yoonji Park <koreapyj@dcmys.kr>
  */
 
 #include "print_format.h"
@@ -260,6 +272,7 @@ int cxd2858er_term(struct cxd2858er_tuner *tuner)
 	if (!ret) {
 		switch (tuner->system) {
 		case CXD2858ER_ISDB_T_SYSTEM:
+		case CXD2858ER_ISDB_C_SYSTEM:
 			cxd2858er_stop_t(tuner);
 			break;
 
@@ -408,6 +421,113 @@ exit:
 	return ret;
 }
 
+int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
+			   u32 freq, bool j83b)
+{
+	int ret = 0;
+	u8 data[17];
+
+	/* J.83B の REF_R は、参照元で設定値を確認できる水晶周波数に限定する */
+	if (j83b && tuner->config.xtal != 16000 &&
+		tuner->config.xtal != 24000)
+		return -EINVAL;
+
+	ret = i2c_comm_master_gate_ctrl(tuner->i2c, true);
+	if (ret)
+		return ret;
+
+	switch (tuner->system) {
+	case CXD2858ER_ISDB_S_SYSTEM:
+		ret = cxd2858er_stop_s(tuner);
+		break;
+
+	default:
+		break;
+	}
+	if (ret)
+		goto exit;
+
+	ret = cxd2858er_write_reg(tuner, 0x01, 0x00);
+	if (ret)
+		goto exit;
+	ret = cxd2858er_write_reg(tuner, 0x74, 0x02);
+	if (ret)
+		goto exit;
+
+	data[0] = 0xc4;
+	data[1] = 0x40;
+	ret = cxd2858er_write_regs(tuner, 0x87, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x16;
+	data[1] = 0x26;
+	ret = cxd2858er_write_regs(tuner, 0x91, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x00;
+	data[1] = 0x00;
+	ret = cxd2858er_write_regs(tuner, 0x9c, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0xee;
+	data[1] = 0x02;
+	data[2] = 0x1e;
+	data[3] = 0x67;
+	/* cxd2878.c の helene_tune_terr() に従い、ケーブル受信用の REF_R を水晶周波数に合わせる */
+	data[4] = (tuner->config.xtal == 16000) ? 0x10 : 0x18;
+	data[5] = 0x1c;
+	data[6] = 0x78;
+	data[7] = 0x08;
+	data[8] = 0x1c;
+	ret = cxd2858er_write_regs(tuner, 0x5e, data, 9);
+	if (ret)
+		goto exit;
+
+	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x00, 0x02);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x00;
+	data[1] = j83b ? 0x84 : 0x85;
+	data[2] = 0x00;
+	data[3] = 0x02;
+	data[4] = 0x21;
+	data[5] = 0x00;
+	/* cxd2878.c の SONY_HELENE_DTV_J83B_5_6 に従い、J.83B では FIF_OFFSET=-5、BW_OFFSET=+2 を5ビットで格納する
+	 * 他の設定値は DVB-C 6 MHz と共通で、書き込み後は helene_tune_terr() と同じ50ミリ秒の校正待ちが必要 */
+	data[6] = j83b ? 0x1b : 0x1a;
+	data[7] = j83b ? 0x02 : 0x1c;
+	data[8] = freq & 0xff;
+	data[9] = (freq >> 8) & 0xff;
+	data[10] = (freq >> 16) & 0x0f;
+	data[11] = 0xff;
+	data[12] = 0x01;
+	data[13] = 0xd9;
+	data[14] = 0x0f;
+	data[15] = 0x24;
+	data[16] = 0x87;
+	ret = cxd2858er_write_regs(tuner, 0x68, data, 17);
+	if (ret)
+		goto exit;
+
+	msleep(50);
+	ret = cxd2858er_write_reg(tuner, 0x88, 0x00);
+	if (ret)
+		goto exit;
+	ret = cxd2858er_write_reg(tuner, 0x87, 0xc0);
+	if (ret)
+		goto exit;
+
+	tuner->system = CXD2858ER_ISDB_C_SYSTEM;
+
+exit:
+	i2c_comm_master_gate_ctrl(tuner->i2c, false);
+	return ret;
+}
+
 int cxd2858er_set_params_s(struct cxd2858er_tuner *tuner,
 			   enum cxd2858er_system system,
 			   u32 freq, u32 symbol_rate)
@@ -424,6 +544,7 @@ int cxd2858er_set_params_s(struct cxd2858er_tuner *tuner,
 
 	switch (tuner->system) {
 	case CXD2858ER_ISDB_T_SYSTEM:
+	case CXD2858ER_ISDB_C_SYSTEM:
 		ret = cxd2858er_stop_t(tuner);
 		break;
 
@@ -538,7 +659,9 @@ static int cxd2858er_stop_t(struct cxd2858er_tuner *tuner)
 	int ret = 0;
 	u8 data[3];
 
-	if (tuner->system != CXD2858ER_ISDB_T_SYSTEM)
+	/* ISDB-C も地上波側の RF 経路を使うため同じ手順で停止する */
+	if (tuner->system != CXD2858ER_ISDB_T_SYSTEM &&
+	    tuner->system != CXD2858ER_ISDB_C_SYSTEM)
 		return -EINVAL;
 
 	ret = cxd2858er_write_reg(tuner, 0x74, 0x02);
@@ -630,6 +753,11 @@ int cxd2858er_stop(struct cxd2858er_tuner *tuner)
 	case CXD2858ER_ISDB_S_SYSTEM:
 		cxd2858er_stop_s(tuner);
 		break;
+
+	case CXD2858ER_ISDB_C_SYSTEM:
+		ret = cxd2858er_stop_t(tuner);
+		i2c_comm_master_gate_ctrl(tuner->i2c, false);
+		return ret;
 
 	default:
 		break;

@@ -62,6 +62,12 @@ foreach ($build_platform in $build_platforms) {
     if ($LASTEXITCODE -ne 0) {
         throw "Ring buffer purge test failed. platform: $build_platform"
     }
+
+    # 模擬 I2C で ISDB-C・J.83B の設定と失敗時の復帰を検証
+    & "build/$build_platform/Release-static/j83b_driver_test.exe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "J83B driver test failed. platform: $build_platform"
+    }
 }
 
 # dist/ フォルダにビルドされたファイルをコピー
@@ -110,6 +116,7 @@ Copy-Item build/x86/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-MLT_32bit
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX-MLT.ini dist/BonDriver_PX-MLT_32bit/BonDriver_PX-MLT.ini
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-MLT_32bit/BonDriver_PX4-T.ChSet.txt
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_PX-MLT_32bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-C.ChSet.txt dist/BonDriver_PX-MLT_32bit/BonDriver_PX4-C.ChSet.txt
 Copy-Item build/x86/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-MLT_32bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-MLT_32bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-MLT_32bit/it930x-firmware.bin
@@ -119,6 +126,7 @@ Copy-Item build/x64/Release-static/BonDriver_PX4.dll dist/BonDriver_PX-MLT_64bit
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX-MLT.ini dist/BonDriver_PX-MLT_64bit/BonDriver_PX-MLT.ini
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-T.ChSet.txt dist/BonDriver_PX-MLT_64bit/BonDriver_PX4-T.ChSet.txt
 Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-S.ChSet.txt dist/BonDriver_PX-MLT_64bit/BonDriver_PX4-S.ChSet.txt
+Copy-Item pkg/BonDriver_PX4/BonDriver_PX4-C.ChSet.txt dist/BonDriver_PX-MLT_64bit/BonDriver_PX4-C.ChSet.txt
 Copy-Item build/x64/Release-static/DriverHost_PX4.exe dist/BonDriver_PX-MLT_64bit/DriverHost_PX4.exe
 Copy-Item pkg/DriverHost_PX4/DriverHost_PX4.ini dist/BonDriver_PX-MLT_64bit/DriverHost_PX4.ini
 Copy-Item pkg/DriverHost_PX4/it930x-firmware.bin dist/BonDriver_PX-MLT_64bit/it930x-firmware.bin

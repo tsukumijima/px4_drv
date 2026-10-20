@@ -32,7 +32,8 @@ enum cxd2856er_state {
 enum cxd2856er_system {
 	CXD2856ER_UNSPECIFIED_SYSTEM = 0,
 	CXD2856ER_ISDB_T_SYSTEM,
-	CXD2856ER_ISDB_S_SYSTEM
+	CXD2856ER_ISDB_S_SYSTEM,
+	CXD2856ER_ISDB_C_SYSTEM
 };
 
 enum cxd2856er_i2c_target {
@@ -42,6 +43,9 @@ enum cxd2856er_i2c_target {
 
 union cxd2856er_system_params {
 	u32 bandwidth;
+	struct {
+		bool j83b;
+	} isdbc;
 };
 
 struct cxd2856er_demod {
@@ -55,6 +59,11 @@ struct cxd2856er_demod {
 	struct cxd2856er_config config;
 	enum cxd2856er_state state;
 	enum cxd2856er_system system;
+	/* 公開 API 上の系統は ISDB-C と共通のため、J.83B 固有の停止処理が必要かを別に保持する */
+	bool j83b_active;
+	/* ISDB-C の起動で書き換え、ISDB-T の起動では書き直されないレジスターの、ISDB-C の設定前の値 */
+	bool isdbc_saved;
+	u8 isdbc_saved_regs[5];
 };
 
 #ifdef __cplusplus
@@ -145,8 +154,10 @@ int cxd2856er_set_tsid_isdbs(struct cxd2856er_demod *demod, u16 tsid);
 int cxd2856er_is_ts_locked_isdbt(struct cxd2856er_demod *demod,
 				 bool *locked, bool *unlocked);
 int cxd2856er_is_ts_locked_isdbs(struct cxd2856er_demod *demod, bool *locked);
+int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked);
 int cxd2856er_read_cnr_raw_isdbt(struct cxd2856er_demod *demod, u16 *value);
 int cxd2856er_read_cnr_raw_isdbs(struct cxd2856er_demod *demod, u16 *value);
+int cxd2856er_read_cnr_raw_isdbc(struct cxd2856er_demod *demod, u16 *value);
 #ifdef __cplusplus
 }
 #endif

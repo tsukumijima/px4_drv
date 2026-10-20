@@ -13,7 +13,7 @@ namespace px4 {
 #pragma pack(push, 8)
 
 namespace command {
-	static const std::uint32_t VERSION = 0x00040002U;
+	static const std::uint32_t VERSION = 0x00040004U;
 
 	enum class CtrlCmdCode : std::uint32_t {
 		UNDEFINED = 0,
@@ -76,6 +76,10 @@ namespace command {
 	enum class ParameterType : std::uint32_t {
 		UNDEFINED = 0,
 		BANDWIDTH = 1,
+		SYMBOL_RATE,
+		TSMF_RELATIVE_STREAM,
+		TSMF_TSID,
+		TSMF_OUTPUT_TLV,
 		STREAM_ID = 16,
 	};
 

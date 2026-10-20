@@ -41,6 +41,7 @@ struct pxmlt_chrdev {
 	struct ptx_chrdev *chrdev;
 	struct pxmlt_device *parent;
 	bool lnb_power;
+	bool null_packet_filter_disabled;
 	struct mutex *tuner_lock;
 	struct cxd2856er_demod cxd2856er;
 	struct cxd2858er_tuner cxd2858er;

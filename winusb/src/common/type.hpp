@@ -13,6 +13,8 @@ enum class SystemType : std::uint32_t {
 	UNSPECIFIED = 0x00,
 	ISDB_T = 0x10,
 	ISDB_S = 0x20,
+	// ISDB-C は ISDB-T と復調器の設定が異なるため、独立した系統として扱う
+	ISDB_C = 0x40,
 };
 
 constexpr SystemType operator&(SystemType left, SystemType right) noexcept
