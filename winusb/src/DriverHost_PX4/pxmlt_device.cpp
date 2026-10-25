@@ -1152,7 +1152,7 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 			if (ret)
 				break;
 
-			// Linux の cxd2841er.c の 64QAM・256QAM 用の換算式 (J.83B も cxd2878.c に従い同じ式を使う)
+			// Sony の sony_demod_isdbc_monitor_SNR() の 64QAM・256QAM 用の換算式 (J.83B も同じ式を使う)
 			if (val)
 				value = static_cast<std::int32_t>(-9500 * std::log((val < 126) ? 126 : val) + 95941);
 

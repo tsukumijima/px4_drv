@@ -92,22 +92,91 @@ int main(void)
 			reset(&demod, &tuner);
 			memset(&params, 0, sizeof(params));
 			params.isdbc.j83b = mode != 0;
-			bus.regs[1][0][0xd1] = 0x02;
+			bus.regs[1][0][0xd1] = 0x01;
+			bus.regs[1][0x49][0x36] = 0x13;
 			tuner.config.xtal = xtal;
 			CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
 			CHECK(cxd2858er_set_params_c(&tuner, 697143, params.isdbc.j83b) == 0);
+			/* チューナーは sony_helene.c の CXD2856 世代の DVB-C 6 MHz と J.83B 5.6 Msps の設定 */
 			CHECK(bus.regs[2][0][0x62] == (xtal == 16000 ? 0x10 : 0x18));
-			CHECK(bus.regs[2][0][0x69] == (mode ? 0x84 : 0x85));
+			CHECK(bus.regs[2][0][0x69] == 0x84);
 			CHECK(bus.regs[2][0][0x6e] == (mode ? 0x1b : 0x1a));
 			CHECK(bus.regs[2][0][0x6f] == (mode ? 0x02 : 0x1c));
-			CHECK(bus.regs[1][0][0xd9] == 0x08);
-			CHECK(bus.regs[1][0][0xd1] == (mode ? 2 : 0));
-			CHECK(bus.regs[1][0][0x33] == (mode ? 1 : 0));
+			/* TS クロックは PLEX の CXD2856.c が PX-MLT 系に設定するゲート式・ハーフレート・高い周波数 */
+			CHECK((bus.regs[1][0][0xc4] & 0x03) == 0);
+			CHECK((bus.regs[1][0][0xd1] & 0x03) == 2);
+			CHECK(bus.regs[1][0][0xd9] == 0x10);
+			CHECK((bus.regs[1][0][0x33] & 0x03) == 0);
+			CHECK((bus.regs[1][0][0xd3] & 0x01) == (mode ? 0 : 1));
+			if (!mode) {
+				/* sony_demod_isdbc.c の SetTSMFSetting() と SLtoAIC() の値 */
+				CHECK(bus.regs[1][0x49][0x36] == 0x03);
+				CHECK(bus.regs[0][0][0x17] == 0x09);
+				CHECK(bus.regs[1][0x11][0x6a] == 0x48);
+				CHECK(memcmp(&bus.regs[1][0x11][0x33], "\x00\x03\x3b", 3) == 0);
+				CHECK(bus.regs[1][0x48][0x2c] == 0x03);
+				CHECK(memcmp(&bus.regs[1][0x10][0xa6], "\x31\xa8\x29\x9b\x27\x9c\x28\x9e\x29\xa4\x29\xa2\x29\xa8", 14) == 0);
+				CHECK(memcmp(&bus.regs[1][0x10][0xb6], "\x13\xbb\xbc", 3) == 0);
+				CHECK(bus.regs[1][0x11][0xa3] == 0x14);
+				CHECK(bus.regs[1][0x40][0x14] == 0x14);
+				CHECK(bus.regs[1][0x40][0x1e] == 0x80);
+				CHECK(memcmp(&bus.regs[1][0x40][0x26], "\x07\x08\x07\x08", 4) == 0);
+			}
 			CHECK(cxd2856er_sleep(&demod) == 0);
+			if (!mode) {
+				/* sony_demod_isdbc.c の AICtoSL() で既定値へ戻す値 */
+				CHECK(bus.regs[1][0x11][0xa3] == 0x00);
+				CHECK(bus.regs[1][0x48][0x2c] == 0x01);
+				CHECK(bus.regs[1][0x40][0x14] == 0x1f);
+				CHECK(bus.regs[1][0x40][0x1e] == 0x00);
+				CHECK(bus.regs[0][0][0x18] == 0x01 && bus.regs[0][0][0x17] == 0x01);
+				CHECK(bus.regs[1][0][0x49] == 0x33 && bus.regs[1][0][0x4b] == 0x21 && bus.regs[1][0][0x2c] == 0x00);
+			}
 			CHECK(cxd2858er_stop(&tuner) == 0 && !bus.gate_open);
 		}
 	}
 	puts("ISDBC, J83B and 16/24 MHz REF_R: PASS");
+
+	/* ISDB-C の起動が途中で失敗しても、地上波の起動の前に ISDB-C の設定を既定値へ戻す */
+	reset(&demod, &tuner);
+	memset(&params, 0, sizeof(params));
+	CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+	count = bus.calls;
+	for (fail = 1; fail <= count; fail++) {
+		reset(&demod, &tuner);
+		memset(&params, 0, sizeof(params));
+		bus.fail_at = fail;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == -EIO);
+		CHECK(demod.state == CXD2856ER_ACTIVE_STATE && demod.system == CXD2856ER_ISDB_C_SYSTEM);
+		bus.fail_at = 0;
+		bus.regs[1][0x48][0x2c] = 0x03;
+		bus.regs[1][0x40][0x14] = 0x14;
+		params.bandwidth = 6;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_T_SYSTEM, &params) == 0);
+		CHECK(bus.regs[1][0x48][0x2c] == 0x01 && bus.regs[1][0x40][0x14] == 0x1f);
+	}
+	printf("ISDBC %u wakeup I/O failure boundaries and restore before ISDB-T: PASS\n", count);
+
+	/* ISDB-C の設定を戻せなかったときは、地上波を起動せずに ISDB-C の状態を残す */
+	reset(&demod, &tuner);
+	memset(&params, 0, sizeof(params));
+	CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+	count = bus.calls;
+	CHECK(cxd2856er_sleep(&demod) == 0);
+	count = bus.calls - count;
+	for (fail = 1; fail <= count; fail++) {
+		reset(&demod, &tuner);
+		memset(&params, 0, sizeof(params));
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+		bus.fail_at = bus.calls + fail;
+		params.bandwidth = 6;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_T_SYSTEM, &params) == -EIO);
+		CHECK(demod.state == CXD2856ER_ACTIVE_STATE && demod.system == CXD2856ER_ISDB_C_SYSTEM);
+		bus.fail_at = 0;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_T_SYSTEM, &params) == 0);
+		CHECK(demod.system == CXD2856ER_ISDB_T_SYSTEM && bus.regs[1][0x48][0x2c] == 0x01);
+	}
+	printf("ISDBC %u sleep I/O failure boundaries before ISDB-T: PASS\n", count);
 
 	for (mode = 0; mode < 2; mode++) {
 		for (sync = 0; sync < 2; sync++) {
@@ -234,7 +303,7 @@ int main(void)
 		bus.fail_at = 0;
 		params.isdbc.j83b = false;
 		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
-		CHECK(!demod.j83b_active && bus.regs[0][0][0x17] == 4);
+		CHECK(!demod.j83b_active && bus.regs[0][0][0x17] == 0x09);
 	}
 	printf("J83B %u sleep I/O failure boundaries and C restore: PASS\n", count);
 
