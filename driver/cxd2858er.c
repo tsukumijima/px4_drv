@@ -4,17 +4,9 @@
  *
  * Copyright (c) 2018-2021 nns779
  *
- * ISDB-C 用に参照した Linux helene.c (GPL-2.0-or-later):
- * https://github.com/torvalds/linux/blob/v6.12/drivers/media/dvb-frontends/helene.c
- * Copyright 2012 Sony Corporation
- * Copyright (C) 2014 NetUP Inc.
- * Copyright (C) 2014 Abylay Ospan <aospan@netup.ru>
- *
- * J.83B 用に参照した cxd2878.c:
- * https://github.com/koreapyj/cxd28xx/blob/c5fa27eecbe80633cbb365cc44656daea1c0e2e3/cxd2878.c
- * Copyright (c) 2022 Sony Semiconductor Solutions Corporation
- * Copyright (c) 2021 Davin zhang <Davin@tbsdtv.com>
- * Copyright (c) 2026 Yoonji Park <koreapyj@dcmys.kr>
+ * ISDB-C と J.83B 用に参照した PLEX の Linux ドライバーの Sony のコード (sony_helene.c・sony_tuner_helene.c):
+ * https://github.com/soralis0912/it930x_driver_native/tree/64fd4f3fd04cd8c19855250ebd88278734d4eba6/api/DW_Frontend/CXD2856/tuner/terr_cable_sat_helene
+ * Copyright 2016 Sony Semiconductor Solutions Corporation
  */
 
 #include "print_format.h"
@@ -476,7 +468,7 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 	data[1] = 0x02;
 	data[2] = 0x1e;
 	data[3] = 0x67;
-	/* cxd2878.c の helene_tune_terr() に従い、ケーブル受信用の REF_R を水晶周波数に合わせる */
+	/* sony_helene.c の TER_tune() に従い、ケーブル受信用の REF_R (Fref = 1 MHz) を水晶周波数に合わせる */
 	data[4] = (tuner->config.xtal == 16000) ? 0x10 : 0x18;
 	data[5] = 0x1c;
 	data[6] = 0x78;
@@ -491,13 +483,14 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 		goto exit;
 
 	data[0] = 0x00;
-	data[1] = j83b ? 0x84 : 0x85;
+	/* Sony の sony_helene.c の CXD2856 世代の表では、DVB-C 6 MHz (ISDB-C が使う設定) と J.83B 5.6 Msps の IF_BPF_GC はどちらも 0x04 */
+	data[1] = 0x84;
 	data[2] = 0x00;
 	data[3] = 0x02;
 	data[4] = 0x21;
 	data[5] = 0x00;
-	/* cxd2878.c の SONY_HELENE_DTV_J83B_5_6 に従い、J.83B では FIF_OFFSET=-5、BW_OFFSET=+2 を5ビットで格納する
-	 * 他の設定値は DVB-C 6 MHz と共通で、書き込み後は helene_tune_terr() と同じ50ミリ秒の校正待ちが必要 */
+	/* sony_helene.c の SONY_HELENE_DTV_J83B_5_6 に従い、J.83B では FIF_OFFSET=-5、BW_OFFSET=+2 を5ビットで格納する
+	 * 他の設定値は DVB-C 6 MHz と共通で、書き込み後は sony_tuner_helene.c と同じ50ミリ秒の校正待ちが必要 */
 	data[6] = j83b ? 0x1b : 0x1a;
 	data[7] = j83b ? 0x02 : 0x1c;
 	data[8] = freq & 0xff;

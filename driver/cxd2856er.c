@@ -4,12 +4,9 @@
  *
  * Copyright (c) 2018-2021 nns779
  *
- * ISDB-C 用に参照した Linux cxd2841er.c (GPL-2.0-or-later):
- * https://github.com/torvalds/linux/blob/v6.12/drivers/media/dvb-frontends/cxd2841er.c
- * Copyright 2012 Sony Corporation
- * Copyright (C) 2014 NetUP Inc.
- * Copyright (C) 2014 Sergey Kozlov <serjk@netup.ru>
- * Copyright (C) 2014 Abylay Ospan <aospan@netup.ru>
+ * ISDB-C 用に参照した PLEX の Linux ドライバーの Sony のコード (sony_demod.c・sony_demod_isdbc.c・sony_demod_isdbc_monitor.c):
+ * https://github.com/soralis0912/it930x_driver_native/tree/64fd4f3fd04cd8c19855250ebd88278734d4eba6/api/DW_Frontend/CXD2856
+ * Copyright 2016 Sony Semiconductor Solutions Corporation
  *
  * J.83B 用に参照した cxd2878.c:
  * https://github.com/koreapyj/cxd28xx/blob/c5fa27eecbe80633cbb365cc44656daea1c0e2e3/cxd2878.c
@@ -135,7 +132,6 @@ int cxd2856er_init(struct cxd2856er_demod *demod)
 	demod->i2c_master.priv = demod;
 
 	demod->j83b_active = false;
-	demod->isdbc_saved = false;
 	demod->state = CXD2856ER_UNKNOWN_STATE;
 	demod->system = CXD2856ER_UNSPECIFIED_SYSTEM;
 
@@ -225,7 +221,8 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 	if (ret)
 		return ret;
 
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd3, 0x01, 0x01);
+	/* Sony の sony_demod_SetTSClockModeAndFreq() では、J.83B だけパケット間の隙間の挿入 (OTSRATECTRLOFF = 0) を使う */
+	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd3, (demod->j83b_active) ? 0x00 : 0x01, 0x01);
 	if (ret)
 		return ret;
 
@@ -241,14 +238,11 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 	if (ret)
 		return ret;
 
-	/* 地上波と同じ TS 出力の設定では 256QAM の TS が IT930x へ届かないため、ISDB-C は公開 DVB-C ドライバーと同じ設定にする */
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd1,
-					   (system == CXD2856ER_ISDB_C_SYSTEM) ? 0x00 : 0x02, 0x03);
+	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd1, 0x02, 0x03);
 	if (ret)
 		return ret;
 
-	ret = cxd2856er_write_slvt_reg(demod, 0xd9,
-				      (system == CXD2856ER_ISDB_C_SYSTEM) ? 0x08 : 0x10);
+	ret = cxd2856er_write_slvt_reg(demod, 0xd9, 0x10);
 	if (ret)
 		return ret;
 
@@ -262,6 +256,8 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 		break;
 
 	case CXD2856ER_ISDB_S_SYSTEM:
+	/* 256QAM の TS は ISDB-T の TS クロックの上限を超えるため、PLEX の CXD2856.c が PX-MLT 系に設定する
+	 * 地上波・ケーブル用の TS クロック (ゲート式・ハーフレート・高い周波数) を使う */
 	case CXD2856ER_ISDB_C_SYSTEM:
 		ret = cxd2856er_write_slvt_reg_mask(demod, 0x33, 0x00, 0x03);
 		break;
@@ -535,51 +531,77 @@ static int cxd2856er_sleep_isdbs(struct cxd2856er_demod *demod)
 	return 0;
 }
 
-/* ISDB-C の起動で書き換え、ISDB-T の起動では書き直されないレジスター (バンクとアドレス) */
-static const u8 cxd2856er_isdbc_regs[5][2] = {
-	{ 0x10, 0xd2 },
-	{ 0x11, 0xa3 },
-	{ 0x40, 0x26 },
-	{ 0x40, 0x27 },
-	{ 0x40, 0xc3 }
-};
-
-/* ISDB-C の後の地デジが ISDB-C を使う前と同じ状態で動くよう、ISDB-C の設定前の値を保存する */
-static int cxd2856er_save_isdbc_regs(struct cxd2856er_demod *demod)
+/* Sony の AICtoSL() と cxd2878_sleep() に共通する、地上波・ケーブル用の ADC と復調器のクロックの停止 */
+static int cxd2856er_sleep_cable_common(struct cxd2856er_demod *demod)
 {
-	int ret, i;
+	int ret;
 
-	for (i = 0; i < 5; i++) {
-		ret = cxd2856er_write_slvt_reg(demod, 0x00, cxd2856er_isdbc_regs[i][0]);
-		if (ret)
-			return ret;
-		ret = cxd2856er_read_slvt_reg(demod, cxd2856er_isdbc_regs[i][1], &demod->isdbc_saved_regs[i]);
-		if (ret)
-			return ret;
-	}
-
-	demod->isdbc_saved = true;
-	return 0;
+	ret = cxd2856er_write_slvx_reg(demod, 0x00, 0x00);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvx_reg(demod, 0x18, 0x01);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x49, 0x33);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x4b, 0x21);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0xfe, 0x01);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x2c, 0x00);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0xa9, 0x00);
+	if (ret)
+		return ret;
+	return cxd2856er_write_slvx_reg(demod, 0x17, 0x01);
 }
 
-static int cxd2856er_restore_isdbc_regs(struct cxd2856er_demod *demod)
+/* Sony の sony_demod_isdbc.c の AICtoSL() に従い、ISDB-C の起動で書き換えた設定を既定値へ戻して停止する */
+static int cxd2856er_sleep_isdbc(struct cxd2856er_demod *demod)
 {
-	int ret, i;
+	int ret;
 
-	if (!demod->isdbc_saved)
-		return 0;
-
-	for (i = 0; i < 5; i++) {
-		ret = cxd2856er_write_slvt_reg(demod, 0x00, cxd2856er_isdbc_regs[i][0]);
-		if (!ret)
-			ret = cxd2856er_write_slvt_reg(demod, cxd2856er_isdbc_regs[i][1], demod->isdbc_saved_regs[i]);
-		/* 失敗したときは保存した値を残し、次に ISDB-T/S を起動するときに書き戻しをやり直す */
-		if (ret)
-			return ret;
-	}
-
-	demod->isdbc_saved = false;
-	return 0;
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0xc3, 0x01);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg_mask(demod, 0x80, 0x1f, 0x1f);
+	if (ret)
+		return ret;
+	ret = cxd2856er_set_ts_pin_state(demod, false);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x11);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0xa3, 0x00);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x48);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x2c, 0x01);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x14, 0x1f);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x1e, 0x00);
+	if (ret)
+		return ret;
+	return cxd2856er_sleep_cable_common(demod);
 }
 
 /* cxd2878_sleep() の SONY_DTV_SYSTEM_J83B に従い、共通のアナログ停止処理の前に J.83B 固有の設定を戻す */
@@ -640,16 +662,19 @@ static int cxd2856er_sleep_j83b(struct cxd2856er_demod *demod)
 	ret = cxd2856er_write_slvt_regs(demod, 0x26, data, 4);
 	if (ret)
 		return ret;
-	return cxd2856er_sleep_isdbt(demod);
+	return cxd2856er_sleep_cable_common(demod);
 }
 
 int cxd2856er_sleep(struct cxd2856er_demod *demod)
 {
+	int ret;
+
 	if (demod->state == CXD2856ER_SLEEP_STATE)
 		return -EALREADY;
 
+	/* ISDB-C と J.83B の設定を既定値へ戻せなかったときは起動中の状態を残し、次の停止で戻し直す */
 	if (demod->j83b_active) {
-		int ret = cxd2856er_sleep_j83b(demod);
+		ret = cxd2856er_sleep_j83b(demod);
 		if (ret)
 			return ret;
 		demod->j83b_active = false;
@@ -660,10 +685,9 @@ int cxd2856er_sleep(struct cxd2856er_demod *demod)
 
 	switch (demod->system) {
 	case CXD2856ER_ISDB_C_SYSTEM:
-		/* 書き戻しに失敗しても停止は続け、保存した値は次の ISDB-T/S の起動で書き戻す */
-		cxd2856er_restore_isdbc_regs(demod);
-		/* ISDB-C は地上波と同じアナログ受信経路を使うため、ISDB-T と同じ手順で停止する */
-		cxd2856er_sleep_isdbt(demod);
+		ret = cxd2856er_sleep_isdbc(demod);
+		if (ret)
+			return ret;
 		break;
 
 	case CXD2856ER_ISDB_T_SYSTEM:
@@ -1087,68 +1111,24 @@ static int cxd2856er_reset_isdbs(struct cxd2856er_demod *demod)
 }
 
 /* cxd2878.c の SLtoACC() と SLtoACC_BandSetting() のうち、5.6 Msps 用の設定を使う
- * IF は SONY_DEMOD_MAKE_IFFREQ_CONFIG と同じく round(3.75 / 48 * 2^24) = 0x140000
+ * PLEX の公開ドライバーには J.83B の復調器の手順がないため、Sony の手順を移した cxd2878.c を参照する
+ * IF は Sony の SONY_DEMOD_MAKE_IFFREQ_CONFIG(3.75) と同じく round(3.75 / 48 * 2^24) = 0x140000
  * 48 MHz は復調器内部の基準クロックで、外部水晶の周波数とは異なる
  */
 static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 {
 	int ret;
 	u8 data[14];
-	u8 tmp;
 
-	/* J.83B はレート制御を有効にし、シリアル出力を連続クロック・フルレートにする
-	 * パラレル出力では C4/D1 の設定を保持する */
-	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
-	if (ret)
-		return ret;
-	ret = cxd2856er_read_slvt_reg(demod, 0xc4, &tmp);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd3, 0x00, 0x01);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xde, 0x00, 0x01);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xda, 0x00, 0x01);
-	if (ret)
-		return ret;
-	if (tmp & 0x80) {
-		ret = cxd2856er_write_slvt_reg_mask(demod, 0xc4, 0x01, 0x03);
-		if (ret)
-			return ret;
-		ret = cxd2856er_write_slvt_reg_mask(demod, 0xd1, 0x01, 0x03);
-		if (ret)
-			return ret;
-	}
-	ret = cxd2856er_write_slvt_reg(demod, 0xd9, 0x08);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0x32, 0x00, 0x01);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0x33, 0x01, 0x03);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0x32, 0x01, 0x01);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0x66, 0x01, 0x01);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0x66, 0x01, 0x01);
-	if (ret)
-		return ret;
 	/* 途中で I/O が失敗しても、次回の停止時に J.83B 固有の設定を解除できるよう状態を保持する */
 	demod->j83b_active = true;
 	demod->system = CXD2856ER_ISDB_C_SYSTEM;
 	demod->state = CXD2856ER_ACTIVE_STATE;
+
+	/* TS クロックは ISDB-C と同じ PX-MLT 系の設定を使い、J.83B ではパケット間の隙間の挿入だけを有効にする */
+	ret = cxd2856er_set_ts_clock(demod, CXD2856ER_ISDB_C_SYSTEM);
+	if (ret)
+		return ret;
 	ret = cxd2856er_write_slvx_reg(demod, 0x00, 0x00);
 	if (ret)
 		return ret;
@@ -1253,16 +1233,26 @@ static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 	return cxd2856er_set_ts_pin_state(demod, true);
 }
 
+/* Sony の sony_demod_isdbc.c の SetTSMFSetting() と SLtoAIC() に従う
+ * IF は Sony の SONY_DEMOD_MAKE_IFFREQ_CONFIG(3.7) と同じく round(3.7 / 48 * 2^24) = 0x13bbbc
+ */
 static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod)
 {
 	int ret;
 	u8 data[14];
 
-	if (!demod->isdbc_saved) {
-		ret = cxd2856er_save_isdbc_regs(demod);
-		if (ret)
-			return ret;
-	}
+	/* 途中で I/O が失敗しても、次回の停止時に ISDB-C の設定を既定値へ戻せるよう状態を保持する */
+	demod->system = CXD2856ER_ISDB_C_SYSTEM;
+	demod->state = CXD2856ER_ACTIVE_STATE;
+
+	/* TSMF の TS は Linux 版と WinUSB 版で共有する tsmf.c で選ぶため、復調器の TSMF 処理は単一の TS として扱わせ、
+	 * 多重化された TS をそのまま出力させる (OREG_TSMF_MODE = 0) */
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x49);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg_mask(demod, 0x36, 0x00, 0x18);
+	if (ret)
+		return ret;
 
 	ret = cxd2856er_set_ts_clock(demod, CXD2856ER_ISDB_C_SYSTEM);
 	if (ret)
@@ -1271,14 +1261,13 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod)
 	ret = cxd2856er_write_slvx_reg(demod, 0x00, 0x00);
 	if (ret)
 		return ret;
-	ret = cxd2856er_write_slvx_reg(demod, 0x17, 0x04);
+	ret = cxd2856er_write_slvx_reg(demod, 0x17, 0x09);
 	if (ret)
 		return ret;
 
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
 	if (ret)
 		return ret;
-	/* アナログ受信経路の基本設定は CXD2856ER の ISDB-T と共通 */
 	ret = cxd2856er_write_slvt_reg(demod, 0xa9, 0x00);
 	if (ret)
 		return ret;
@@ -1295,16 +1284,6 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod)
 	if (ret)
 		return ret;
 
-	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd2, 0x09, 0x1f);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xa5, 0x01, 0x01);
-	if (ret)
-		return ret;
-
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x11);
 	if (ret)
 		return ret;
@@ -1312,40 +1291,27 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod)
 	if (ret)
 		return ret;
 
-	/* 6 MHz ケーブル信号用のフィルター係数 */
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
 	if (ret)
 		return ret;
-	data[0] = 0x27; data[1] = 0xa7; data[2] = 0x28; data[3] = 0xb3;
-	data[4] = 0x02; data[5] = 0xf0; data[6] = 0x01; data[7] = 0xe8;
-	data[8] = 0x00; data[9] = 0xcf; data[10] = 0x00; data[11] = 0xe6;
-	data[12] = 0x23; data[13] = 0xa4;
-	ret = cxd2856er_write_slvt_regs(demod, 0xa6, data, 14);
-	if (ret)
-		return ret;
-	/* チューナーの DVB-C 6 MHz 設定が出力する IF 3.7 MHz に合わせる */
-	data[0] = 0x13; data[1] = 0xbb; data[2] = 0xbb;
-	ret = cxd2856er_write_slvt_regs(demod, 0xb6, data, 3);
+	ret = cxd2856er_write_slvt_reg(demod, 0xa5, 0x01);
 	if (ret)
 		return ret;
 
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x11);
 	if (ret)
 		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xa3, 0x14, 0x1f);
+	data[0] = 0x00;
+	data[1] = 0x03;
+	data[2] = 0x3b;
+	ret = cxd2856er_write_slvt_regs(demod, 0x33, data, 3);
 	if (ret)
 		return ret;
 
-	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x48);
 	if (ret)
 		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xc3, 0x00, 0x04);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0x26, 0x08, 0x0f);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg(demod, 0x27, 0x6e);
+	ret = cxd2856er_write_slvt_reg(demod, 0x2c, 0x03);
 	if (ret)
 		return ret;
 
@@ -1357,11 +1323,66 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod)
 	ret = cxd2856er_write_slvt_regs(demod, 0xce, data, 2);
 	if (ret)
 		return ret;
+
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
+	if (ret)
+		return ret;
+	data[0] = 0x31; data[1] = 0xa8; data[2] = 0x29; data[3] = 0x9b; data[4] = 0x27; data[5] = 0x9c; data[6] = 0x28; data[7] = 0x9e; data[8] = 0x29; data[9] = 0xa4; data[10] = 0x29; data[11] = 0xa2; data[12] = 0x29; data[13] = 0xa8;
+	ret = cxd2856er_write_slvt_regs(demod, 0xa6, data, 14);
+	if (ret)
+		return ret;
+	data[0] = 0x13;
+	data[1] = 0xbb;
+	data[2] = 0xbc;
+	ret = cxd2856er_write_slvt_regs(demod, 0xb6, data, 3);
+	if (ret)
+		return ret;
+
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x11);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0xa3, 0x14);
+	if (ret)
+		return ret;
+
+	/* QAM の探索範囲 (OREG_QAM_ENABLE)・離散探索 (OREG_DISCRETE_SEARCH)・シンボルレートの探索値 (OREG_TRIAL_SRATE) を ISDB-C 用にする */
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x14, 0x14);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x1e, 0x80);
+	if (ret)
+		return ret;
+	data[0] = 0x07;
+	data[1] = 0x08;
+	data[2] = 0x07;
+	data[3] = 0x08;
+	ret = cxd2856er_write_slvt_regs(demod, 0x26, data, 4);
+	if (ret)
+		return ret;
+
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
+	if (ret)
+		return ret;
 	ret = cxd2856er_write_slvt_reg_mask(demod, 0x80, 0x08, 0x1f);
 	if (ret)
 		return ret;
 
 	return cxd2856er_set_ts_pin_state(demod, true);
+}
+
+/* Sony の AICtoAIC() に従い、ISDB-C のまま選局し直すときは TS の出力だけを止める */
+static int cxd2856er_reset_isdbc(struct cxd2856er_demod *demod)
+{
+	int ret;
+
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
+	if (ret)
+		return ret;
+
+	return cxd2856er_write_slvt_reg(demod, 0xc3, 0x01);
 }
 
 int cxd2856er_wakeup(struct cxd2856er_demod *demod,
@@ -1372,16 +1393,10 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
 		params->isdbc.j83b;
 
-	/* ISDB-C の起動が途中で失敗して停止処理を通らなかった場合も、ISDB-T/S の起動の前に書き戻す
-	 * 書き戻せないまま起動すると ISDB-C の設定が残った状態で受信するため、起動を中断する */
-	if (system != CXD2856ER_ISDB_C_SYSTEM) {
-		ret = cxd2856er_restore_isdbc_regs(demod);
-		if (ret)
-			return ret;
-	}
-
-	/* J.83B と ISDB-C は内部の設定が異なるため、停止状態を経由して再設定する */
-	if (demod->state == CXD2856ER_ACTIVE_STATE && (j83b || demod->j83b_active)) {
+	/* ISDB-C と J.83B から別の方式へ切り替えるときと、J.83B を選ぶときは、停止処理で設定を既定値へ戻してから起動する
+	 * 戻せなかったときは ISDB-C や J.83B の設定が残った状態で受信するため、起動を中断する */
+	if (demod->state == CXD2856ER_ACTIVE_STATE && demod->system == CXD2856ER_ISDB_C_SYSTEM &&
+	    (system != CXD2856ER_ISDB_C_SYSTEM || j83b || demod->j83b_active)) {
 		ret = cxd2856er_sleep(demod);
 		if (ret)
 			return ret;
@@ -1399,7 +1414,7 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 				break;
 
 			case CXD2856ER_ISDB_C_SYSTEM:
-				ret = cxd2856er_wakeup_isdbc(demod);
+				ret = cxd2856er_reset_isdbc(demod);
 				break;
 
 			default:
@@ -1617,7 +1632,7 @@ int cxd2856er_read_cnr_raw_isdbc(struct cxd2856er_demod *demod, u16 *value)
 
 	*value = 0;
 
-	/* cxd2841er.c と同様に、SLV-T バンク 0x40 の 0x4c〜0x4d から C/N 推定用の生値を読む */
+	/* Sony の sony_demod_isdbc_monitor_SNR() と同じく、SLV-T バンク 0x40 の 0x4c〜0x4d から C/N 推定用の生値 (IREG_SNR_ESTIMATE) を読む */
 	ret = cxd2856er_write_slvt_reg(demod, 0x01, 0x01);
 	if (ret)
 		return ret;

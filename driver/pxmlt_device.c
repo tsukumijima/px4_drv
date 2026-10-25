@@ -922,7 +922,7 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 		if (ret)
 			break;
 
-		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じ式で dB の1000倍の値を返す (J.83B も cxd2878.c に従い同じ式を使う) */
+		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じく Sony の sony_demod_isdbc_monitor_SNR() の式で dB の1000倍の値を返す (J.83B も同じ式を使う) */
 		cn = (val) ? -95 * (s32)pxmlt_ln_x100(max_t(u16, val, 126)) + 95941 : 0;
 		*value = (cn > 0) ? cn : 0;
 		break;

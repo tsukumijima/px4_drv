@@ -61,9 +61,6 @@ struct cxd2856er_demod {
 	enum cxd2856er_system system;
 	/* 公開 API 上の系統は ISDB-C と共通のため、J.83B 固有の停止処理が必要かを別に保持する */
 	bool j83b_active;
-	/* ISDB-C の起動で書き換え、ISDB-T の起動では書き直されないレジスターの、ISDB-C の設定前の値 */
-	bool isdbc_saved;
-	u8 isdbc_saved_regs[5];
 };
 
 #ifdef __cplusplus
