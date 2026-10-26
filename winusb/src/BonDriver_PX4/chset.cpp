@@ -91,19 +91,21 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			Split(&tmp_head, &tmp_tail, '\t');
 			ch_id = px4::util::atoui32(tmp_head);
 
-			// ptx_ch
-			Split(&tmp_head, &tmp_tail, '\t');
-			ch.ptx_ch = px4::util::atoui32(tmp_head);
+			if (system == px4::SystemType::ISDB_C) {
+				if (!ParseIsdbC(&tmp_head, &tmp_tail, ch)) {
+					if (strict_)
+						return false;
+					else
+						continue;
+				}
+			} else {
+				// ptx_ch
+				Split(&tmp_head, &tmp_tail, '\t');
+				ch.ptx_ch = px4::util::atoui32(tmp_head);
 
-			// tsid
-			Split(&tmp_head, &tmp_tail, '\t');
-			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
-
-			if (system == px4::SystemType::ISDB_C && !ParseIsdbC(&tmp_head, &tmp_tail, ch)) {
-				if (strict_)
-					return false;
-				else
-					continue;
+				// tsid
+				Split(&tmp_head, &tmp_tail, '\t');
+				ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
 			}
 
 			if (!AddChannel(space_id, ch_id, ch))
@@ -221,48 +223,34 @@ void ChannelSet::Split(char **head, char **tail, char c) noexcept
 
 bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
 {
-	auto next = [head, tail](long min, long max, long &value) noexcept {
+	auto parse = [](const char *str, long min, long max, long &value) noexcept {
 		char *end;
 
-		Split(head, tail, '\t');
-		value = std::strtol(*head, &end, 10);
-		return end != *head && *end == '\0' && value >= min && value <= max;
+		value = std::strtol(str, &end, 10);
+		return end != str && *end == '\0' && value >= min && value <= max;
 	};
-	const char *tsid = *head;
-	char *end;
 	long value;
 
-	// 方式 (0 は J.83 Annex C、J83B は J.83 Annex B)
+	// ISDB-C は物理チャンネル番号 (0〜112)、J.83 Annex B は中心周波数 (kHz)
+	// J.83 Annex B は地域によって 6.5MHz 刻みからずれた周波数で送られるため、番号から計算せずに周波数を書く
+	// 範囲は ISDB-C と同じ VHF 1ch から UHF 62ch までの帯域で、物理チャンネル番号とは重ならない
 	if (!*tail)
-		return true;
-	if (!next(0, 0, value)) {
-		if (std::strcmp(*head, "J83B"))
-			return false;
+		return false;
+	Split(head, tail, '\t');
+	if (parse(*head, 90000, 770000, value)) {
 		ch.j83b = true;
-	}
-
-	// TSMF で多重された TS の選択 (0-14 は相対 TS 番号、-1 は第5列の TSID)
-	if (!*tail)
-		return true;
-	if (ch.j83b || !next(-1, 14, value))
+	} else if (!parse(*head, 0, 112, value)) {
 		return false;
-	if (value < 0) {
-		// 第5列は既存の読み方では16ビットへ丸められるため、TSID で選ぶ行だけ範囲を検査し直す
-		value = std::strtol(tsid, &end, 10);
-		if (end == tsid || *end != '\0' || value < 0 || value > 0xffff)
-			return false;
-		ch.tsmf = TsmfSelection::TSID;
-	} else {
-		ch.tsmf = TsmfSelection::RELATIVE_STREAM;
-		ch.tsmf_relative_stream = static_cast<std::uint8_t>(value);
 	}
+	ch.ptx_ch = static_cast<std::uint32_t>(value);
 
-	// 1 なら TSMF の TS を BonDriver_dantto4k 向けの生 TLV で出力する
+	// TSMF のヘッダーに載っている有効な TS の何本目か (J.83 Annex B は TSMF を使わないため1本目だけ)
 	if (!*tail)
-		return true;
-	if (!next(0, 1, value))
 		return false;
-	ch.tsmf_output_tlv = (value != 0);
+	Split(head, tail, '\t');
+	if (!parse(*head, 1, (ch.j83b) ? 1 : 15, value) || *tail)
+		return false;
+	ch.tsmf_stream = static_cast<std::uint8_t>(value);
 
 	return true;
 }

@@ -542,7 +542,10 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		break;
 
 	case px4::SystemType::ISDB_C:
-		if (channel.ptx_ch <= 62) {
+		if (channel.j83b) {
+			// J.83 Annex B (スカパー！プレミアムサービス光) は、ChSet に中心周波数 (kHz) を書く
+			real_freq = channel.ptx_ch;
+		} else if (channel.ptx_ch <= 62) {
 			// VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
 			// 番号の割り当ては recpt1 と同じで、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
 			real_freq = 93000 + (channel.ptx_ch * 6000);
@@ -557,11 +560,7 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 			return FALSE;
 		}
 
-		num_param = 1;
-		if (channel.tsmf != px4::ChannelSet::TsmfSelection::NONE)
-			num_param++;
-		if (channel.tsmf_output_tlv)
-			num_param++;
+		num_param = 2;
 
 		break;
 
@@ -587,24 +586,12 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 	}
 
 	if (system == px4::SystemType::ISDB_C) {
-		std::uint32_t i = 1;
-
 		// J.83 Annex C は 5.274 Msps、Annex B は 5.6 Msps の固定値
 		param_set->params[0].type = px4::command::ParameterType::SYMBOL_RATE;
 		param_set->params[0].value = (channel.j83b) ? 5600 : 5274;
 
-		if (channel.tsmf == px4::ChannelSet::TsmfSelection::RELATIVE_STREAM) {
-			param_set->params[i].type = px4::command::ParameterType::TSMF_RELATIVE_STREAM;
-			param_set->params[i++].value = channel.tsmf_relative_stream;
-		} else if (channel.tsmf == px4::ChannelSet::TsmfSelection::TSID) {
-			param_set->params[i].type = px4::command::ParameterType::TSMF_TSID;
-			param_set->params[i++].value = channel.tsid;
-		}
-
-		if (channel.tsmf_output_tlv) {
-			param_set->params[i].type = px4::command::ParameterType::TSMF_OUTPUT_TLV;
-			param_set->params[i].value = 1;
-		}
+		param_set->params[1].type = px4::command::ParameterType::TSMF_STREAM;
+		param_set->params[1].value = channel.tsmf_stream;
 	}
 
 	bool ret = true;

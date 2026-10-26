@@ -14,28 +14,21 @@ namespace px4 {
 
 class ChannelSet final {
 public:
-	enum class TsmfSelection {
-		NONE,
-		RELATIVE_STREAM,
-		TSID,
-	};
 	struct ChannelInfo final {
 		ChannelInfo() noexcept
 			: ptx_ch(0),
 			tsid(0),
 			j83b(false),
-			tsmf(TsmfSelection::NONE),
-			tsmf_relative_stream(0),
-			tsmf_output_tlv(false)
+			tsmf_stream(1)
 		{}
 		std::wstring name;
+		// J.83 Annex B の行では、中心周波数 (kHz)
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
 		// 以降は ISDB-C の行だけで使う
 		bool j83b;
-		TsmfSelection tsmf;
-		std::uint8_t tsmf_relative_stream;
-		bool tsmf_output_tlv;
+		// TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
+		std::uint8_t tsmf_stream;
 	};
 	struct SpaceInfo final {
 		explicit SpaceInfo(px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept : SpaceInfo(L"", system) {}

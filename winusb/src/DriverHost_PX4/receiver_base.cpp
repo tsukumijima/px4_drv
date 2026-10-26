@@ -2,6 +2,7 @@
 
 #include "receiver_base.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <windows.h>
 
@@ -39,16 +40,8 @@ bool ReceiverBase::GetParameters(px4::command::ParameterSet &param_set) noexcept
 			param_set.params[i].value = params_.symbol_rate;
 			break;
 
-		case px4::command::ParameterType::TSMF_RELATIVE_STREAM:
-			param_set.params[i].value = static_cast<std::uint32_t>(params_.tsmf_relative_stream);
-			break;
-
-		case px4::command::ParameterType::TSMF_TSID:
-			param_set.params[i].value = static_cast<std::uint32_t>(params_.tsmf_tsid);
-			break;
-
-		case px4::command::ParameterType::TSMF_OUTPUT_TLV:
-			param_set.params[i].value = params_.tsmf_output_tlv;
+		case px4::command::ParameterType::TSMF_STREAM:
+			param_set.params[i].value = params_.tsmf_stream;
 			break;
 
 		case px4::command::ParameterType::STREAM_ID:
@@ -71,9 +64,7 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 	params_.system = param_set.system;
 	params_.freq = param_set.freq;
 	params_.symbol_rate = 5274;
-	params_.tsmf_relative_stream = -1;
-	params_.tsmf_tsid = -1;
-	params_.tsmf_output_tlv = false;
+	params_.tsmf_stream = 1;
 
 	for (std::uint32_t i = 0; i < param_set.num; i++) {
 		switch (param_set.params[i].type) {
@@ -87,20 +78,10 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 			params_.symbol_rate = param_set.params[i].value;
 			break;
 
-		case px4::command::ParameterType::TSMF_RELATIVE_STREAM:
-			if (param_set.params[i].value > 14)
+		case px4::command::ParameterType::TSMF_STREAM:
+			if (param_set.params[i].value < 1 || param_set.params[i].value > TSMF_STREAM_MAX)
 				return false;
-			params_.tsmf_relative_stream = static_cast<std::int32_t>(param_set.params[i].value);
-			break;
-
-		case px4::command::ParameterType::TSMF_TSID:
-			if (param_set.params[i].value > 0xffff)
-				return false;
-			params_.tsmf_tsid = static_cast<std::int32_t>(param_set.params[i].value);
-			break;
-
-		case px4::command::ParameterType::TSMF_OUTPUT_TLV:
-			params_.tsmf_output_tlv = (param_set.params[i].value != 0);
+			params_.tsmf_stream = param_set.params[i].value;
 			break;
 
 		case px4::command::ParameterType::STREAM_ID:
@@ -112,10 +93,6 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 			return false;
 		}
 	}
-
-	// 生 TLV は TSMF で選んだ TS からしか作れない
-	if (params_.tsmf_output_tlv && params_.tsmf_relative_stream < 0 && params_.tsmf_tsid < 0)
-		return false;
 
 	return true;
 }
@@ -186,6 +163,9 @@ bool ReceiverBase::TuneIsdbC(std::uint32_t timeout)
 	if (SetFrequency())
 		return false;
 
+	// Sony の sony_integ_isdbc_WaitTSLock() と sony_integ_j83b_WaitTSLock() は、復調器のロックを1秒で打ち切る
+	// 信号のない搬送波を TuneTimeout まで待つと、行の多い ChSet のスキャンが長引くため、ロックまでの待ちだけこの上限にする
+	const std::uint32_t lock_timeout = (std::min<std::uint32_t>)(timeout, 1000);
 	auto begin = std::chrono::steady_clock::now();
 	bool lock_seen = false;
 
@@ -201,13 +181,21 @@ bool ReceiverBase::TuneIsdbC(std::uint32_t timeout)
 			if (!lock_seen) {
 				lock_seen = true;
 				stream_buf_->RestartTsmf();
-			} else if (stream_buf_->IsTsmfStreamFound()) {
-				return true;
+			} else {
+				switch (stream_buf_->GetTsmfState()) {
+				case TSMF_FILTER_FOUND:
+					return true;
+				case TSMF_FILTER_NOT_FOUND:
+					// 指定した何本目の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
+					return false;
+				default:
+					break;
+				}
 			}
 		}
 
 		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin);
-		if (duration.count() >= timeout)
+		if (duration.count() >= ((lock_seen) ? timeout : lock_timeout))
 			return false;
 
 		Sleep(20);
@@ -345,14 +333,14 @@ bool ReceiverBase::StreamBuffer::Purge() noexcept
 	return ringbuf_.Purge();
 }
 
-void ReceiverBase::StreamBuffer::StartTsmf(std::int32_t relative_stream, std::int32_t tsid, bool output_tlv, bool discard_null_packets)
+void ReceiverBase::StreamBuffer::StartTsmf(std::uint32_t stream_index, bool discard_null_packets, unsigned int stale_packets)
 {
 	std::lock_guard<std::mutex> lock(tsmf_mtx_);
 
 	if (!tsmf_filter_)
 		tsmf_filter_.reset(new tsmf_filter);
 
-	tsmf_filter_init(tsmf_filter_.get(), relative_stream, tsid, output_tlv, discard_null_packets);
+	tsmf_filter_init(tsmf_filter_.get(), static_cast<int>(stream_index), discard_null_packets, stale_packets);
 	tsmf_ = true;
 }
 
@@ -366,14 +354,14 @@ void ReceiverBase::StreamBuffer::RestartTsmf() noexcept
 	std::lock_guard<std::mutex> lock(tsmf_mtx_);
 
 	if (tsmf_)
-		tsmf_filter_init(tsmf_filter_.get(), tsmf_filter_->relative_stream, tsmf_filter_->tsid, tsmf_filter_->output_tlv, tsmf_filter_->discard_null_packets);
+		tsmf_filter_init(tsmf_filter_.get(), tsmf_filter_->stream_index, tsmf_filter_->discard_null_packets, tsmf_filter_->stale_packets);
 }
 
-bool ReceiverBase::StreamBuffer::IsTsmfStreamFound() noexcept
+tsmf_filter_state ReceiverBase::StreamBuffer::GetTsmfState() noexcept
 {
 	std::lock_guard<std::mutex> lock(tsmf_mtx_);
 
-	return (!tsmf_ || tsmf_filter_found(tsmf_filter_.get()));
+	return (tsmf_) ? tsmf_filter_get_state(tsmf_filter_.get()) : TSMF_FILTER_FOUND;
 }
 
 bool ReceiverBase::StreamBuffer::WriteTsmf(const void *buf, std::size_t &size) noexcept

@@ -836,7 +836,8 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 
 	current_system_ = px4::SystemType::UNSPECIFIED;
 
-	const bool tsmf = (params_.system == px4::SystemType::ISDB_C && (params_.tsmf_relative_stream >= 0 || params_.tsmf_tsid >= 0));
+	// ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
+	const bool tsmf = (params_.system == px4::SystemType::ISDB_C);
 
 	if (tsmf_ && !tsmf) {
 		stream_buf_->StopTsmf();
@@ -867,7 +868,7 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 
 	case px4::SystemType::ISDB_C:
 		if (tsmf) {
-			stream_buf_->StartTsmf(params_.tsmf_relative_stream, params_.tsmf_tsid, params_.tsmf_output_tlv, parent_.config_.device.discard_null_packets);
+			stream_buf_->StartTsmf(params_.tsmf_stream, parent_.config_.device.discard_null_packets, parent_.config_.usb.xfer_packets);
 			tsmf_ = true;
 		}
 

@@ -24,11 +24,10 @@ public:
 		std::uint32_t freq;
 		std::uint32_t bandwidth;
 		std::uint32_t stream_id;
-		// 以降は ISDB-C だけで使い、TSMF の TS を指定しない項目は -1
+		// 以降は ISDB-C だけで使う
 		std::uint32_t symbol_rate;
-		std::int32_t tsmf_relative_stream;
-		std::int32_t tsmf_tsid;
-		bool tsmf_output_tlv;
+		// TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
+		std::uint32_t tsmf_stream;
 	};
 
 	class StreamBuffer final {
@@ -45,11 +44,11 @@ public:
 		void NotifyWrite() noexcept;
 		void HandleRead(std::size_t buf_size, std::function<bool(const void *buf, std::size_t size)> handler);
 		bool Purge() noexcept;
-		// TSMF で多重された搬送波の選局から次の選局までの間だけ、指定した TS を選んで出力する
-		void StartTsmf(std::int32_t relative_stream, std::int32_t tsid, bool output_tlv, bool discard_null_packets);
+		// ISDB-C の選局から次の選局までの間だけ、TSMF の指定した TS を選び、ヘッダーのない搬送波は1本目の指定でそのまま出力する
+		void StartTsmf(std::uint32_t stream_index, bool discard_null_packets, unsigned int stale_packets);
 		void StopTsmf() noexcept;
 		void RestartTsmf() noexcept;
-		bool IsTsmfStreamFound() noexcept;
+		tsmf_filter_state GetTsmfState() noexcept;
 
 	private:
 		bool WriteTsmf(const void *buf, std::size_t &size) noexcept;
@@ -63,7 +62,7 @@ public:
 
 		std::atomic_bool tsmf_;
 		std::mutex tsmf_mtx_;
-		// TLV の蓄積領域を含めて大きいため、TSMF を指定した受信機だけに確保する
+		// TLV の蓄積領域を含めて大きいため、ISDB-C を選局した受信機だけに確保する
 		std::unique_ptr<tsmf_filter> tsmf_filter_;
 	};
 

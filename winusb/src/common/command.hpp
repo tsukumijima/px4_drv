@@ -77,9 +77,7 @@ namespace command {
 		UNDEFINED = 0,
 		BANDWIDTH = 1,
 		SYMBOL_RATE,
-		TSMF_RELATIVE_STREAM,
-		TSMF_TSID,
-		TSMF_OUTPUT_TLV,
+		TSMF_STREAM,
 		STREAM_ID = 16,
 	};
 
