@@ -68,6 +68,12 @@ foreach ($build_platform in $build_platforms) {
     if ($LASTEXITCODE -ne 0) {
         throw "J83B driver test failed. platform: $build_platform"
     }
+
+    # 作った TS で、TSMF の何本目の選択・ヘッダーのない搬送波の素通し・分割 TLV の自動判定を検証
+    & "build/$build_platform/Release-static/tsmf_filter_test.exe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "TSMF filter test failed. platform: $build_platform"
+    }
 }
 
 # dist/ フォルダにビルドされたファイルをコピー

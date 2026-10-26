@@ -307,6 +307,40 @@ int main(void)
 	}
 	printf("J83B %u sleep I/O failure boundaries and C restore: PASS\n", count);
 
+	/* Sony の ACCtoACC() と同じく、J.83B のまま選局し直すときは停止せず、TS の出力を止めて帯域の設定だけを書き直す */
+	reset(&demod, &tuner);
+	memset(&params, 0, sizeof(params));
+	params.isdbc.j83b = true;
+	CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+	bus.regs[1][0][0xc3] = 0;
+	bus.regs[1][0x10][0xb6] = 0;
+	bus.regs[1][0x40][0x14] = 0;
+	memset(&bus.regs[1][0x40][0x26], 0, 4);
+	count = bus.calls;
+	CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+	count = bus.calls - count;
+	CHECK(demod.j83b_active && demod.state == CXD2856ER_ACTIVE_STATE);
+	CHECK(bus.regs[1][0][0xc3] == 0x01);
+	CHECK(bus.regs[1][0x10][0xb6] == 0x14);
+	CHECK(bus.regs[1][0x40][0x14] == 0x10);
+	CHECK(memcmp(&bus.regs[1][0x40][0x26], "\x07\x77\x07\x77", 4) == 0);
+	/* 停止してから起動し直しても同じ値になるため、ACCtoACC() と同じ7回の書き込み (バンクの選択を含む) だけで済んだことで、停止していないと判断する */
+	CHECK(count == 7);
+	for (fail = 1; fail <= count; fail++) {
+		reset(&demod, &tuner);
+		memset(&params, 0, sizeof(params));
+		params.isdbc.j83b = true;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+		bus.fail_at = bus.calls + fail;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == -EIO);
+		bus.fail_at = 0;
+		/* 失敗した後も J.83B 固有の設定を解除できる */
+		params.bandwidth = 6;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_T_SYSTEM, &params) == 0);
+		CHECK(!demod.j83b_active && bus.regs[1][0x40][0x21] == 0);
+	}
+	printf("J83B retune without sleep and %u I/O failure boundaries: PASS\n", count);
+
 	reset(&demod, &tuner);
 	CHECK(cxd2858er_set_params_c(&tuner, 697143, true) == 0);
 	count = bus.calls;

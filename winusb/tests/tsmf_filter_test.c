@@ -1,0 +1,226 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* 作った TS で、TSMF の何本目の選択・ヘッダーのない搬送波の素通し・分割 TLV の自動判定を検証する
+ * 実際の放送のヘッダーの値と受信の欠落はこの試験の確認範囲外
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "tsmf.h"
+
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
+
+static struct tsmf_filter filter;
+static u8 out_buf[1024 * 1024];
+static size_t out_size;
+
+static void feed(const u8 *packet)
+{
+	const u8 *out;
+	size_t size = tsmf_filter_packet(&filter, packet, &out);
+
+	CHECK(out_size + size <= sizeof(out_buf));
+	memcpy(out_buf + out_size, out, size);
+	out_size += size;
+}
+
+static void make_packet(u8 *packet, u16 pid, u8 fill)
+{
+	memset(packet, fill, 188);
+	packet[0] = 0x47;
+	packet[1] = (u8)(pid >> 8);
+	packet[2] = (u8)pid;
+	packet[3] = 0x10;
+}
+
+/* valid と tlv は相対 TS 番号ごとのビットで、slots は各スロットの相対 TS 番号 (-1 は空き) */
+static void make_header(u8 *packet, unsigned int valid, unsigned int tlv, const int *slots)
+{
+	u32 crc = 0xffffffff;
+	int i, bit;
+
+	memset(packet, 0xff, 188);
+	packet[0] = 0x47;
+	packet[1] = 0x00;
+	packet[2] = 0x2f;
+	packet[3] = 0x10;
+	packet[4] = 0x1a;
+	packet[5] = 0x86;
+	packet[6] = 0x01;
+	memset(&packet[7], 0, 2);
+	memset(&packet[125], 0, 2);
+	for (i = 0; i < 15; i++) {
+		if (valid & (1u << i))
+			packet[7 + (i / 8)] |= (u8)(0x80 >> (i % 8));
+		/* stream_type のビットは MPEG-2 TS が 1、分割 TLV が 0 */
+		if (!(tlv & (1u << i)))
+			packet[125 + (i / 8)] |= (u8)(0x80 >> (i % 8));
+		packet[9 + (i * 4)] = 0x40;
+		packet[10 + (i * 4)] = (u8)i;
+	}
+	for (i = 0; i < TSMF_SLOT_NUM; i++) {
+		u8 v = (u8)(slots[i] + 1);
+		if (i & 1)
+			packet[73 + (i / 2)] = (u8)((packet[73 + (i / 2)] & 0xf0) | v);
+		else
+			packet[73 + (i / 2)] = (u8)(v << 4);
+	}
+	for (i = 4; i < 184; i++) {
+		crc ^= (u32)packet[i] << 24;
+		for (bit = 0; bit < 8; bit++)
+			crc = (crc & 0x80000000) ? ((crc << 1) ^ 0x04c11db7) : (crc << 1);
+	}
+	packet[184] = (u8)(crc >> 24);
+	packet[185] = (u8)(crc >> 16);
+	packet[186] = (u8)(crc >> 8);
+	packet[187] = (u8)crc;
+}
+
+/* 相対 TS 番号 1 と 3 を交互のスロットに載せ、各パケットの5バイト目に相対 TS 番号を書く */
+static void feed_frame(const int *slots, unsigned int valid, unsigned int tlv)
+{
+	u8 packet[188];
+	int i;
+
+	make_header(packet, valid, tlv, slots);
+	feed(packet);
+	for (i = 0; i < TSMF_SLOT_NUM; i++) {
+		make_packet(packet, 0x0100, (u8)(slots[i] < 0 ? 0xee : slots[i]));
+		feed(packet);
+	}
+}
+
+int main(void)
+{
+	int slots[TSMF_SLOT_NUM];
+	u8 packet[188];
+	size_t i;
+
+	for (i = 0; i < TSMF_SLOT_NUM; i++)
+		slots[i] = (i % 3 == 0) ? 1 : (i % 3 == 1) ? 3 : -1;
+
+	/* ヘッダーのない搬送波は、1本目の指定でだけ素通しし、null パケットを除いて52パケットずつ出力する */
+	tsmf_filter_init(&filter, 1, true, 0);
+	out_size = 0;
+	for (i = 0; i + 1 < TSMF_DETECT_PACKETS; i++) {
+		make_packet(packet, 0x0100, 0x11);
+		feed(packet);
+		CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_SEARCHING);
+	}
+	make_packet(packet, 0x0100, 0x11);
+	feed(packet);
+	CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND && out_size == 0);
+	for (i = 0; i < TSMF_SLOT_NUM * 2; i++) {
+		make_packet(packet, (i % 2) ? 0x1fff : 0x0100, (u8)i);
+		feed(packet);
+	}
+	CHECK(out_size == TSMF_SLOT_NUM * 188);
+	for (i = 0; i < out_size; i += 188)
+		CHECK(out_buf[i + 1] == 0x01 && out_buf[i + 2] == 0x00 && out_buf[i + 4] == (u8)((i / 188) * 2));
+	puts("Passthrough without TSMF header and null discard: PASS");
+
+	tsmf_filter_init(&filter, 2, true, 0);
+	for (i = 0; i < TSMF_DETECT_PACKETS; i++) {
+		make_packet(packet, 0x0100, 0x11);
+		feed(packet);
+	}
+	CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_NOT_FOUND);
+	puts("Second stream on carrier without TSMF header fails: PASS");
+
+	/* 相対 TS 番号 0 が無効で 1 と 3 が有効なヘッダーでは、1本目が 1、2本目が 3、3本目はない */
+	for (i = 1; i <= 3; i++) {
+		size_t n;
+
+		tsmf_filter_init(&filter, (int)i, false, 0);
+		out_size = 0;
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+		if (i == 3) {
+			CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_NOT_FOUND);
+			continue;
+		}
+		CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND && out_size == 0);
+		/* フレームの52パケットがそろったと次のヘッダーで分かってから出力する */
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+		CHECK(out_size == 18 * 188 || out_size == 17 * 188);
+		for (n = 0; n < out_size; n += 188)
+			CHECK(out_buf[n + 4] == ((i == 1) ? 1 : 3));
+	}
+	puts("Nth valid stream selection with relative numbers from 1: PASS");
+
+	/* 分割 TLV の TS は TLV を取り出し、MPEG-2 TS の TS はそのまま出力する */
+	{
+		static const int tlv_slots[TSMF_SLOT_NUM] = { 0, 0, 0, 1, -1 };
+		int s[TSMF_SLOT_NUM];
+		u8 hdr[188];
+
+		for (i = 0; i < TSMF_SLOT_NUM; i++)
+			s[i] = (i < 5) ? tlv_slots[i] : -1;
+
+		tsmf_filter_init(&filter, 1, false, 0);
+		out_size = 0;
+		make_header(hdr, (1u << 0) | (1u << 1), 1u << 0, s);
+		feed(hdr);
+		CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND);
+		/* 開始パケット (ポインター 0)、継続パケット、次の開始パケット */
+		make_packet(packet, 0x002d, 'A');
+		packet[1] |= 0x40;
+		packet[3] = 0;
+		feed(packet);
+		make_packet(packet, 0x002d, 'B');
+		feed(packet);
+		make_packet(packet, 0x002d, 'C');
+		packet[1] |= 0x40;
+		packet[3] = 0;
+		feed(packet);
+		make_packet(packet, 0x0100, 'D');
+		feed(packet);
+		for (i = 4; i < TSMF_SLOT_NUM; i++) {
+			make_packet(packet, 0x0100, 0xee);
+			feed(packet);
+		}
+		feed(hdr);
+		CHECK(out_size == 184 + 185);
+		for (i = 0; i < 184; i++)
+			CHECK(out_buf[i] == 'A');
+		/* 継続パケットは先頭3バイトの後がすべて TLV */
+		CHECK(out_buf[184] == 0x10);
+		for (i = 185; i < out_size; i++)
+			CHECK(out_buf[i] == 'B');
+
+		tsmf_filter_init(&filter, 2, false, 0);
+		out_size = 0;
+		feed(hdr);
+		make_packet(packet, 0x002d, 'A');
+		feed(packet);
+		feed(packet);
+		feed(packet);
+		make_packet(packet, 0x0100, 'D');
+		feed(packet);
+		for (i = 4; i < TSMF_SLOT_NUM; i++) {
+			make_packet(packet, 0x0100, 0xee);
+			feed(packet);
+		}
+		feed(hdr);
+		CHECK(out_size == 188 && out_buf[4] == 'D');
+	}
+	puts("TLV output decided by stream_type: PASS");
+
+	/* 選局し直した直後に届く前の搬送波の TSMF のヘッダーは、判定に使わずに捨てる
+	 * 捨てないと、ヘッダーのない新しい搬送波を TSMF と判定し、次のヘッダーを待ち続けて何も出力しない */
+	tsmf_filter_init(&filter, 1, false, 816);
+	out_size = 0;
+	for (i = 0; i < 3; i++)
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+	CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_SEARCHING && out_size == 0);
+	for (i = 3 * (TSMF_SLOT_NUM + 1); i < 816 + TSMF_DETECT_PACKETS; i++) {
+		make_packet(packet, 0x0100, 0x22);
+		feed(packet);
+	}
+	CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND && filter.passthrough);
+	for (i = 0; i < TSMF_SLOT_NUM; i++) {
+		make_packet(packet, 0x0100, 0x22);
+		feed(packet);
+	}
+	CHECK(out_size == TSMF_SLOT_NUM * 188 && out_buf[4] == 0x22);
+	puts("Stale TSMF header from previous carrier is skipped: PASS");
+	return 0;
+}
