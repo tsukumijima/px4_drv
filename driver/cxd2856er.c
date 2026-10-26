@@ -1110,6 +1110,29 @@ static int cxd2856er_reset_isdbs(struct cxd2856er_demod *demod)
 	return 0;
 }
 
+/* Sony の SLtoACC_BandSetting() のうち、5.6 Msps 用の IF と帯域の設定 */
+static int cxd2856er_set_band_j83b(struct cxd2856er_demod *demod)
+{
+	int ret;
+	u8 data[4];
+
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x10);
+	if (ret)
+		return ret;
+	data[0] = 0x14; data[1] = 0x00; data[2] = 0x00;
+	ret = cxd2856er_write_slvt_regs(demod, 0xb6, data, 3);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
+	if (ret)
+		return ret;
+	ret = cxd2856er_write_slvt_reg(demod, 0x14, 0x10);
+	if (ret)
+		return ret;
+	data[0] = 0x07; data[1] = 0x77; data[2] = 0x07; data[3] = 0x77;
+	return cxd2856er_write_slvt_regs(demod, 0x26, data, 4);
+}
+
 /* cxd2878.c の SLtoACC() と SLtoACC_BandSetting() のうち、5.6 Msps 用の設定を使う
  * PLEX の公開ドライバーには J.83B の復調器の手順がないため、Sony の手順を移した cxd2878.c を参照する
  * IF は Sony の SONY_DEMOD_MAKE_IFFREQ_CONFIG(3.75) と同じく round(3.75 / 48 * 2^24) = 0x140000
@@ -1210,18 +1233,7 @@ static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 	ret = cxd2856er_write_slvt_regs(demod, 0xa6, data, 14);
 	if (ret)
 		return ret;
-	data[0] = 0x14; data[1] = 0x00; data[2] = 0x00;
-	ret = cxd2856er_write_slvt_regs(demod, 0xb6, data, 3);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x40);
-	if (ret)
-		return ret;
-	ret = cxd2856er_write_slvt_reg(demod, 0x14, 0x10);
-	if (ret)
-		return ret;
-	data[0] = 0x07; data[1] = 0x77; data[2] = 0x07; data[3] = 0x77;
-	ret = cxd2856er_write_slvt_regs(demod, 0x26, data, 4);
+	ret = cxd2856er_set_band_j83b(demod);
 	if (ret)
 		return ret;
 	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
@@ -1385,6 +1397,22 @@ static int cxd2856er_reset_isdbc(struct cxd2856er_demod *demod)
 	return cxd2856er_write_slvt_reg(demod, 0xc3, 0x01);
 }
 
+/* Sony の ACCtoACC() に従い、J.83B のまま選局し直すときは TS の出力を止めて、帯域の設定だけを書き直す */
+static int cxd2856er_reset_j83b(struct cxd2856er_demod *demod)
+{
+	int ret;
+
+	ret = cxd2856er_write_slvt_reg(demod, 0x00, 0x00);
+	if (ret)
+		return ret;
+
+	ret = cxd2856er_write_slvt_reg(demod, 0xc3, 0x01);
+	if (ret)
+		return ret;
+
+	return cxd2856er_set_band_j83b(demod);
+}
+
 int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 		     enum cxd2856er_system system,
 		     union cxd2856er_system_params *params)
@@ -1393,10 +1421,10 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
 		params->isdbc.j83b;
 
-	/* ISDB-C と J.83B から別の方式へ切り替えるときと、J.83B を選ぶときは、停止処理で設定を既定値へ戻してから起動する
+	/* ISDB-C と J.83B から別の方式へ切り替えるときと、ISDB-C と J.83B の間で切り替えるときは、停止処理で設定を既定値へ戻してから起動する
 	 * 戻せなかったときは ISDB-C や J.83B の設定が残った状態で受信するため、起動を中断する */
 	if (demod->state == CXD2856ER_ACTIVE_STATE && demod->system == CXD2856ER_ISDB_C_SYSTEM &&
-	    (system != CXD2856ER_ISDB_C_SYSTEM || j83b || demod->j83b_active)) {
+	    (system != CXD2856ER_ISDB_C_SYSTEM || j83b != demod->j83b_active)) {
 		ret = cxd2856er_sleep(demod);
 		if (ret)
 			return ret;
@@ -1414,7 +1442,8 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 				break;
 
 			case CXD2856ER_ISDB_C_SYSTEM:
-				ret = cxd2856er_reset_isdbc(demod);
+				ret = j83b ? cxd2856er_reset_j83b(demod) :
+					cxd2856er_reset_isdbc(demod);
 				break;
 
 			default:
