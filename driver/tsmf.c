@@ -3,6 +3,7 @@
  * TSMF stream selector (tsmf.c)
  *
  * 1つの搬送波に多重化された複数の TS から、TSMF ヘッダーの直後の52パケットの位置で1つの TS を選ぶ
+ * ISDB-C の受信はすべてここを通し、ヘッダーのない搬送波は1本目の指定でだけそのまま出力する
  * 処理の組み立ては、radi-sh 氏による BonDriver_BDA の TSMF.cpp に合わせている
  */
 
@@ -43,34 +44,30 @@ static bool tsmf_is_header(const u8 *packet)
 
 static void tsmf_parse_header(struct tsmf_filter *filter, const u8 *packet)
 {
-	int i, stream = filter->relative_stream;
+	int i, n = 0, stream = -1;
+	bool output_tlv = false;
 
-	if (filter->tsid >= 0) {
-		stream = -1;
-
-		for (i = 0; i < 15; i++) {
-			if (tsmf_stream_flag(&packet[7], i) &&
-			    ((packet[9 + (i * 4)] << 8) | packet[10 + (i * 4)]) == filter->tsid) {
-				stream = i;
-				break;
-			}
+	/* 相対 TS 番号は 0 から詰めて使われるとは限らないため、有効な TS を順に数える */
+	for (i = 0; i < 15; i++) {
+		if (tsmf_stream_flag(&packet[7], i) && ++n == filter->stream_index) {
+			stream = i;
+			/* stream_type のビットが 0 の TS は分割 TLV、1 の TS は MPEG-2 TS */
+			output_tlv = !tsmf_stream_flag(&packet[125], i);
+			break;
 		}
 	}
 
-	/* 有効でない TS と、生 TLV の出力で分割 TLV 形式 (stream_type 0) でない TS は出力しない */
-	if (stream >= 0 &&
-	    (!tsmf_stream_flag(&packet[7], stream) ||
-	     (filter->output_tlv && tsmf_stream_flag(&packet[125], stream))))
-		stream = -1;
-
-	/* 選ぶ TS が変わったときは、TLV の断片を連結しない */
-	if (stream != filter->stream)
+	/* 選ぶ TS か形式が変わったときは、TLV の断片を連結しない */
+	if (stream != filter->stream || output_tlv != filter->output_tlv)
 		filter->tlv_size = 0;
 
 	for (i = 0; i < TSMF_SLOT_NUM; i++)
 		filter->slot_stream[i] = (i & 1) ? (packet[73 + (i / 2)] & 0x0f) : (packet[73 + (i / 2)] >> 4);
 
+	filter->header_found = true;
+	filter->not_found = (stream < 0);
 	filter->stream = stream;
+	filter->output_tlv = output_tlv;
 	filter->slot = 0;
 	filter->frame_size = 0;
 }
@@ -138,22 +135,58 @@ static size_t tsmf_flush_frame(struct tsmf_filter *filter, const u8 **out)
 	return size;
 }
 
-void tsmf_filter_init(struct tsmf_filter *filter, int relative_stream, int tsid, bool output_tlv, bool discard_null_packets)
+void tsmf_filter_init(struct tsmf_filter *filter, int stream_index, bool discard_null_packets, unsigned int stale_packets)
 {
-	filter->relative_stream = relative_stream;
-	filter->tsid = tsid;
-	filter->output_tlv = output_tlv;
+	filter->stream_index = stream_index;
 	filter->discard_null_packets = discard_null_packets;
+	filter->stale_packets = stale_packets;
+	filter->skip_packets = stale_packets;
+	filter->passthrough = false;
+	filter->header_found = false;
+	filter->not_found = false;
+	filter->detect_packets = 0;
+	filter->output_tlv = false;
 	filter->stream = -1;
 	filter->slot = -1;
 	filter->frame_size = 0;
 	filter->tlv_size = 0;
 }
 
+static bool tsmf_is_null_packet(const u8 *packet)
+{
+	return ((((packet[1] & 0x1f) << 8) | packet[2]) == 0x1fff) ? true : false;
+}
+
+/* ヘッダーのない搬送波の TS は、TSMF のフレームと同じ大きさにまとめて出力し、パケットごとの書き込みを避ける */
+static size_t tsmf_passthrough_packet(struct tsmf_filter *filter, const u8 *packet, const u8 **out)
+{
+	if (filter->discard_null_packets && tsmf_is_null_packet(packet))
+		return 0;
+
+	memcpy(filter->frame + filter->frame_size, packet, 188);
+	filter->frame_size += 188;
+
+	if (filter->frame_size < sizeof(filter->frame))
+		return 0;
+
+	filter->frame_size = 0;
+	*out = filter->frame;
+	return sizeof(filter->frame);
+}
+
 /* 出力するデータを *out に設定してその長さを返し、出力しないパケットでは0を返す */
 size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8 **out)
 {
 	size_t size = 0;
+
+	/* 前の搬送波のヘッダーやヘッダーのない TS で、新しい搬送波の判定を誤らないようにする */
+	if (filter->skip_packets) {
+		filter->skip_packets--;
+		return 0;
+	}
+
+	if (filter->passthrough)
+		return tsmf_passthrough_packet(filter, packet, out);
 
 	if (tsmf_is_header(packet)) {
 		/* 前のフレームの52パケットがそろったときだけ、そのフレームで選んだパケットを出力する */
@@ -164,6 +197,17 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 
 		tsmf_parse_header(filter, packet);
 		return size;
+	}
+
+	if (!filter->header_found) {
+		/* 一定の長さヘッダーが届かなければ TSMF を使わない搬送波と決め、1本目の指定ならそのまま出力する */
+		if (++filter->detect_packets >= TSMF_DETECT_PACKETS) {
+			if (filter->stream_index == 1)
+				filter->passthrough = true;
+			else
+				filter->not_found = true;
+		}
+		return 0;
 	}
 
 	if (filter->slot < 0)
@@ -180,7 +224,7 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 		return 0;
 
 	/* TSMF はヘッダーからの位置で TS を選ぶため、ブリッジでは null パケットを除かずに、選んだ後で除く */
-	if (filter->discard_null_packets && (((packet[1] & 0x1f) << 8) | packet[2]) == 0x1fff)
+	if (filter->discard_null_packets && tsmf_is_null_packet(packet))
 		return 0;
 
 	memcpy(filter->frame + filter->frame_size, packet, 188);
@@ -189,7 +233,11 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 	return 0;
 }
 
-bool tsmf_filter_found(const struct tsmf_filter *filter)
+enum tsmf_filter_state tsmf_filter_get_state(const struct tsmf_filter *filter)
 {
-	return (filter->stream >= 0) ? true : false;
+	if (filter->passthrough || filter->stream >= 0)
+		return TSMF_FILTER_FOUND;
+	if (filter->not_found)
+		return TSMF_FILTER_NOT_FOUND;
+	return TSMF_FILTER_SEARCHING;
 }

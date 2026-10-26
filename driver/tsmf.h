@@ -15,11 +15,33 @@
 #define TSMF_SLOT_NUM		52
 #define TSMF_TLV_MAX_SIZE	65536
 
+/* TSMF の TS は、ヘッダーで有効な TS を相対 TS 番号の順に並べたときの何本目かで選び、1〜15 で指定する */
+#define TSMF_STREAM_MAX		15
+
+/* ヘッダーを探さずに素通しと決めるまでのパケット数 (1フレームは53パケットで、受信の誤りでヘッダーを数回落としても誤判定しない長さ) */
+#define TSMF_DETECT_PACKETS	(53 * 8)
+
+enum tsmf_filter_state {
+	TSMF_FILTER_SEARCHING,
+	TSMF_FILTER_FOUND,
+	TSMF_FILTER_NOT_FOUND,
+};
+
 struct tsmf_filter {
-	int relative_stream;
-	int tsid;
-	bool output_tlv;
+	int stream_index;
 	bool discard_null_packets;
+	/* 選局し直した直後は、IT930x の転送1回分に前の搬送波の TS が残っていることがあるため、判定に使わずに捨てるパケット数 */
+	unsigned int stale_packets;
+	unsigned int skip_packets;
+	/* 1本目を指定してヘッダーのない搬送波だった場合は、搬送波の TS をそのまま出力する */
+	bool passthrough;
+	bool header_found;
+	/* ヘッダーに指定した TS がないか、2本目以降の指定でヘッダーのない搬送波だった */
+	bool not_found;
+	/* ヘッダーを探し始めてから受け取ったパケット数 */
+	unsigned int detect_packets;
+	/* ヘッダーの stream_type が分割 TLV の TS は、TS のままでは受信ソフトウェアが扱えないため、TLV を取り出して出力する */
+	bool output_tlv;
 	/* ヘッダーから求めた、出力する TS の相対 TS 番号 (見つからなければ -1) */
 	int stream;
 	/* ヘッダーの直後から数えた位置で、位置が分からなければ次のヘッダーまで -1 */
@@ -38,9 +60,9 @@ struct tsmf_filter {
 #ifdef __cplusplus
 extern "C" {
 #endif
-void tsmf_filter_init(struct tsmf_filter *filter, int relative_stream, int tsid, bool output_tlv, bool discard_null_packets);
+void tsmf_filter_init(struct tsmf_filter *filter, int stream_index, bool discard_null_packets, unsigned int stale_packets);
 size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8 **out);
-bool tsmf_filter_found(const struct tsmf_filter *filter);
+enum tsmf_filter_state tsmf_filter_get_state(const struct tsmf_filter *filter);
 #ifdef __cplusplus
 }
 #endif

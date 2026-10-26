@@ -9,6 +9,7 @@
 #include "ptx_chrdev.h"
 #include "isdb2056_device.h"
 #include "px4_device_params.h"
+#include "px4_usb_params.h"
 #include "tsmf.h"
 
 #include <linux/kernel.h>
@@ -213,20 +214,20 @@ static void ptx_chrdev_reset_tsmf(struct ptx_chrdev *chrdev)
 	unsigned long flags;
 
 	spin_lock_irqsave(&stream->lock, flags);
-	tsmf_filter_init(&stream->filter, chrdev->params.tsmf_relative_stream,
-			 chrdev->params.tsmf_tsid, chrdev->params.tsmf_output_tlv,
-			 px4_device_params.discard_null_packets);
+	tsmf_filter_init(&stream->filter, chrdev->params.tsmf_stream,
+			 px4_device_params.discard_null_packets,
+			 px4_usb_params.xfer_packets);
 	spin_unlock_irqrestore(&stream->lock, flags);
 }
 
 static int ptx_chrdev_prepare_tsmf(struct ptx_chrdev *chrdev)
 {
 	WRITE_ONCE(chrdev->tsmf_active, false);
-	if (chrdev->params.system != PTX_ISDB_C_SYSTEM ||
-	    (chrdev->params.tsmf_relative_stream < 0 && chrdev->params.tsmf_tsid < 0))
+	/* ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す */
+	if (chrdev->params.system != PTX_ISDB_C_SYSTEM)
 		return 0;
 
-	/* TLV の蓄積領域は TSMF を使った受信機だけに確保し、デバイスの寿命まで保持する */
+	/* TLV の蓄積領域は ISDB-C を選局した受信機だけに確保し、デバイスの寿命まで保持する */
 	if (!chrdev->tsmf) {
 		chrdev->tsmf = kvzalloc(sizeof(*chrdev->tsmf), GFP_KERNEL);
 		if (!chrdev->tsmf)
@@ -259,17 +260,23 @@ static int ptx_chrdev_wait_tsmf(struct ptx_chrdev *chrdev)
 
 	ret = -EAGAIN;
 	while (time_before(jiffies, deadline)) {
-		bool found;
+		enum tsmf_filter_state state;
 
 		if (!atomic_read(&chrdev->parent->available)) {
 			ret = -EIO;
 			break;
 		}
 		spin_lock_irqsave(&stream->lock, flags);
-		found = tsmf_filter_found(&stream->filter);
+		state = tsmf_filter_get_state(&stream->filter);
 		spin_unlock_irqrestore(&stream->lock, flags);
-		if (found) {
+		if (state == TSMF_FILTER_FOUND) {
 			ret = 0;
+			break;
+		}
+		/* 指定した何本目の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
+		 * ロックしない搬送波の EAGAIN と区別できるよう、TS がないことは ENODATA で返す */
+		if (state == TSMF_FILTER_NOT_FOUND) {
+			ret = -ENODATA;
 			break;
 		}
 		msleep(20);
@@ -292,8 +299,7 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 		.freq = user_params->freq,
 		.bandwidth = user_params->system == PTX_ISDB_S_SYSTEM ? 0 : 6,
 		.symbol_rate = 5274,
-		.tsmf_relative_stream = -1,
-		.tsmf_tsid = -1,
+		.tsmf_stream = 1,
 	};
 	u32 i;
 
@@ -322,20 +328,10 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 				return -EINVAL;
 			params.symbol_rate = value;
 			break;
-		case PTXT_TSMF_RELATIVE_STREAM_PARAM:
-			if (params.system != PTX_ISDB_C_SYSTEM || value > 14)
+		case PTXT_TSMF_STREAM_PARAM:
+			if (params.system != PTX_ISDB_C_SYSTEM || !value || value > TSMF_STREAM_MAX)
 				return -EINVAL;
-			params.tsmf_relative_stream = value;
-			break;
-		case PTXT_TSMF_TSID_PARAM:
-			if (params.system != PTX_ISDB_C_SYSTEM || value > 0xffff)
-				return -EINVAL;
-			params.tsmf_tsid = value;
-			break;
-		case PTXT_TSMF_OUTPUT_TLV_PARAM:
-			if (params.system != PTX_ISDB_C_SYSTEM || value > 1)
-				return -EINVAL;
-			params.tsmf_output_tlv = value;
+			params.tsmf_stream = value;
 			break;
 		case PTXT_STREAM_ID_PARAM:
 			if (params.system != PTX_ISDB_S_SYSTEM || value > 0xffff)
@@ -346,9 +342,6 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 			return -EINVAL;
 		}
 	}
-
-	if (params.tsmf_output_tlv && params.tsmf_relative_stream < 0 && params.tsmf_tsid < 0)
-		return -EINVAL;
 
 	chrdev->params = params;
 	return 0;
@@ -386,11 +379,18 @@ static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type syste
 		if (chrdev->ops->check_lock) {
 			int i;
 			bool locked = false;
+			/* Sony の sony_integ_isdbc_WaitTSLock() と sony_integ_j83b_WaitTSLock() と同じく、ISDB-C と J.83B はロックを1秒で打ち切り、
+			 * 信号のない搬送波で選局の失敗を待つ時間を短くする (msleep() は指定より長く眠ることがあるため、回数ではなく時刻で数える) */
+			unsigned long lock_deadline = jiffies + msecs_to_jiffies(1000);
 
 			i = 300;
 			while (i--) {
 				ret = chrdev->ops->check_lock(chrdev, &locked);
 				if ((!ret && locked) || ret == -ECANCELED)
+					break;
+
+				if (chrdev->current_system == PTX_ISDB_C_SYSTEM &&
+				    time_after(jiffies, lock_deadline))
 					break;
 
 				msleep(10);
@@ -499,9 +499,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 
 		case PTX_ISDB_C_SYSTEM:
 			chrdev->params.symbol_rate = 5274;
-			chrdev->params.tsmf_relative_stream = -1;
-			chrdev->params.tsmf_tsid = -1;
-			chrdev->params.tsmf_output_tlv = false;
+			chrdev->params.tsmf_stream = 1;
 			/* ISDB-C の中心周波数には、地上波の 143 kHz オフセットを加えない
 			 * 0-62 は recpt1 と同じく VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch で、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
 			 * slot は既存の addfreq と同じく、符号付きの周波数補正値 (kHz) として使う */

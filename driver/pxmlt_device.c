@@ -438,9 +438,8 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
-		/* TSMF はパケットの位置で TS を選ぶため、分離前は null パケットも受け取る */
-		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
-			params->tsmf_relative_stream < 0 && params->tsmf_tsid < 0);
+		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る */
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev, false);
 		if (ret)
 			break;
 
