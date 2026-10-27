@@ -13,12 +13,23 @@
 
 namespace {
 
+std::wstring temp_path;
+
+// CHECK が失敗して exit() で終わっても、一時ファイルを %TEMP% に残さない
+void RemoveTemp()
+{
+	if (!temp_path.empty())
+		DeleteFileW(temp_path.c_str());
+}
+
 std::wstring WriteTemp(const char *body)
 {
 	wchar_t dir[MAX_PATH], path[MAX_PATH];
 
 	CHECK(GetTempPathW(MAX_PATH, dir) != 0);
 	CHECK(GetTempFileNameW(dir, L"chs", 0, path) != 0);
+	temp_path = path;
+	std::atexit(RemoveTemp);
 
 	std::ofstream ofs(path, std::ios::binary);
 	ofs << body;
@@ -68,7 +79,6 @@ int wmain(int argc, wchar_t **argv)
 	// 厳しい読み込みでは、不正な行が1つでもあれば失敗する
 	px4::ChannelSet strict(true);
 	CHECK(!strict.Load(path, px4::SystemType::ISDB_C));
-	DeleteFileW(path.c_str());
 	std::puts("ISDB-C ChSet columns and boundaries: PASS");
 
 	// 配布の ChSet は、すべての行が厳しい読み込みで読める
