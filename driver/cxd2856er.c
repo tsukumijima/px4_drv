@@ -132,6 +132,7 @@ int cxd2856er_init(struct cxd2856er_demod *demod)
 	demod->i2c_master.priv = demod;
 
 	demod->j83b_active = false;
+	demod->cable_wakeup_incomplete = false;
 	demod->state = CXD2856ER_UNKNOWN_STATE;
 	demod->system = CXD2856ER_UNSPECIFIED_SYSTEM;
 
@@ -678,6 +679,7 @@ int cxd2856er_sleep(struct cxd2856er_demod *demod)
 		if (ret)
 			return ret;
 		demod->j83b_active = false;
+		demod->cable_wakeup_incomplete = false;
 		demod->state = CXD2856ER_SLEEP_STATE;
 		demod->system = CXD2856ER_UNSPECIFIED_SYSTEM;
 		return 0;
@@ -702,6 +704,7 @@ int cxd2856er_sleep(struct cxd2856er_demod *demod)
 		break;
 	}
 
+	demod->cable_wakeup_incomplete = false;
 	demod->state = CXD2856ER_SLEEP_STATE;
 	demod->system = CXD2856ER_UNSPECIFIED_SYSTEM;
 
@@ -1145,6 +1148,7 @@ static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 
 	/* 途中で I/O が失敗しても、次回の停止時に J.83B 固有の設定を解除できるよう状態を保持する */
 	demod->j83b_active = true;
+	demod->cable_wakeup_incomplete = true;
 	demod->system = CXD2856ER_ISDB_C_SYSTEM;
 	demod->state = CXD2856ER_ACTIVE_STATE;
 
@@ -1254,6 +1258,7 @@ static int cxd2856er_wakeup_isdbc(struct cxd2856er_demod *demod)
 	u8 data[14];
 
 	/* 途中で I/O が失敗しても、次回の停止時に ISDB-C の設定を既定値へ戻せるよう状態を保持する */
+	demod->cable_wakeup_incomplete = true;
 	demod->system = CXD2856ER_ISDB_C_SYSTEM;
 	demod->state = CXD2856ER_ACTIVE_STATE;
 
@@ -1421,10 +1426,12 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
 		params->isdbc.j83b;
 
-	/* ISDB-C と J.83B から別の方式へ切り替えるときと、ISDB-C と J.83B の間で切り替えるときは、停止処理で設定を既定値へ戻してから起動する
+	/* ISDB-C と J.83B から別の方式へ切り替えるとき、ISDB-C と J.83B の間で切り替えるとき、前の起動が途中で失敗していたときは、
+	 * 停止処理で設定を既定値へ戻してから起動する (途中で失敗した起動の後に選局し直しだけで済ませると、半端な設定のまま受信できなくなる)
 	 * 戻せなかったときは ISDB-C や J.83B の設定が残った状態で受信するため、起動を中断する */
 	if (demod->state == CXD2856ER_ACTIVE_STATE && demod->system == CXD2856ER_ISDB_C_SYSTEM &&
-	    (system != CXD2856ER_ISDB_C_SYSTEM || j83b != demod->j83b_active)) {
+	    (system != CXD2856ER_ISDB_C_SYSTEM || j83b != demod->j83b_active ||
+	     demod->cable_wakeup_incomplete)) {
 		ret = cxd2856er_sleep(demod);
 		if (ret)
 			return ret;
@@ -1479,6 +1486,7 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 	if (!ret) {
 		demod->system = system;
 		demod->state = CXD2856ER_ACTIVE_STATE;
+		demod->cable_wakeup_incomplete = false;
 	}
 
 	return ret;

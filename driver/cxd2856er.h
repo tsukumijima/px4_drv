@@ -61,6 +61,9 @@ struct cxd2856er_demod {
 	enum cxd2856er_system system;
 	/* 公開 API 上の系統は ISDB-C と共通のため、J.83B 固有の停止処理が必要かを別に保持する */
 	bool j83b_active;
+	/* ISDB-C と J.83B の起動は、途中で失敗しても停止で既定値へ戻せるよう、先に起動中の状態にする
+	 * その起動が最後まで終わっていないと、同じ方式の選局し直しで済ませずに、停止してから起動し直す */
+	bool cable_wakeup_incomplete;
 };
 
 #ifdef __cplusplus
