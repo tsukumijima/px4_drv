@@ -35,7 +35,8 @@ PxMltDevice::PxMltDevice(const std::wstring &path, const px4::DeviceDefinition &
 	card_open_(false),
 	lnb_power_count_(0),
 	streaming_count_(0),
-	tuner_lock_{}
+	tuner_lock_{},
+	tuner_initialized_{}
 {
 	if (usb_dev_.descriptor.idVendor != 0x0511)
 		throw DeviceError("px4::PxMltDevice::PxMltDevice: unsupported device. (unknown vendor id)");
@@ -407,6 +408,10 @@ int PxMltDevice::SetBackendPower(bool state)
 			return ret;
 
 		Sleep(20);
+
+		// 電源を入れた直後のチューナーは、どれも初期化されていない
+		for (int i = 0; i < receiver_num_; i++)
+			tuner_initialized_[i] = false;
 	} else {
 		it930x_write_gpio(&it930x_, 2, false);
 		it930x_write_gpio(&it930x_, 7, true);
@@ -720,6 +725,8 @@ int PxMltDevice::PxMltReceiver::Open()
 		}
 	}
 
+	parent_.tuner_initialized_[index_] = true;
+
 	ret = cxd2856er_write_slvt_reg(&cxd2856er_, 0x00, 0x00);
 	if (ret)
 		goto fail_backend;
@@ -868,6 +875,36 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 		break;
 
 	case px4::SystemType::ISDB_C:
+	{
+		// チューナーは、初期化されていない状態から待機へ切り替わるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
+		// 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C を選局するときにだけ、まだ初期化していないチューナーを
+		// 待機中も整合を保つ状態 (cxd2858er_init()) にしておく (地デジと BS/CS だけの利用では、この初期化の時間はかからない)
+		std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
+
+		for (int i = 0; i < parent_.receiver_num_; i++) {
+			if (parent_.tuner_initialized_[i])
+				continue;
+
+			PxMltReceiver &receiver = *parent_.receivers_[i];
+
+			ret = cxd2856er_init(&receiver.cxd2856er_);
+			if (!ret) {
+				std::lock_guard<std::mutex> tuner_lock(*receiver.tuner_lock_);
+				ret = cxd2858er_init(&receiver.cxd2858er_);
+			}
+			cxd2856er_term(&receiver.cxd2856er_);
+
+			if (ret) {
+				// 初期化できなかったチューナーは、次に ISDB-C を選局するときに初期化し直す
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): tuner %d initialization failed. (ret: %d)\n", index_, i, ret);
+				ret = 0;
+				continue;
+			}
+
+			parent_.tuner_initialized_[i] = true;
+		}
+	}
+
 		if (tsmf) {
 			stream_buf_->StartTsmf(params_.tsmf_stream, parent_.config_.device.discard_null_packets, parent_.config_.usb.xfer_packets);
 			tsmf_ = true;

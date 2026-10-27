@@ -170,6 +170,7 @@ private:
 	std::mutex tuner_lock_[2];
 	int receiver_num_;
 	std::unique_ptr<PxMltReceiver> receivers_[5];
+	bool tuner_initialized_[5];
 	it930x_bridge it930x_;
 	StreamContext stream_ctx_;
 };
