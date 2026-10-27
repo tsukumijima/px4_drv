@@ -32,7 +32,7 @@ static void pxmlt_device_release(struct kref *kref);
 
 static int pxmlt_backend_set_power(struct pxmlt_device *pxmlt, bool state)
 {
-	int ret = 0;
+	int ret = 0, i;
 	struct it930x_bridge *it930x = &pxmlt->it930x;
 
 	dev_dbg(pxmlt->dev,
@@ -53,6 +53,10 @@ static int pxmlt_backend_set_power(struct pxmlt_device *pxmlt, bool state)
 			return ret;
 
 		msleep(20);
+
+		/* 電源を入れた直後のチューナーは、どれも初期化されていない */
+		for (i = 0; i < pxmlt->chrdevm_num; i++)
+			pxmlt->chrdevm[i].tuner_initialized = false;
 	} else {
 		it930x_write_gpio(it930x, 2, false);
 		it930x_write_gpio(it930x, 7, true);
@@ -255,6 +259,8 @@ static int pxmlt_chrdev_open(struct ptx_chrdev *chrdev)
 		goto fail_tuner_init;
 	}
 
+	chrdevm->tuner_initialized = true;
+
 	ret = cxd2856er_write_slvt_reg(&chrdevm->cxd2856er, 0x00, 0x00);
 	if (ret)
 		goto fail_backend;
@@ -395,7 +401,7 @@ static int pxmlt_chrdev_set_null_packet_filter(struct ptx_chrdev *chrdev, bool e
 static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 			     struct ptx_tune_params *params)
 {
-	int ret = 0;
+	int ret = 0, i;
 	struct ptx_chrdev_group *chrdev_group = chrdev->parent;
 	struct pxmlt_chrdev *chrdevm = chrdev->priv;
 	struct pxmlt_device *pxmlt = chrdevm->parent;
@@ -438,6 +444,37 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
+		/* チューナーは、初期化されていない状態から待機へ切り替わるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
+		 * 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C を選局するときにだけ、まだ初期化していないチューナーを
+		 * 待機中も整合を保つ状態 (cxd2858er_init()) にしておく (地デジと BS/CS だけの利用では、この初期化の時間はかからない) */
+		mutex_lock(&pxmlt->lock);
+		for (i = 0; i < pxmlt->chrdevm_num; i++) {
+			struct pxmlt_chrdev *other = &pxmlt->chrdevm[i];
+
+			if (other->tuner_initialized)
+				continue;
+
+			ret = cxd2856er_init(&other->cxd2856er);
+			if (!ret) {
+				mutex_lock(other->tuner_lock);
+				ret = cxd2858er_init(&other->cxd2858er);
+				mutex_unlock(other->tuner_lock);
+			}
+			cxd2856er_term(&other->cxd2856er);
+
+			if (ret) {
+				/* 初期化できなかったチューナーは、次に ISDB-C を選局するときに初期化し直す */
+				dev_err(pxmlt->dev,
+					"pxmlt_chrdev_tune %u:%u: tuner %d initialization failed. (ret: %d)\n",
+					chrdev_group->id, chrdev->id, i, ret);
+				ret = 0;
+				continue;
+			}
+
+			other->tuner_initialized = true;
+		}
+		mutex_unlock(&pxmlt->lock);
+
 		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る
 		 * J.83 Annex B は TSMF を使わないため、地デジと同じくブリッジで除く */
 		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
