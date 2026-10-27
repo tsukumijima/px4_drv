@@ -238,7 +238,7 @@ static int ptx_chrdev_prepare_tsmf(struct ptx_chrdev *chrdev)
 	if (chrdev->params.system != PTX_ISDB_C_SYSTEM || chrdev->params.symbol_rate == 5600)
 		return 0;
 
-	/* TLV の蓄積領域は ISDB-C を選局した受信機だけに確保し、デバイスの寿命まで保持する */
+	/* TLV の蓄積領域は J.83B を除く ISDB-C を選局した受信機だけに確保し、デバイスの寿命まで保持する */
 	if (!chrdev->tsmf) {
 		chrdev->tsmf = kvzalloc(sizeof(*chrdev->tsmf), GFP_KERNEL);
 		if (!chrdev->tsmf)
