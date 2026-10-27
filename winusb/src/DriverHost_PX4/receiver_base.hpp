@@ -44,7 +44,7 @@ public:
 		void NotifyWrite() noexcept;
 		void HandleRead(std::size_t buf_size, std::function<bool(const void *buf, std::size_t size)> handler);
 		bool Purge() noexcept;
-		// ISDB-C の選局から次の選局までの間だけ、TSMF の指定した TS を選び、ヘッダーのない搬送波は1本目の指定でそのまま出力する
+		// J.83B を除く ISDB-C の選局から次の選局までの間だけ、TSMF の指定した TS を選び、ヘッダーのない搬送波は1本目の指定でそのまま出力する
 		void StartTsmf(std::uint32_t stream_index, bool discard_null_packets, unsigned int stale_packets);
 		void StopTsmf() noexcept;
 		void RestartTsmf() noexcept;
@@ -62,7 +62,7 @@ public:
 
 		std::atomic_bool tsmf_;
 		std::mutex tsmf_mtx_;
-		// TLV の蓄積領域を含めて大きいため、ISDB-C を選局した受信機だけに確保する
+		// TLV の蓄積領域を含めて大きいため、J.83B を除く ISDB-C を選局した受信機だけに確保する
 		std::unique_ptr<tsmf_filter> tsmf_filter_;
 	};
 
