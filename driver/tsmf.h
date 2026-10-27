@@ -18,7 +18,7 @@
 /* TSMF の TS は、ヘッダーで有効な TS を相対 TS 番号の順に並べたときの何本目かで選び、1〜15 で指定する */
 #define TSMF_STREAM_MAX		15
 
-/* ヘッダーを探さずに素通しと決めるまでのパケット数 (1フレームは53パケットで、受信の誤りでヘッダーを数回落としても誤判定しない長さ) */
+/* ヘッダーが届かずに素通しと判断するまでのパケット数 (1フレームは53パケットで、受信の誤りでヘッダーを数回落としても誤判定しない長さ) */
 #define TSMF_DETECT_PACKETS	(53 * 8)
 
 enum tsmf_filter_state {
@@ -35,10 +35,11 @@ struct tsmf_filter {
 	unsigned int skip_packets;
 	/* 1本目を指定してヘッダーのない搬送波だった場合は、搬送波の TS をそのまま出力する */
 	bool passthrough;
+	/* 選局してからヘッダーを1つでも受け取ったか */
 	bool header_found;
 	/* ヘッダーに指定した TS がないか、2本目以降の指定でヘッダーのない搬送波だった */
 	bool not_found;
-	/* ヘッダーを探し始めてから受け取ったパケット数 */
+	/* ヘッダーを探し始めてから受け取ったパケット数で、TSMF_DETECT_PACKETS で止める */
 	unsigned int detect_packets;
 	/* ヘッダーの stream_type が分割 TLV の TS は、TS のままでは受信ソフトウェアが扱えないため、TLV を取り出して出力する */
 	bool output_tlv;
@@ -62,6 +63,7 @@ extern "C" {
 #endif
 void tsmf_filter_init(struct tsmf_filter *filter, int stream_index, bool discard_null_packets, unsigned int stale_packets);
 size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8 **out);
+void tsmf_filter_resync(struct tsmf_filter *filter);
 enum tsmf_filter_state tsmf_filter_get_state(const struct tsmf_filter *filter);
 #ifdef __cplusplus
 }

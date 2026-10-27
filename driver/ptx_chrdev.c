@@ -220,11 +220,22 @@ static void ptx_chrdev_reset_tsmf(struct ptx_chrdev *chrdev)
 	spin_unlock_irqrestore(&stream->lock, flags);
 }
 
+static void ptx_chrdev_resync_tsmf(struct ptx_chrdev *chrdev)
+{
+	struct ptx_tsmf_stream *stream = chrdev->tsmf;
+	unsigned long flags;
+
+	spin_lock_irqsave(&stream->lock, flags);
+	tsmf_filter_resync(&stream->filter);
+	spin_unlock_irqrestore(&stream->lock, flags);
+}
+
 static int ptx_chrdev_prepare_tsmf(struct ptx_chrdev *chrdev)
 {
 	WRITE_ONCE(chrdev->tsmf_active, false);
-	/* ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す */
-	if (chrdev->params.system != PTX_ISDB_C_SYSTEM)
+	/* ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
+	 * J.83 Annex B は TSMF を使わないため通さない */
+	if (chrdev->params.system != PTX_ISDB_C_SYSTEM || chrdev->params.symbol_rate == 5600)
 		return 0;
 
 	/* TLV の蓄積領域は ISDB-C を選局した受信機だけに確保し、デバイスの寿命まで保持する */
@@ -342,6 +353,10 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 			return -EINVAL;
 		}
 	}
+
+	/* J.83 Annex B は TSMF を使わないため、2本目以降の指定は受け付けない */
+	if (params.symbol_rate == 5600 && params.tsmf_stream != 1)
+		return -EINVAL;
 
 	chrdev->params = params;
 	return 0;
@@ -585,8 +600,10 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 
 		chrdev->ringbuf_write_size = 0;
 
+		/* 選局の確認の後に受信を一度止めているため、搬送波の判断は保ったまま、フレームの途中の状態だけを捨てる
+		 * 判断をやり直すと、選局し直していない受信の開始でも、先頭の転送1回分と判断までのパケットを捨ててしまう */
 		if (chrdev->tsmf_active)
-			ptx_chrdev_reset_tsmf(chrdev);
+			ptx_chrdev_resync_tsmf(chrdev);
 
 		if (chrdev->ops && chrdev->ops->set_capture)
 			ret = chrdev->ops->set_capture(chrdev, true);

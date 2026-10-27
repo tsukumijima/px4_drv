@@ -438,8 +438,10 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
-		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る */
-		ret = pxmlt_chrdev_set_null_packet_filter(chrdev, false);
+		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る
+		 * J.83 Annex B は TSMF を使わないため、地デジと同じくブリッジで除く */
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
+			params->symbol_rate == 5600);
 		if (ret)
 			break;
 

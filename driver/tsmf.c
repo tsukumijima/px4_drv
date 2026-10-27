@@ -4,6 +4,7 @@
  *
  * 1つの搬送波に多重化された複数の TS から、TSMF ヘッダーの直後の52パケットの位置で1つの TS を選ぶ
  * ISDB-C の受信はすべてここを通し、ヘッダーのない搬送波は1本目の指定でだけそのまま出力する
+ * J.83 Annex B は TSMF を使わないため、ここを通さない
  * 処理の組み立ては、radi-sh 氏による BonDriver_BDA の TSMF.cpp に合わせている
  */
 
@@ -185,10 +186,15 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 		return 0;
 	}
 
-	if (filter->passthrough)
-		return tsmf_passthrough_packet(filter, packet, out);
-
 	if (tsmf_is_header(packet)) {
+		/* ヘッダーのない搬送波と判断した後でもヘッダーが届けば TSMF の搬送波として選び直す
+		 * 判断を固定すると、選局の直後に受信が乱れてヘッダーを落としただけで、多重化された TS を録画の間ずっと出力してしまう
+		 * 逆に、一度ヘッダーを受け取った後は、ヘッダーが途切れてもヘッダーのない搬送波とは判断せず、別の TS のパケットを出力しない */
+		if (filter->passthrough) {
+			filter->passthrough = false;
+			filter->frame_size = 0;
+		}
+
 		/* 前のフレームの52パケットがそろったときだけ、そのフレームで選んだパケットを出力する */
 		if (filter->slot == TSMF_SLOT_NUM)
 			size = tsmf_flush_frame(filter, out);
@@ -200,15 +206,18 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 	}
 
 	if (!filter->header_found) {
-		/* 一定の長さヘッダーが届かなければ TSMF を使わない搬送波と決め、1本目の指定ならそのまま出力する */
-		if (++filter->detect_packets >= TSMF_DETECT_PACKETS) {
+		/* 一定の長さヘッダーが届かなければ TSMF を使わない搬送波と判断し、1本目の指定ならそのまま出力する */
+		if (filter->detect_packets < TSMF_DETECT_PACKETS &&
+		    ++filter->detect_packets == TSMF_DETECT_PACKETS) {
 			if (filter->stream_index == 1)
 				filter->passthrough = true;
 			else
 				filter->not_found = true;
 		}
-		return 0;
 	}
+
+	if (filter->passthrough)
+		return tsmf_passthrough_packet(filter, packet, out);
 
 	if (filter->slot < 0)
 		return 0;
@@ -231,6 +240,14 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 	filter->frame_size += 188;
 
 	return 0;
+}
+
+/* 受信を止めて再開したときは、搬送波の判断を保ったまま、フレームの途中の状態だけを捨てる */
+void tsmf_filter_resync(struct tsmf_filter *filter)
+{
+	filter->slot = -1;
+	filter->frame_size = 0;
+	filter->tlv_size = 0;
 }
 
 enum tsmf_filter_state tsmf_filter_get_state(const struct tsmf_filter *filter)
