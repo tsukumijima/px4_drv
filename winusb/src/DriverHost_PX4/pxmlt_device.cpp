@@ -837,7 +837,8 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	current_system_ = px4::SystemType::UNSPECIFIED;
 
 	// ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
-	const bool tsmf = (params_.system == px4::SystemType::ISDB_C);
+	// J.83 Annex B は TSMF を使わないため、地デジと同じく分離を通さずにブリッジで null パケットを除く
+	const bool tsmf = (params_.system == px4::SystemType::ISDB_C && params_.symbol_rate != 5600);
 
 	if (tsmf_ && !tsmf) {
 		stream_buf_->StopTsmf();

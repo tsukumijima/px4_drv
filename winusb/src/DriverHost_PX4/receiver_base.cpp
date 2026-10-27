@@ -94,6 +94,10 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 		}
 	}
 
+	// J.83 Annex B は TSMF を使わないため、2本目以降の指定は受け付けない
+	if (params_.symbol_rate == 5600 && params_.tsmf_stream != 1)
+		return false;
+
 	return true;
 }
 
