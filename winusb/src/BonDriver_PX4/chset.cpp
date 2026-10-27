@@ -239,10 +239,12 @@ bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
 	Split(head, tail, '\t');
 	if (parse(*head, 90000, 770000, value)) {
 		ch.j83b = true;
-	} else if (!parse(*head, 0, 112, value)) {
+		ch.freq = static_cast<std::uint32_t>(value);
+	} else if (parse(*head, 0, 112, value)) {
+		ch.ptx_ch = static_cast<std::uint32_t>(value);
+	} else {
 		return false;
 	}
-	ch.ptx_ch = static_cast<std::uint32_t>(value);
 
 	// TSMF のヘッダーに載っている有効な TS の何本目か (J.83 Annex B は TSMF を使わないため1本目だけ)
 	if (!*tail)

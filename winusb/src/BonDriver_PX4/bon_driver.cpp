@@ -544,7 +544,7 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 	case px4::SystemType::ISDB_C:
 		if (channel.j83b) {
 			// J.83 Annex B (スカパー！プレミアムサービス光) は、ChSet に中心周波数 (kHz) を書く
-			real_freq = channel.ptx_ch;
+			real_freq = channel.freq;
 		} else if (channel.ptx_ch <= 62) {
 			// VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
 			// 番号の割り当ては recpt1 と同じで、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える

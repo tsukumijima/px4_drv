@@ -19,14 +19,16 @@ public:
 			: ptx_ch(0),
 			tsid(0),
 			j83b(false),
+			freq(0),
 			tsmf_stream(1)
 		{}
 		std::wstring name;
-		// J.83 Annex B の行では、中心周波数 (kHz)
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
 		// 以降は ISDB-C の行だけで使う
 		bool j83b;
+		// J.83 Annex B の行の中心周波数 (kHz)。J.83 Annex B は物理チャンネル番号を持たないため、ptx_ch は使わない
+		std::uint32_t freq;
 		// TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
 		std::uint8_t tsmf_stream;
 	};
