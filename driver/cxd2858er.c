@@ -108,7 +108,10 @@ static int cxd2858er_power_on(struct cxd2858er_tuner *tuner)
 	if (ret)
 		return ret;
 
-	ret = cxd2858er_write_reg(tuner, 0x67, 0x00);
+	/* Sony の SONY_HELENE_CONFIG_POWERSAVE_TERR_RFIN_MATCHING に従い、待機中も地上波の RF 入力の整合を保つ
+	 * PX-MLT5PE は1つの地上波・ケーブルの RF 入力を全チューナーへ分配していて、既定の待機状態では、チューナーが待機と動作を切り替えるときに
+	 * 隣のチューナーで受信中の 256QAM (ISDB-C の UHF 帯や J.83B) に誤りが出る (整合を保つと出なくなった) */
+	ret = cxd2858er_write_reg(tuner, 0x67, 0x02);
 	if (ret)
 		return ret;
 
@@ -661,7 +664,8 @@ static int cxd2858er_stop_t(struct cxd2858er_tuner *tuner)
 	if (ret)
 		return ret;
 
-	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x00, 0xfe);
+	/* 電源投入時と同じく、待機中も RF 入力の整合を保つ (bit0 の RF_EXT は保持する) */
+	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x02, 0xfe);
 	if (ret)
 		return ret;
 
