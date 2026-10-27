@@ -341,6 +341,34 @@ int main(void)
 	}
 	printf("J83B retune without sleep and %u I/O failure boundaries: PASS\n", count);
 
+	/* 起動の途中で I2C が失敗した後は、同じ方式の選局でも選局し直しで済ませず、停止してから完全に起動し直す */
+	for (mode = 0; mode < 2; mode++) {
+		unsigned int full, retry;
+
+		reset(&demod, &tuner);
+		memset(&params, 0, sizeof(params));
+		params.isdbc.j83b = mode != 0;
+		CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+		full = bus.calls;
+		CHECK(!demod.cable_wakeup_incomplete);
+		for (fail = 1; fail <= full; fail++) {
+			reset(&demod, &tuner);
+			memset(&params, 0, sizeof(params));
+			params.isdbc.j83b = mode != 0;
+			bus.fail_at = fail;
+			CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == -EIO);
+			CHECK(demod.cable_wakeup_incomplete && demod.state == CXD2856ER_ACTIVE_STATE);
+			bus.fail_at = 0;
+			retry = bus.calls;
+			CHECK(cxd2856er_wakeup(&demod, CXD2856ER_ISDB_C_SYSTEM, &params) == 0);
+			retry = bus.calls - retry;
+			/* 停止の分を加えて、起動の書き込みをすべて通している */
+			CHECK(retry > full);
+			CHECK(!demod.cable_wakeup_incomplete && demod.j83b_active == (mode != 0));
+		}
+	}
+	puts("ISDBC/J83B full wakeup after interrupted wakeup: PASS");
+
 	reset(&demod, &tuner);
 	CHECK(cxd2858er_set_params_c(&tuner, 697143, true) == 0);
 	count = bus.calls;
