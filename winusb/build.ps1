@@ -74,6 +74,12 @@ foreach ($build_platform in $build_platforms) {
     if ($LASTEXITCODE -ne 0) {
         throw "TSMF filter test failed. platform: $build_platform"
     }
+
+    # ISDB-C の ChSet の列の解釈と不正な行の扱い、配布の ChSet がすべて読めることを検証
+    & "build/$build_platform/Release-static/chset_isdbc_test.exe" "pkg/BonDriver_PX4/BonDriver_PX4-C.ChSet.txt"
+    if ($LASTEXITCODE -ne 0) {
+        throw "ISDB-C ChSet test failed. platform: $build_platform"
+    }
 }
 
 # dist/ フォルダにビルドされたファイルをコピー

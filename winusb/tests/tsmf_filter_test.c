@@ -113,9 +113,10 @@ int main(void)
 		make_packet(packet, (i % 2) ? 0x1fff : 0x0100, (u8)i);
 		feed(packet);
 	}
-	CHECK(out_size == TSMF_SLOT_NUM * 188);
-	for (i = 0; i < out_size; i += 188)
-		CHECK(out_buf[i + 1] == 0x01 && out_buf[i + 2] == 0x00 && out_buf[i + 4] == (u8)((i / 188) * 2));
+	/* 判断した424パケット目から素通しになるため、最初のフレームはそのパケットから始まる */
+	CHECK(out_size == TSMF_SLOT_NUM * 188 && out_buf[4] == 0x11);
+	for (i = 188; i < out_size; i += 188)
+		CHECK(out_buf[i + 1] == 0x01 && out_buf[i + 2] == 0x00 && out_buf[i + 4] == (u8)((i / 188 - 1) * 2));
 	puts("Passthrough without TSMF header and null discard: PASS");
 
 	tsmf_filter_init(&filter, 2, true, 0);
@@ -140,7 +141,8 @@ int main(void)
 		CHECK(tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND && out_size == 0);
 		/* フレームの52パケットがそろったと次のヘッダーで分かってから出力する */
 		feed_frame(slots, (1u << 1) | (1u << 3), 0);
-		CHECK(out_size == 18 * 188 || out_size == 17 * 188);
+		/* slots は相対 TS 番号 1 を18スロット、3 を17スロットに割り当てている */
+		CHECK(out_size == ((i == 1) ? 18 : 17) * 188);
 		for (n = 0; n < out_size; n += 188)
 			CHECK(out_buf[n + 4] == ((i == 1) ? 1 : 3));
 	}
@@ -222,5 +224,51 @@ int main(void)
 	}
 	CHECK(out_size == TSMF_SLOT_NUM * 188 && out_buf[4] == 0x22);
 	puts("Stale TSMF header from previous carrier is skipped: PASS");
+
+	/* ヘッダーのない搬送波と判断した後でも、ヘッダーが届けば TSMF の搬送波として選び直す */
+	tsmf_filter_init(&filter, 1, false, 0);
+	for (i = 0; i < TSMF_DETECT_PACKETS; i++) {
+		make_packet(packet, 0x0100, 0x11);
+		feed(packet);
+	}
+	CHECK(filter.passthrough);
+	out_size = 0;
+	feed_frame(slots, (1u << 1) | (1u << 3), 0);
+	CHECK(!filter.passthrough && tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND);
+	out_size = 0;
+	feed_frame(slots, (1u << 1) | (1u << 3), 0);
+	CHECK(out_size == 18 * 188);
+	for (i = 0; i < out_size; i += 188)
+		CHECK(out_buf[i + 4] == 1);
+	puts("Passthrough switches back to TSMF when a header arrives: PASS");
+
+	/* 一度ヘッダーを受け取った後は、ヘッダーが途切れても素通しにせず、別の TS のパケットを出力しない */
+	tsmf_filter_init(&filter, 1, false, 0);
+	feed_frame(slots, (1u << 1) | (1u << 3), 0);
+	out_size = 0;
+	for (i = 0; i < TSMF_DETECT_PACKETS * 2; i++) {
+		make_packet(packet, 0x0100, 0x33);
+		feed(packet);
+	}
+	CHECK(!filter.passthrough && tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND && out_size == 0);
+	puts("TSMF carrier stays TSMF when headers are lost: PASS");
+
+	/* 受信を止めて再開したときは、判断を保ったままフレームの途中の状態だけを捨てる */
+	tsmf_filter_init(&filter, 1, false, 816);
+	for (i = 0; i < 816 + TSMF_DETECT_PACKETS + 10; i++) {
+		make_packet(packet, 0x0100, 0x44);
+		feed(packet);
+	}
+	/* 判断した424パケット目から素通しになるため、たまっているのは11パケット */
+	CHECK(filter.passthrough && filter.frame_size == 11 * 188);
+	tsmf_filter_resync(&filter);
+	CHECK(filter.passthrough && filter.frame_size == 0 && filter.skip_packets == 0);
+	out_size = 0;
+	for (i = 0; i < TSMF_SLOT_NUM; i++) {
+		make_packet(packet, 0x0100, 0x44);
+		feed(packet);
+	}
+	CHECK(out_size == TSMF_SLOT_NUM * 188);
+	puts("Resync keeps the carrier decision: PASS");
 	return 0;
 }
