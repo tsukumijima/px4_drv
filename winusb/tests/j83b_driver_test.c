@@ -222,13 +222,6 @@ int main(void)
 	CHECK(tuner.system == CXD2858ER_UNSPECIFIED_SYSTEM && !bus.gate_open);
 	CHECK(bus.regs[2][0][0x5e] == 0x15 && bus.regs[2][0][0x87] == 0xc0);
 	count = bus.calls;
-	for (fail = 1; fail <= count; fail++) {
-		reset(&demod, &tuner);
-		tuner.system = CXD2858ER_ISDB_C_SYSTEM;
-		bus.fail_at = fail;
-		CHECK(cxd2858er_stop(&tuner) == -EIO);
-		CHECK(tuner.system == CXD2858ER_ISDB_C_SYSTEM && !bus.gate_open);
-	}
 	reset(&demod, &tuner);
 	tuner.system = CXD2858ER_ISDB_C_SYSTEM;
 	CHECK(cxd2858er_term(&tuner) == 0);

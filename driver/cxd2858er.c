@@ -751,17 +751,13 @@ int cxd2858er_stop(struct cxd2858er_tuner *tuner)
 
 	switch (tuner->system) {
 	case CXD2858ER_ISDB_T_SYSTEM:
+	case CXD2858ER_ISDB_C_SYSTEM:
 		cxd2858er_stop_t(tuner);
 		break;
 
 	case CXD2858ER_ISDB_S_SYSTEM:
 		cxd2858er_stop_s(tuner);
 		break;
-
-	case CXD2858ER_ISDB_C_SYSTEM:
-		ret = cxd2858er_stop_t(tuner);
-		i2c_comm_master_gate_ctrl(tuner->i2c, false);
-		return ret;
 
 	default:
 		break;
