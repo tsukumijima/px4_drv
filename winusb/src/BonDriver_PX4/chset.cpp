@@ -91,8 +91,8 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			Split(&tmp_head, &tmp_tail, '\t');
 			ch_id = px4::util::atoui32(tmp_head);
 
-			if (system == px4::SystemType::ISDB_C) {
-				if (!ParseIsdbC(&tmp_head, &tmp_tail, ch)) {
+			if (system == px4::SystemType::ISDB_C || system == px4::SystemType::J83B) {
+				if (!ParseCable(&tmp_head, &tmp_tail, system, ch)) {
 					if (strict_)
 						return false;
 					else
@@ -221,7 +221,7 @@ void ChannelSet::Split(char **head, char **tail, char c) noexcept
 	return;
 }
 
-bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
+bool ChannelSet::ParseCable(char **head, char **tail, px4::SystemType system, ChannelInfo &ch) noexcept
 {
 	auto parse = [](const char *str, long min, long max, long &value) noexcept {
 		char *end;
@@ -231,26 +231,32 @@ bool ChannelSet::ParseIsdbC(char **head, char **tail, ChannelInfo &ch) noexcept
 	};
 	long value;
 
-	// ISDB-C は物理チャンネル番号 (0〜112)、J.83 Annex B は中心周波数 (kHz)
-	// J.83 Annex B は地域によって 6.5MHz 刻みからずれた周波数で送られるため、番号から計算せずに周波数を書く
-	// 範囲は ISDB-C と同じ VHF 1ch から UHF 62ch までの帯域で、物理チャンネル番号とは重ならない
-	if (!*tail)
-		return false;
-	Split(head, tail, '\t');
-	if (parse(*head, 90000, 770000, value)) {
-		ch.j83b = true;
+	// J.83 Annex B は地域によって 6.5MHz 刻みからずれた周波数で送られるため、番号から計算せずに中心周波数 (kHz) を書く
+	// 範囲は ISDB-C と同じ VHF 1ch から UHF 62ch までの帯域で、TSMF を使わないため列はここで終わる
+	if (system == px4::SystemType::J83B) {
+		if (!*tail)
+			return false;
+		Split(head, tail, '\t');
+		if (!parse(*head, 90000, 770000, value) || *tail)
+			return false;
 		ch.freq = static_cast<std::uint32_t>(value);
-	} else if (parse(*head, 0, 112, value)) {
-		ch.ptx_ch = static_cast<std::uint32_t>(value);
-	} else {
-		return false;
+
+		return true;
 	}
 
-	// TSMF のヘッダーに載っている有効な TS の何本目か (J.83 Annex B は TSMF を使わないため1本目だけ)
+	// ISDB-C の物理チャンネル番号 (0〜112)
 	if (!*tail)
 		return false;
 	Split(head, tail, '\t');
-	if (!parse(*head, 1, (ch.j83b) ? 1 : 15, value) || *tail)
+	if (!parse(*head, 0, 112, value))
+		return false;
+	ch.ptx_ch = static_cast<std::uint32_t>(value);
+
+	// TSMF のヘッダーに載っている有効な TS の何本目か
+	if (!*tail)
+		return false;
+	Split(head, tail, '\t');
+	if (!parse(*head, 1, 15, value) || *tail)
 		return false;
 	ch.tsmf_stream = static_cast<std::uint8_t>(value);
 

@@ -36,10 +36,6 @@ bool ReceiverBase::GetParameters(px4::command::ParameterSet &param_set) noexcept
 			param_set.params[i].value = params_.bandwidth;
 			break;
 
-		case px4::command::ParameterType::SYMBOL_RATE:
-			param_set.params[i].value = params_.symbol_rate;
-			break;
-
 		case px4::command::ParameterType::TSMF_STREAM:
 			param_set.params[i].value = params_.tsmf_stream;
 			break;
@@ -63,7 +59,6 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 
 	params_.system = param_set.system;
 	params_.freq = param_set.freq;
-	params_.symbol_rate = 5274;
 	params_.tsmf_stream = 1;
 
 	for (std::uint32_t i = 0; i < param_set.num; i++) {
@@ -72,14 +67,10 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 			params_.bandwidth = param_set.params[i].value;
 			break;
 
-		case px4::command::ParameterType::SYMBOL_RATE:
-			if (param_set.params[i].value != 5274 && param_set.params[i].value != 5600)
-				return false;
-			params_.symbol_rate = param_set.params[i].value;
-			break;
-
+		// J.83 Annex B は TSMF を使わないため、ISDB-C だけで受け付ける
 		case px4::command::ParameterType::TSMF_STREAM:
-			if (param_set.params[i].value < 1 || param_set.params[i].value > TSMF_STREAM_MAX)
+			if (params_.system != px4::SystemType::ISDB_C ||
+			    param_set.params[i].value < 1 || param_set.params[i].value > TSMF_STREAM_MAX)
 				return false;
 			params_.tsmf_stream = param_set.params[i].value;
 			break;
@@ -93,10 +84,6 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 			return false;
 		}
 	}
-
-	// J.83 Annex B は TSMF を使わないため、2本目以降の指定は受け付けない
-	if (params_.symbol_rate == 5600 && params_.tsmf_stream != 1)
-		return false;
 
 	return true;
 }
@@ -113,7 +100,7 @@ bool ReceiverBase::Tune(std::uint32_t timeout)
 	int ret = 0;
 	std::lock_guard<std::mutex> lock(lock_);
 
-	if (params_.system == px4::SystemType::ISDB_C)
+	if (params_.system == px4::SystemType::ISDB_C || params_.system == px4::SystemType::J83B)
 		return TuneIsdbC(timeout);
 
 	if ((params_.system == px4::SystemType::ISDB_S) && (options_ & RECEIVER_SAT_SET_STREAM_ID_BEFORE_TUNE)) {

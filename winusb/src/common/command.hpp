@@ -76,7 +76,6 @@ namespace command {
 	enum class ParameterType : std::uint32_t {
 		UNDEFINED = 0,
 		BANDWIDTH = 1,
-		SYMBOL_RATE,
 		TSMF_STREAM,
 		STREAM_ID = 16,
 	};

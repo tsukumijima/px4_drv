@@ -15,6 +15,8 @@ enum class SystemType : std::uint32_t {
 	ISDB_S = 0x20,
 	// ISDB-C は ISDB-T と復調器の設定が異なるため、独立した系統として扱う
 	ISDB_C = 0x40,
+	// J.83 Annex B は ISDB-C と復調器の動作モードが異なり、TSMF も使わないため、独立した系統として扱う
+	J83B = 0x80,
 };
 
 constexpr SystemType operator&(SystemType left, SystemType right) noexcept

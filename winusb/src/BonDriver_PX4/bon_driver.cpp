@@ -207,6 +207,31 @@ bool BonDriver::Init()
 				chset_.Merge(chset_c);
 		}
 
+		if ((systems_ & px4::SystemType::J83B) == px4::SystemType::J83B) {
+			px4::ChannelSet chset_j;
+			bool result;
+
+			try {
+				std::wstring chset_path = configs_.Get(L"BonDriver.J.83B").Get(L"ChSetPath");
+				WCHAR path[MAX_PATH];
+
+				if (PathIsRelativeW(chset_path.c_str()) && PathCanonicalizeW(path, (dir_path + chset_path).c_str()))
+					chset_path = path;
+
+				result = chset_j.Load(chset_path, px4::SystemType::J83B);
+			} catch (const std::out_of_range&) {
+				result = false;
+			}
+
+			if (!result) {
+				chset_j.Clear();
+				result = chset_j.Load(dir_path + L"BonDriver_PX4-J83B.ChSet.txt", px4::SystemType::J83B);
+			}
+
+			if (result)
+				chset_.Merge(chset_j);
+		}
+
 		receivers_.Load(configs_);
 
 		quit_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -542,10 +567,7 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		break;
 
 	case px4::SystemType::ISDB_C:
-		if (channel.j83b) {
-			// J.83 Annex B (スカパー！プレミアムサービス光) は、ChSet に中心周波数 (kHz) を書く
-			real_freq = channel.freq;
-		} else if (channel.ptx_ch <= 62) {
+		if (channel.ptx_ch <= 62) {
 			// VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
 			// 番号の割り当ては recpt1 と同じで、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
 			real_freq = 93000 + (channel.ptx_ch * 6000);
@@ -560,7 +582,13 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 			return FALSE;
 		}
 
-		num_param = 2;
+		num_param = 1;
+
+		break;
+
+	case px4::SystemType::J83B:
+		// J.83 Annex B (スカパー！プレミアムサービス光) は、ChSet に中心周波数 (kHz) を書く
+		real_freq = channel.freq;
 
 		break;
 
@@ -586,12 +614,8 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 	}
 
 	if (system == px4::SystemType::ISDB_C) {
-		// J.83 Annex C は 5.274 Msps、Annex B は 5.6 Msps の固定値
-		param_set->params[0].type = px4::command::ParameterType::SYMBOL_RATE;
-		param_set->params[0].value = (channel.j83b) ? 5600 : 5274;
-
-		param_set->params[1].type = px4::command::ParameterType::TSMF_STREAM;
-		param_set->params[1].value = channel.tsmf_stream;
+		param_set->params[0].type = px4::command::ParameterType::TSMF_STREAM;
+		param_set->params[0].value = channel.tsmf_stream;
 	}
 
 	bool ret = true;

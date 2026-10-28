@@ -24,9 +24,7 @@ public:
 		std::uint32_t freq;
 		std::uint32_t bandwidth;
 		std::uint32_t stream_id;
-		// 以降は ISDB-C だけで使う
-		std::uint32_t symbol_rate;
-		// TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
+		// ISDB-C だけで使う、TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
 		std::uint32_t tsmf_stream;
 	};
 

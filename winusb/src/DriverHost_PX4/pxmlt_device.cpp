@@ -845,7 +845,7 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 
 	// ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
 	// J.83 Annex B は TSMF を使わないため、地デジと同じく分離を通さずにブリッジで null パケットを除く
-	const bool tsmf = (params_.system == px4::SystemType::ISDB_C && params_.symbol_rate != 5600);
+	const bool tsmf = (params_.system == px4::SystemType::ISDB_C);
 
 	if (tsmf_ && !tsmf) {
 		stream_buf_->StopTsmf();
@@ -875,6 +875,7 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 		break;
 
 	case px4::SystemType::ISDB_C:
+	case px4::SystemType::J83B:
 	{
 		// チューナーは、初期化されていない状態から待機へ切り替わるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
 		// 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C を選局するときにだけ、まだ初期化していないチューナーを
@@ -910,11 +911,9 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			tsmf_ = true;
 		}
 
-		demod_params.isdbc.j83b = (params_.symbol_rate == 5600);
-
-		ret = cxd2856er_wakeup(&cxd2856er_, CXD2856ER_ISDB_C_SYSTEM, &demod_params);
+		ret = cxd2856er_wakeup(&cxd2856er_, (params_.system == px4::SystemType::J83B) ? CXD2856ER_J83B_SYSTEM : CXD2856ER_ISDB_C_SYSTEM, &demod_params);
 		if (ret)
-			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(CXD2856ER_ISDB_C_SYSTEM) failed. (ret: %d)\n", index_, ret);
+			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(ISDB-C / J.83B) failed. (ret: %d)\n", index_, ret);
 
 		break;
 
@@ -945,7 +944,8 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			break;
 
 		case px4::SystemType::ISDB_C:
-			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, demod_params.isdbc.j83b);
+		case px4::SystemType::J83B:
+			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, params_.system == px4::SystemType::J83B);
 			if (ret)
 				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_c(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
 
@@ -994,7 +994,9 @@ int PxMltDevice::PxMltReceiver::CheckLock(bool &locked)
 		ret = cxd2856er_is_ts_locked_isdbs(&cxd2856er_, &locked);
 		break;
 
+	// J.83B も ISDB-C と同じ SLV-T バンク 0x40 のロックの表示を使う
 	case px4::SystemType::ISDB_C:
+	case px4::SystemType::J83B:
 		ret = cxd2856er_is_ts_locked_isdbc(&cxd2856er_, &locked);
 		break;
 
@@ -1184,6 +1186,7 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 		}
 
 		case px4::SystemType::ISDB_C:
+		case px4::SystemType::J83B:
 		{
 			std::uint16_t val;
 
