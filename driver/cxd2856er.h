@@ -33,7 +33,8 @@ enum cxd2856er_system {
 	CXD2856ER_UNSPECIFIED_SYSTEM = 0,
 	CXD2856ER_ISDB_T_SYSTEM,
 	CXD2856ER_ISDB_S_SYSTEM,
-	CXD2856ER_ISDB_C_SYSTEM
+	CXD2856ER_ISDB_C_SYSTEM,
+	CXD2856ER_J83B_SYSTEM
 };
 
 enum cxd2856er_i2c_target {
@@ -43,9 +44,6 @@ enum cxd2856er_i2c_target {
 
 union cxd2856er_system_params {
 	u32 bandwidth;
-	struct {
-		bool j83b;
-	} isdbc;
 };
 
 struct cxd2856er_demod {
@@ -59,8 +57,6 @@ struct cxd2856er_demod {
 	struct cxd2856er_config config;
 	enum cxd2856er_state state;
 	enum cxd2856er_system system;
-	/* 公開 API 上の系統は ISDB-C と共通のため、J.83B 固有の停止処理が必要かを別に保持する */
-	bool j83b_active;
 	/* ISDB-C と J.83B の起動は、途中で失敗しても停止で既定値へ戻せるよう、先に起動中の状態にする
 	 * その起動が最後まで終わっていないと、同じ方式の選局し直しで済ませずに、停止してから起動し直す */
 	bool cable_wakeup_incomplete;

@@ -131,7 +131,6 @@ int cxd2856er_init(struct cxd2856er_demod *demod)
 	demod->i2c_master.request = cxd2856er_i2c_master_request;
 	demod->i2c_master.priv = demod;
 
-	demod->j83b_active = false;
 	demod->cable_wakeup_incomplete = false;
 	demod->state = CXD2856ER_UNKNOWN_STATE;
 	demod->system = CXD2856ER_UNSPECIFIED_SYSTEM;
@@ -223,7 +222,7 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 		return ret;
 
 	/* Sony の sony_demod_SetTSClockModeAndFreq() では、J.83B だけパケット間の隙間の挿入 (OTSRATECTRLOFF = 0) を使う */
-	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd3, (demod->j83b_active) ? 0x00 : 0x01, 0x01);
+	ret = cxd2856er_write_slvt_reg_mask(demod, 0xd3, (system == CXD2856ER_J83B_SYSTEM) ? 0x00 : 0x01, 0x01);
 	if (ret)
 		return ret;
 
@@ -260,6 +259,7 @@ static int cxd2856er_set_ts_clock(struct cxd2856er_demod *demod,
 	/* 256QAM の TS は ISDB-T の TS クロックの上限を超えるため、PLEX の CXD2856.c が PX-MLT 系に設定する
 	 * 地上波・ケーブル用の TS クロック (ゲート式・ハーフレート・高い周波数) を使う */
 	case CXD2856ER_ISDB_C_SYSTEM:
+	case CXD2856ER_J83B_SYSTEM:
 		ret = cxd2856er_write_slvt_reg_mask(demod, 0x33, 0x00, 0x03);
 		break;
 
@@ -673,21 +673,16 @@ int cxd2856er_sleep(struct cxd2856er_demod *demod)
 	if (demod->state == CXD2856ER_SLEEP_STATE)
 		return -EALREADY;
 
-	/* ISDB-C と J.83B の設定を既定値へ戻せなかったときは起動中の状態を残し、次の停止で戻し直す */
-	if (demod->j83b_active) {
-		ret = cxd2856er_sleep_j83b(demod);
-		if (ret)
-			return ret;
-		demod->j83b_active = false;
-		demod->cable_wakeup_incomplete = false;
-		demod->state = CXD2856ER_SLEEP_STATE;
-		demod->system = CXD2856ER_UNSPECIFIED_SYSTEM;
-		return 0;
-	}
-
 	switch (demod->system) {
+	/* ISDB-C と J.83B の設定を既定値へ戻せなかったときは起動中の状態を残し、次の停止で戻し直す */
 	case CXD2856ER_ISDB_C_SYSTEM:
 		ret = cxd2856er_sleep_isdbc(demod);
+		if (ret)
+			return ret;
+		break;
+
+	case CXD2856ER_J83B_SYSTEM:
+		ret = cxd2856er_sleep_j83b(demod);
 		if (ret)
 			return ret;
 		break;
@@ -1147,13 +1142,12 @@ static int cxd2856er_wakeup_j83b(struct cxd2856er_demod *demod)
 	u8 data[14];
 
 	/* 途中で I/O が失敗しても、次回の停止時に J.83B 固有の設定を解除できるよう状態を保持する */
-	demod->j83b_active = true;
 	demod->cable_wakeup_incomplete = true;
-	demod->system = CXD2856ER_ISDB_C_SYSTEM;
+	demod->system = CXD2856ER_J83B_SYSTEM;
 	demod->state = CXD2856ER_ACTIVE_STATE;
 
 	/* TS クロックは ISDB-C と同じ PX-MLT 系の設定を使い、J.83B ではパケット間の隙間の挿入だけを有効にする */
-	ret = cxd2856er_set_ts_clock(demod, CXD2856ER_ISDB_C_SYSTEM);
+	ret = cxd2856er_set_ts_clock(demod, CXD2856ER_J83B_SYSTEM);
 	if (ret)
 		return ret;
 	ret = cxd2856er_write_slvx_reg(demod, 0x00, 0x00);
@@ -1423,15 +1417,13 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 		     union cxd2856er_system_params *params)
 {
 	int ret = 0;
-	const bool j83b = system == CXD2856ER_ISDB_C_SYSTEM &&
-		params->isdbc.j83b;
 
-	/* ISDB-C と J.83B から別の方式へ切り替えるとき、ISDB-C と J.83B の間で切り替えるとき、前の起動が途中で失敗していたときは、
+	/* ISDB-C と J.83B から別の方式へ切り替えるとき (ISDB-C と J.83B の間を含む)、前の起動が途中で失敗していたときは、
 	 * 停止処理で設定を既定値へ戻してから起動する (途中で失敗した起動の後に選局し直しだけで済ませると、半端な設定のまま受信できなくなる)
 	 * 戻せなかったときは ISDB-C や J.83B の設定が残った状態で受信するため、起動を中断する */
-	if (demod->state == CXD2856ER_ACTIVE_STATE && demod->system == CXD2856ER_ISDB_C_SYSTEM &&
-	    (system != CXD2856ER_ISDB_C_SYSTEM || j83b != demod->j83b_active ||
-	     demod->cable_wakeup_incomplete)) {
+	if (demod->state == CXD2856ER_ACTIVE_STATE &&
+	    (demod->system == CXD2856ER_ISDB_C_SYSTEM || demod->system == CXD2856ER_J83B_SYSTEM) &&
+	    (system != demod->system || demod->cable_wakeup_incomplete)) {
 		ret = cxd2856er_sleep(demod);
 		if (ret)
 			return ret;
@@ -1449,8 +1441,11 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 				break;
 
 			case CXD2856ER_ISDB_C_SYSTEM:
-				ret = j83b ? cxd2856er_reset_j83b(demod) :
-					cxd2856er_reset_isdbc(demod);
+				ret = cxd2856er_reset_isdbc(demod);
+				break;
+
+			case CXD2856ER_J83B_SYSTEM:
+				ret = cxd2856er_reset_j83b(demod);
 				break;
 
 			default:
@@ -1474,8 +1469,11 @@ int cxd2856er_wakeup(struct cxd2856er_demod *demod,
 		break;
 
 	case CXD2856ER_ISDB_C_SYSTEM:
-		ret = j83b ? cxd2856er_wakeup_j83b(demod) :
-			cxd2856er_wakeup_isdbc(demod);
+		ret = cxd2856er_wakeup_isdbc(demod);
+		break;
+
+	case CXD2856ER_J83B_SYSTEM:
+		ret = cxd2856er_wakeup_j83b(demod);
 		break;
 
 	default:

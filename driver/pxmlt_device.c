@@ -444,6 +444,7 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
 		/* チューナーは、初期化されていない状態から待機へ切り替わるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
 		 * 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C を選局するときにだけ、まだ初期化していないチューナーを
 		 * 待機中も整合を保つ状態 (cxd2858er_init()) にしておく (地デジと BS/CS だけの利用では、この初期化の時間はかからない) */
@@ -478,17 +479,16 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る
 		 * J.83 Annex B は TSMF を使わないため、地デジと同じくブリッジで除く */
 		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
-			params->symbol_rate == 5600);
+			params->system == PTX_J83B_SYSTEM);
 		if (ret)
 			break;
 
-		demod_params.isdbc.j83b = params->symbol_rate == 5600;
-
 		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
-					       CXD2856ER_ISDB_C_SYSTEM, &demod_params);
+				       (params->system == PTX_J83B_SYSTEM) ? CXD2856ER_J83B_SYSTEM : CXD2856ER_ISDB_C_SYSTEM,
+				       &demod_params);
 		if (ret)
 			dev_err(pxmlt->dev,
-				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(CXD2856ER_ISDB_C_SYSTEM) failed. (ret: %d)\n",
+				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(ISDB-C / J.83B) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id, ret);
 
 		break;
@@ -529,8 +529,9 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		break;
 
 	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
 		ret = cxd2858er_set_params_c(&chrdevm->cxd2858er,
-					     params->freq, demod_params.isdbc.j83b);
+					     params->freq, params->system == PTX_J83B_SYSTEM);
 		if (ret)
 			dev_err(pxmlt->dev,
 				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_c(%u) failed. (ret: %d)\n",
@@ -578,7 +579,9 @@ static int pxmlt_chrdev_check_lock(struct ptx_chrdev *chrdev, bool *locked)
 		ret = cxd2856er_is_ts_locked_isdbs(&chrdevm->cxd2856er, locked);
 		break;
 
+	/* J.83B も ISDB-C と同じ SLV-T バンク 0x40 のロックの表示を使う */
 	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
 		ret = cxd2856er_is_ts_locked_isdbc(&chrdevm->cxd2856er, locked);
 		break;
 
@@ -952,6 +955,7 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 	}
 
 	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
 	{
 		u16 val;
 		s32 cn;
@@ -1030,7 +1034,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		struct it930x_stream_input *input = &it930x->config.input[i];
 		struct pxmlt_chrdev *chrdevm = &pxmlt->chrdevm[i];
 
-		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM | PTX_ISDB_C_SYSTEM;
+		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM | PTX_ISDB_C_SYSTEM | PTX_J83B_SYSTEM;
 
 		input->enable = true;
 		input->is_parallel = false;

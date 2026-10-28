@@ -12,7 +12,9 @@ enum ptx_system_type {
 	PTX_ISDB_T_SYSTEM = 0x00000010,
 	PTX_ISDB_S_SYSTEM = 0x00000020,
 	/* トランスモジュレーション方式 CATV (ITU-T J.83 Annex C) */
-	PTX_ISDB_C_SYSTEM = 0x00000040
+	PTX_ISDB_C_SYSTEM = 0x00000040,
+	/* スカパー！プレミアムサービス光 (ITU-T J.83 Annex B、5.6 Msps) */
+	PTX_J83B_SYSTEM = 0x00000080
 };
 
 enum ptx_stream_type {
@@ -50,8 +52,7 @@ struct ptxt_info {
 enum ptxt_param_code {
 	PTXT_UNDEFINED_PARAM = 0,
 	PTXT_BANDWIDTH_PARAM = 1,
-	PTXT_SYMBOL_RATE_PARAM = 2,
-	PTXT_TSMF_STREAM_PARAM = 3,
+	PTXT_TSMF_STREAM_PARAM = 2,
 	PTXT_STREAM_ID_PARAM = 16
 };
 

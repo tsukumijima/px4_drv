@@ -192,8 +192,9 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 	if (chrdev->ops && chrdev->ops->release)
 		ret = chrdev->ops->release(chrdev);
 
-	/* ISDB-C は地デジと同じチャンネル番号で選局するため、放送方式を指定せずに選局する次の利用者が地デジのつもりで ISDB-C を選局しないよう、方式を戻す */
-	if (chrdev->params.system == PTX_ISDB_C_SYSTEM)
+	/* ISDB-C は地デジと同じチャンネル番号で選局するため、放送方式を指定せずに選局する次の利用者が地デジのつもりで ISDB-C を選局しないよう、方式を戻す
+	 * J.83B は拡張 ioctl でだけ指定できる方式なので、同じく未指定へ戻す */
+	if (chrdev->params.system == PTX_ISDB_C_SYSTEM || chrdev->params.system == PTX_J83B_SYSTEM)
 		chrdev->params.system = PTX_UNSPECIFIED_SYSTEM;
 
 	mutex_unlock(&chrdev->lock);
@@ -235,7 +236,7 @@ static int ptx_chrdev_prepare_tsmf(struct ptx_chrdev *chrdev)
 	WRITE_ONCE(chrdev->tsmf_active, false);
 	/* ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
 	 * J.83 Annex B は TSMF を使わないため通さない */
-	if (chrdev->params.system != PTX_ISDB_C_SYSTEM || chrdev->params.symbol_rate == 5600)
+	if (chrdev->params.system != PTX_ISDB_C_SYSTEM)
 		return 0;
 
 	/* TLV の蓄積領域は J.83B を除く ISDB-C を選局した受信機だけに確保し、デバイスの寿命まで保持する */
@@ -309,14 +310,14 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 		.system = user_params->system,
 		.freq = user_params->freq,
 		.bandwidth = user_params->system == PTX_ISDB_S_SYSTEM ? 0 : 6,
-		.symbol_rate = 5274,
 		.tsmf_stream = 1,
 	};
 	u32 i;
 
 	/* チューナーの周波数のレジスターは20ビットで、地上波とケーブルは kHz、衛星は (kHz + 2) / 4 で書くため、その範囲だけを受け付ける */
 	if ((params.system != PTX_ISDB_T_SYSTEM && params.system != PTX_ISDB_S_SYSTEM &&
-	     params.system != PTX_ISDB_C_SYSTEM) || !(chrdev->system_cap & params.system) ||
+	     params.system != PTX_ISDB_C_SYSTEM && params.system != PTX_J83B_SYSTEM) ||
+	    !(chrdev->system_cap & params.system) ||
 	    !params.freq || params.freq > (params.system == PTX_ISDB_S_SYSTEM ? 0x3ffffd : 0xfffff) ||
 	    user_params->num_prop > ARRAY_SIZE(props))
 		return -EINVAL;
@@ -334,11 +335,7 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 				return -EINVAL;
 			params.bandwidth = value;
 			break;
-		case PTXT_SYMBOL_RATE_PARAM:
-			if (params.system != PTX_ISDB_C_SYSTEM || (value != 5274 && value != 5600))
-				return -EINVAL;
-			params.symbol_rate = value;
-			break;
+		/* J.83 Annex B は TSMF を使わないため、ISDB-C だけで受け付ける */
 		case PTXT_TSMF_STREAM_PARAM:
 			if (params.system != PTX_ISDB_C_SYSTEM || !value || value > TSMF_STREAM_MAX)
 				return -EINVAL;
@@ -353,10 +350,6 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 			return -EINVAL;
 		}
 	}
-
-	/* J.83 Annex B は TSMF を使わないため、2本目以降の指定は受け付けない */
-	if (params.symbol_rate == 5600 && params.tsmf_stream != 1)
-		return -EINVAL;
 
 	chrdev->params = params;
 	return 0;
@@ -404,7 +397,8 @@ static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type syste
 				if ((!ret && locked) || ret == -ECANCELED)
 					break;
 
-				if (chrdev->current_system == PTX_ISDB_C_SYSTEM &&
+				if ((chrdev->current_system == PTX_ISDB_C_SYSTEM ||
+				     chrdev->current_system == PTX_J83B_SYSTEM) &&
 				    time_after(jiffies, lock_deadline))
 					break;
 
@@ -513,7 +507,6 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 			break;
 
 		case PTX_ISDB_C_SYSTEM:
-			chrdev->params.symbol_rate = 5274;
 			chrdev->params.tsmf_stream = 1;
 			/* ISDB-C の中心周波数には、地上波の 143 kHz オフセットを加えない
 			 * 0-62 は recpt1 と同じく VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch で、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
