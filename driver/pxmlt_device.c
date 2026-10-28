@@ -11,8 +11,6 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
-#include <linux/log2.h>
-#include <linux/math64.h>
 
 #include "px4_device_params.h"
 #include "firmware.h"
@@ -850,24 +848,6 @@ static const struct {
 	{ 0x16, 0x1e66 }, { 0x15, 0x1dd6 }, { 0x14, 0x1d90 }
 };
 
-/* カーネル内では浮動小数点を使えないため、自然対数の100倍を固定小数点の log2 から求める */
-static u32 pxmlt_ln_x100(u16 x)
-{
-	u32 n = ilog2(x), frac = 0;
-	u64 m = (u64)x << (16 - n);
-	int i;
-
-	for (i = 15; i >= 0; i--) {
-		m = (m * m) >> 16;
-		if (m >= (1 << 17)) {
-			frac |= 1 << i;
-			m >>= 1;
-		}
-	}
-
-	return (u32)div_u64(((((u64)n << 16) | frac) * 69315) + (1000 << 15), 1000 << 16);
-}
-
 static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 {
 	int ret = 0;
@@ -964,15 +944,14 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 	case PTX_J83B_SYSTEM:
 	{
 		u16 val;
-		s32 cn;
 
+		/* 地デジや BS/CS と同じく、復調器の C/N 推定用の生値 (IREG_SNR_ESTIMATE) をそのまま返す
+		 * dB への換算は受信ソフトウェアが Sony の sony_demod_isdbc_monitor_SNR() の式で行う (J.83B も同じ式を使う) */
 		ret = cxd2856er_read_cnr_raw_isdbc(&chrdevm->cxd2856er, &val);
 		if (ret)
 			break;
 
-		/* ISDB-C には PT 互換の値がないため、WinUSB 版と同じく Sony の sony_demod_isdbc_monitor_SNR() の式で dB の1000倍の値を返す (J.83B も同じ式を使う) */
-		cn = (val) ? -95 * (s32)pxmlt_ln_x100(max_t(u16, val, 126)) + 95941 : 0;
-		*value = (cn > 0) ? cn : 0;
+		*value = val;
 		break;
 	}
 
