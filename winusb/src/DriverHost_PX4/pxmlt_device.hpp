@@ -116,6 +116,11 @@ private:
 		int SetStreamId() override;
 
 	private:
+		// 電源を入れたときに、全受信機のチューナーの待機の設定を既定へ戻す
+		friend class PxMltDevice;
+
+		int SetNullPacketFilter(bool enable);
+
 		static const struct PxMltReceiverCnTableIsdbS final {
 			uint16_t val;
 			uint32_t cnr;
@@ -133,6 +138,8 @@ private:
 		cxd2858er_tuner cxd2858er_;
 		px4::SystemType current_system_;
 		bool streaming_;
+		bool tsmf_;
+		bool null_packet_filter_;
 	};
 
 	void LoadConfig();

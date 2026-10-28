@@ -8,6 +8,8 @@
 #include "print_format.h"
 #include "ptx_chrdev.h"
 #include "isdb2056_device.h"
+#include "isdbc_channel.h"
+#include "tsmf.h"
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -16,6 +18,23 @@
 #include <linux/uaccess.h>
 #include <linux/fs.h>
 #include <linux/version.h>
+#include <linux/vmalloc.h>
+#include <linux/mm.h>
+#include <linux/spinlock.h>
+#include <linux/jiffies.h>
+
+/* USB の受信処理からも使う状態だけを保護し、選局の I/O と待機はロックの外で行う */
+struct ptx_tsmf_stream {
+	spinlock_t lock;
+	struct tsmf_filter filter;
+	/* TSMF で選んだ TS は毎秒数 KB のこともあり、しきい値までためると読み出しが秒単位で遅れるため、最後に読み出し側を起こしてから一定の時間がたったら途中まででも渡す */
+	unsigned long wake_jiffies;
+	/* 時間で起こしたときは、read() が要求された量を待たずに、それまでに読めた分を返す */
+	atomic_t flush;
+};
+
+/* WinUSB 版の BonDriver が低レートの TS を途中まででも渡す間隔と同じ */
+#define PTX_CHRDEV_TSMF_FLUSH_INTERVAL_MS	200
 
 static LIST_HEAD(ctx_list);
 static DEFINE_MUTEX(ctx_list_lock);
@@ -151,6 +170,11 @@ static ssize_t ptx_chrdev_read(struct file *file,
 
 		p += len;
 		remain -= len;
+
+		/* TSMF で選んだ低レートの TS で時間で起こされたときは、要求された量を待たずに読めた分を返す */
+		if (unlikely(smp_load_acquire(&chrdev->tsmf_active)) && remain &&
+		    atomic_xchg(&chrdev->tsmf->flush, 0))
+			break;
 	}
 
 	return likely(!ret) ? (count - remain) : ret;
@@ -179,6 +203,11 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 	if (chrdev->ops && chrdev->ops->release)
 		ret = chrdev->ops->release(chrdev);
 
+	/* ISDB-C は地デジと同じチャンネル番号で選局するため、放送方式を指定せずに選局する次の利用者が地デジのつもりで ISDB-C を選局しないよう、方式を戻す
+	 * J.83B は拡張 ioctl でだけ指定できる方式なので、同じく未指定へ戻す */
+	if (chrdev->params.system == PTX_ISDB_C_SYSTEM || chrdev->params.system == PTX_J83B_SYSTEM)
+		chrdev->params.system = PTX_UNSPECIFIED_SYSTEM;
+
 	mutex_unlock(&chrdev->lock);
 
 	atomic_dec_return(&chrdev->open);
@@ -188,6 +217,222 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 		kref_put(owner_kref, owner_kref_release);
 
 	kref_put(&ctx->kref, ptx_chrdev_context_release);
+	return ret;
+}
+
+static void ptx_chrdev_reset_tsmf(struct ptx_chrdev *chrdev)
+{
+	struct ptx_tsmf_stream *stream = chrdev->tsmf;
+	unsigned long flags;
+
+	spin_lock_irqsave(&stream->lock, flags);
+	tsmf_filter_init(&stream->filter, chrdev->params.tsmf_stream,
+			 chrdev->discard_null_packets,
+			 chrdev->tsmf_stale_packets);
+	stream->wake_jiffies = jiffies;
+	atomic_set(&stream->flush, 0);
+	spin_unlock_irqrestore(&stream->lock, flags);
+}
+
+static void ptx_chrdev_resync_tsmf(struct ptx_chrdev *chrdev)
+{
+	struct ptx_tsmf_stream *stream = chrdev->tsmf;
+	unsigned long flags;
+
+	spin_lock_irqsave(&stream->lock, flags);
+	tsmf_filter_resync(&stream->filter);
+	spin_unlock_irqrestore(&stream->lock, flags);
+}
+
+static int ptx_chrdev_prepare_tsmf(struct ptx_chrdev *chrdev)
+{
+	WRITE_ONCE(chrdev->tsmf_active, false);
+	/* ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
+	 * J.83 Annex B は TSMF を使わないため通さない */
+	if (chrdev->params.system != PTX_ISDB_C_SYSTEM)
+		return 0;
+
+	/* TLV の蓄積領域は J.83B を除く ISDB-C を選局した受信機だけに確保し、デバイスの寿命まで保持する */
+	if (!chrdev->tsmf) {
+		chrdev->tsmf = kvzalloc(sizeof(*chrdev->tsmf), GFP_KERNEL);
+		if (!chrdev->tsmf)
+			return -ENOMEM;
+		spin_lock_init(&chrdev->tsmf->lock);
+	}
+
+	ptx_chrdev_reset_tsmf(chrdev);
+	/* 受信処理が TSMF の分離を始める前に、蓄積領域の確保と初期化を完了させる */
+	smp_store_release(&chrdev->tsmf_active, true);
+	return 0;
+}
+
+static int ptx_chrdev_wait_tsmf(struct ptx_chrdev *chrdev)
+{
+	struct ptx_tsmf_stream *stream = chrdev->tsmf;
+	/* ヘッダーは数 ms ごとに届くため、ロックした後に十分な時間を取って探す (ロック待ちの時間とは分ける) */
+	unsigned long deadline = jiffies + msecs_to_jiffies(3000), flags;
+	bool capture = !chrdev->streaming;
+	int ret, stop_ret;
+
+	/* ロック前のヘッダーを使わず、新しく選局した搬送波の TS を探す */
+	ptx_chrdev_reset_tsmf(chrdev);
+	/* ヘッダーの確認に TS が必要なため、通常の受信開始前はこの確認の間だけ USB 受信を使う */
+	if (capture) {
+		ret = chrdev->ops->set_capture(chrdev, true);
+		if (ret)
+			return ret;
+	}
+
+	ret = -EAGAIN;
+	while (time_before(jiffies, deadline)) {
+		enum tsmf_filter_state state;
+
+		if (!atomic_read(&chrdev->parent->available)) {
+			ret = -EIO;
+			break;
+		}
+		spin_lock_irqsave(&stream->lock, flags);
+		state = tsmf_filter_get_state(&stream->filter);
+		spin_unlock_irqrestore(&stream->lock, flags);
+		if (state == TSMF_FILTER_FOUND) {
+			ret = 0;
+			break;
+		}
+		/* 指定した何本目の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
+		 * ロックしない搬送波の EAGAIN と区別できるよう、TS がないことは ENODATA で返す */
+		if (state == TSMF_FILTER_NOT_FOUND) {
+			ret = -ENODATA;
+			break;
+		}
+		msleep(20);
+	}
+
+	if (capture) {
+		stop_ret = chrdev->ops->set_capture(chrdev, false);
+		if (!ret)
+			ret = stop_ret;
+	}
+	return ret;
+}
+
+static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
+				const struct ptxt_params *user_params)
+{
+	struct ptxt_additional_param props[6];
+	struct ptx_tune_params params = {
+		.system = user_params->system,
+		.freq = user_params->freq,
+		.bandwidth = 6,
+		.tsmf_stream = 1,
+	};
+	u32 i;
+
+	/* 拡張 ioctl は、既存の PTX_SET_CHANNEL で選べない TSMF の2本目以降と J.83 Annex B を選局するためにあり、地デジと BS/CS は既存の ioctl で選局する
+	 * 周波数がチューナーで扱える範囲かは、機種ごとのチューナーの処理が判断する */
+	if ((params.system != PTX_ISDB_C_SYSTEM && params.system != PTX_J83B_SYSTEM) ||
+	    !(chrdev->system_cap & params.system) || !params.freq ||
+	    user_params->num_prop > ARRAY_SIZE(props) || user_params->reserved)
+		return -EINVAL;
+
+	if (user_params->num_prop && copy_from_user(props, u64_to_user_ptr(user_params->prop),
+				user_params->num_prop * sizeof(props[0])))
+		return -EFAULT;
+
+	for (i = 0; i < user_params->num_prop; i++) {
+		u32 value = props[i].data;
+
+		switch (props[i].prop) {
+		/* J.83 Annex B は TSMF を使わないため、ISDB-C だけで受け付ける */
+		case PTXT_TSMF_STREAM_PARAM:
+			if (params.system != PTX_ISDB_C_SYSTEM || !value || value > TSMF_STREAM_MAX)
+				return -EINVAL;
+			params.tsmf_stream = value;
+			break;
+		default:
+			return -EINVAL;
+		}
+	}
+
+	chrdev->params = params;
+	return 0;
+}
+
+static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type system)
+{
+	int ret = 0;
+
+	if (chrdev->params.system == PTX_ISDB_C_SYSTEM || chrdev->tsmf_active) {
+		ret = ptx_chrdev_prepare_tsmf(chrdev);
+		if (ret)
+			return ret;
+	}
+
+	do {
+		if (chrdev->params.system == PTX_ISDB_S_SYSTEM &&
+		    (chrdev->options & PTX_CHRDEV_SAT_SET_STREAM_ID_BEFORE_TUNE) &&
+		    chrdev->ops->set_stream_id) {
+			ret = chrdev->ops->set_stream_id(chrdev,
+							 chrdev->params.stream_id);
+			if (ret)
+				break;
+		}
+
+		ret = chrdev->ops->tune(chrdev, &chrdev->params);
+		if (ret) {
+			chrdev->params.system = system;
+			break;
+		}
+
+		chrdev->current_system = chrdev->params.system;
+		chrdev->params.system = system;
+
+		if (chrdev->ops->check_lock) {
+			int i;
+			bool locked = false;
+			/* Sony の sony_integ_isdbc_WaitTSLock() と sony_integ_j83b_WaitTSLock() と同じく、ISDB-C と J.83B はロックを1秒で打ち切り、
+			 * 信号のない搬送波で選局の失敗を待つ時間を短くする (msleep() は指定より長く眠ることがあるため、回数ではなく時刻で数える) */
+			unsigned long lock_deadline = jiffies + msecs_to_jiffies(1000);
+
+			i = 300;
+			while (i--) {
+				ret = chrdev->ops->check_lock(chrdev, &locked);
+				if ((!ret && locked) || ret == -ECANCELED)
+					break;
+
+				if ((chrdev->current_system == PTX_ISDB_C_SYSTEM ||
+				     chrdev->current_system == PTX_J83B_SYSTEM) &&
+				    time_after(jiffies, lock_deadline))
+					break;
+
+				msleep(10);
+			}
+
+			if (ret != -ECANCELED && !locked)
+				ret = -EAGAIN;
+
+			if (ret)
+				break;
+
+			if (chrdev->current_system == PTX_ISDB_T_SYSTEM &&
+			    (chrdev->options & PTX_CHRDEV_WAIT_AFTER_LOCK_TC_T) &&
+			    i > 265)
+				msleep((i - 265) * 10);
+		}
+
+		if (chrdev->current_system == PTX_ISDB_S_SYSTEM &&
+		    !(chrdev->options & PTX_CHRDEV_SAT_SET_STREAM_ID_BEFORE_TUNE) &&
+		    chrdev->ops->set_stream_id)
+			ret = chrdev->ops->set_stream_id(chrdev,
+							 chrdev->params.stream_id);
+
+		if (chrdev->options & PTX_CHRDEV_WAIT_AFTER_LOCK)
+			msleep(200);
+
+	} while (0);
+
+	if (!ret && chrdev->tsmf_active)
+		ret = ptx_chrdev_wait_tsmf(chrdev);
+
 	return ret;
 }
 
@@ -263,6 +508,23 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 			chrdev->params.stream_id = 0;
 			break;
 
+		case PTX_ISDB_C_SYSTEM:
+		{
+			/* 物理チャンネル番号から中心周波数への変換は、WinUSB 版の BonDriver と isdbc_channel.h で共有する
+			 * slot は既存の addfreq と同じく、符号付きの周波数補正値 (kHz) として使う */
+			int khz = isdbc_channel_to_khz(freq.freq_no);
+
+			if (khz < 0) {
+				ret = -EINVAL;
+				break;
+			}
+			chrdev->params.tsmf_stream = 1;
+			chrdev->params.freq = khz + freq.slot;
+			chrdev->params.bandwidth = 6;
+			chrdev->params.stream_id = 0;
+			break;
+		}
+
 		case PTX_UNSPECIFIED_SYSTEM:
 			if (chrdev->system_cap & PTX_ISDB_S_SYSTEM) {
 				if (freq.freq_no < 0) {
@@ -318,57 +580,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		if (ret)
 			break;
 
-		if (chrdev->params.system == PTX_ISDB_S_SYSTEM &&
-		    (chrdev->options & PTX_CHRDEV_SAT_SET_STREAM_ID_BEFORE_TUNE) &&
-		    chrdev->ops->set_stream_id) {
-			ret = chrdev->ops->set_stream_id(chrdev,
-							 chrdev->params.stream_id);
-			if (ret)
-				break;
-		}
-
-		ret = chrdev->ops->tune(chrdev, &chrdev->params);
-		if (ret) {
-			chrdev->params.system = system;
-			break;
-		}
-
-		chrdev->current_system = chrdev->params.system;
-		chrdev->params.system = system;
-
-		if (chrdev->ops->check_lock) {
-			int i;
-			bool locked = false;
-
-			i = 300;
-			while (i--) {
-				ret = chrdev->ops->check_lock(chrdev, &locked);
-				if ((!ret && locked) || ret == -ECANCELED)
-					break;
-
-				msleep(10);
-			}
-
-			if (ret != -ECANCELED && !locked)
-				ret = -EAGAIN;
-
-			if (ret)
-				break;
-
-			if (chrdev->current_system == PTX_ISDB_T_SYSTEM &&
-			    (chrdev->options & PTX_CHRDEV_WAIT_AFTER_LOCK_TC_T) &&
-			    i > 265)
-				msleep((i - 265) * 10);
-		}
-
-		if (chrdev->current_system == PTX_ISDB_S_SYSTEM &&
-		    !(chrdev->options & PTX_CHRDEV_SAT_SET_STREAM_ID_BEFORE_TUNE) &&
-		    chrdev->ops->set_stream_id)
-			ret = chrdev->ops->set_stream_id(chrdev,
-							 chrdev->params.stream_id);
-
-		if (chrdev->options & PTX_CHRDEV_WAIT_AFTER_LOCK)
-			msleep(200);
+		ret = ptx_chrdev_tune(chrdev, system);
 
 		break;
 	}
@@ -380,6 +592,11 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		}
 
 		chrdev->ringbuf_write_size = 0;
+
+		/* 選局の確認の後に受信を一度止めているため、搬送波の判断は保ったまま、フレームの途中の状態だけを捨てる
+		 * 判断をやり直すと、選局し直していない受信の開始でも、先頭の転送1回分と判断までのパケットを捨ててしまう */
+		if (chrdev->tsmf_active)
+			ptx_chrdev_resync_tsmf(chrdev);
 
 		if (chrdev->ops && chrdev->ops->set_capture)
 			ret = chrdev->ops->set_capture(chrdev, true);
@@ -477,6 +694,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		case PTX_UNSPECIFIED_SYSTEM:
 		case PTX_ISDB_T_SYSTEM:
 		case PTX_ISDB_S_SYSTEM:
+		case PTX_ISDB_C_SYSTEM:
 			if (chrdev->system_cap & mode)
 				chrdev->params.system = mode;
 			else
@@ -497,16 +715,32 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 
 	case PTXT_GET_PARAMS:
 		break;
+#endif
 
 	case PTXT_SET_PARAMS:
-		break;
+	{
+		struct ptxt_params params;
 
+		if (copy_from_user(&params, (void __user *)arg, sizeof(params)))
+			ret = -EFAULT;
+		else
+			ret = ptx_chrdev_set_params(chrdev, &params);
+		break;
+	}
+
+#if 0
 	case PTXT_CLEAR_PARAMS:
 		break;
+#endif
 
 	case PTXT_TUNE:
+		if (!chrdev->ops || !chrdev->ops->tune)
+			ret = -ENOSYS;
+		else
+			ret = ptx_chrdev_tune(chrdev, chrdev->params.system);
 		break;
 
+#if 0
 	case PTXT_SET_LNB_VOLTAGE:
 		break;
 
@@ -1000,6 +1234,7 @@ static void ptx_chrdev_group_release(struct kref *kref)
 			chrdev->ops->term(chrdev);
 
 		ringbuffer_destroy(chrdev->ringbuf);
+		kvfree(chrdev->tsmf);
 		mutex_destroy(&chrdev->lock);
 	}
 
@@ -1055,9 +1290,48 @@ void ptx_chrdev_group_destroy(struct ptx_chrdev_group *chrdev_group)
 	return;
 }
 
+static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t len)
+{
+	struct ptx_tsmf_stream *stream = chrdev->tsmf;
+	const u8 *out;
+	size_t size;
+	unsigned long flags;
+	int ret = 0;
+
+	spin_lock_irqsave(&stream->lock, flags);
+	for (; len >= 188; buf += 188, len -= 188) {
+		size = tsmf_filter_packet(&stream->filter, buf, &out);
+		if (!size)
+			continue;
+
+		ret = ringbuffer_write_atomic(chrdev->ringbuf, out, &size);
+		if (unlikely(ret && ret != -EOVERFLOW))
+			break;
+		chrdev->ringbuf_write_size += size;
+		if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
+			wake_up(&chrdev->ringbuf_wait);
+			chrdev->ringbuf_write_size -= chrdev->ringbuf_threshold_size;
+			stream->wake_jiffies = jiffies;
+		} else if (time_after_eq(jiffies, stream->wake_jiffies +
+					 msecs_to_jiffies(PTX_CHRDEV_TSMF_FLUSH_INTERVAL_MS))) {
+			/* しきい値に届かないまま時間がたったときは、たまった分を read() へ渡す */
+			atomic_set(&stream->flush, 1);
+			wake_up(&chrdev->ringbuf_wait);
+			chrdev->ringbuf_write_size = 0;
+			stream->wake_jiffies = jiffies;
+		}
+	}
+	spin_unlock_irqrestore(&stream->lock, flags);
+
+	return ret;
+}
+
 int ptx_chrdev_put_stream(struct ptx_chrdev *chrdev, void *buf, size_t len)
 {
 	int ret = 0;
+
+	if (unlikely(smp_load_acquire(&chrdev->tsmf_active)))
+		return ptx_chrdev_put_stream_tsmf(chrdev, buf, len);
 
 	ret = ringbuffer_write_atomic(chrdev->ringbuf, buf, &len);
 	if (unlikely(ret && ret != -EOVERFLOW))

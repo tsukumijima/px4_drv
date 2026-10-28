@@ -118,6 +118,10 @@ bool ParseSystemStr(const std::wstring &str, px4::SystemType &systems)
 			systems |= px4::SystemType::ISDB_T;
 		else if (!std::wcsncmp(L"ISDB-S", p, 6))
 			systems |= px4::SystemType::ISDB_S;
+		else if (!std::wcsncmp(L"ISDB-C", p, 6))
+			systems |= px4::SystemType::ISDB_C;
+		else if (!std::wcsncmp(L"J.83B", p, 5))
+			systems |= px4::SystemType::J83B;
 		else {
 			systems = px4::SystemType::UNSPECIFIED;
 			return false;

@@ -15,10 +15,15 @@ namespace px4 {
 class ChannelSet final {
 public:
 	struct ChannelInfo final {
-		ChannelInfo() noexcept : ptx_ch(0), tsid(0) {}
+		ChannelInfo() noexcept : ptx_ch(0), tsid(0), freq(0), tsmf_stream(1) {}
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;
+		// J.83 Annex B の行の中心周波数 (kHz)
+		// J.83 Annex B は物理チャンネル番号を持たないため、ptx_ch は使わない
+		std::uint32_t freq;
+		// TSMF 方式で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
+		std::uint8_t tsmf_stream;
 	};
 	struct SpaceInfo final {
 		explicit SpaceInfo(px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept : SpaceInfo(L"", system) {}
@@ -49,6 +54,7 @@ private:
 	bool AddSpace(uint32_t space_id, const std::wstring *name, px4::SystemType system = px4::SystemType::UNSPECIFIED) noexcept;
 	bool AddChannel(uint32_t space_id, uint32_t ch_id, const ChannelInfo& ch) noexcept;
 	static void Split(char **head, char **tail, char c) noexcept;
+	static bool ParseCable(char **head, char **tail, px4::SystemType system, ChannelInfo &ch) noexcept;
 
 	bool strict_;
 	mutable std::shared_mutex mtx_;

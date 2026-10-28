@@ -12,33 +12,47 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 動作確認は Windows 10 / Windows 11 (x64) で行っています。
 
-- エラー発生時の MessageBox を表示しない設定を追加 
-  - BonDriver の ini 内の `DisplayErrorMessage` を 1 に設定すると今まで通り MessageBox が表示される
-- BS/CS の ChSet に2024年10月～2025年1月に行われた BS トランスポンダ再編後の物理チャンネル情報を反映
-- [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV02A-1T1S-U / DTV03A-1TU / PX-M1UR / PX-S1UR に対応
+#### 新デバイス対応・機能追加
+
 - PX-Q3PE5 に対応し、inf ファイルを追加
+- [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV02A-1T1S-U / DTV03A-1TU / PX-M1UR / PX-S1UR に対応
 - PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応し、inf ファイルを追加 (v0.6.1 以降)
+- 各機種の内蔵 B-CAS カードリーダーを利用するためのドライバを追加 (v0.6.0 以降)
+  - 同梱の `WinSCard.dll` を利用するアプリケーションの実行ファイルと同じフォルダに配置すると、内蔵カードリーダーを優先して利用できるようになる
+  - Windows が認識している外付けカードリーダーも引き続き利用できる
+- PX-MLT 系チューナー (PX-MLT5PE / PX-MLT8PE / DTV02A-4TS-P / DTV02A-5TS-P) において、ケーブルテレビ (トランスモジュレーション方式: ISDB-C) とスカパー！プレミアムサービス光 (J.83 Annex B) の受信に対応 (v0.7.0 以降)
+  - [n0atl 氏のフォーク](https://github.com/n0atl/px4_drv) と [aoiro-labo 氏のフォーク](https://github.com/aoiro-labo/px4_drv) で進められていた対応を基にしている
+  - 受信方法は [ケーブルテレビ (ISDB-C) / スカパー！プレミアムサービス光 (J.83B) の受信](#ケーブルテレビ-isdb-c--スカパープレミアムサービス光-j83b-の受信) を参照のこと
+
+#### 設定ファイル・ドライバ構成ファイルの改善
+
 - inf ファイルをより分かりやすい名前に変更
-- inf ファイルを ARM 版 Windows でもインストールできるようにする
-  - 実機がないので試せていないけど、おそらくインストールできるはず
-  - ref: https://mevius.5ch.net/test/read.cgi/avi/1625673548/762
-- inf ファイルを改善し、チューナーをタスクトレイの「ハードウェアの安全な取り外し」に表示しないようにする
-  - ref: https://mevius.5ch.net/test/read.cgi/avi/1666581918/207
 - inf ファイルに自己署名を行い、自己署名証明書のインストールだけで正式なドライバーと認識されるように
   - 以前は署名がないためインストール時にドライバー署名の強制の無効化が必要だったが、事前に自己署名証明書を適切な証明書ストアにインストールしておけばこの作業が不要になる
   - ref: https://mevius.5ch.net/test/read.cgi/avi/1577466040/104-108
 - 自己署名証明書のインストール・アンインストールスクリプトを追加
   - 拡張子が .jse となっているが、これは PowerShell スクリプトにダブルクリックで実行させるための JScript コードを先頭の行に加えたもの
+- inf ファイルを ARM 版 Windows でもインストールできるようにする
+  - 実機がないので試せていないけど、おそらくインストールできるはず
+  - ref: https://mevius.5ch.net/test/read.cgi/avi/1625673548/762
+- inf ファイルを改善し、チューナーをタスクトレイの「ハードウェアの安全な取り外し」に表示しないようにする
+  - ref: https://mevius.5ch.net/test/read.cgi/avi/1666581918/207
 - 地上波の ChSet に物理 53ch ～ 62ch の定義を追加
   - 物理 53ch ～ 62ch は地上波の割り当て周波数から削除されているが、現在も ”イッツコムch10” など、一部ケーブルテレビの自主放送の割り当て周波数として使われている
 - BS/CS の ChSet に2022年3月開局の BS 新チャンネル（BS松竹東急・BSJapanext・BSよしもと）の定義を追加
+- BS/CS の ChSet に2024年10月～2025年1月に行われた BS トランスポンダ再編後の物理チャンネル情報を反映
+
+#### ドライバの品質改善
+
+- エラー発生時の MessageBox を表示しない設定を追加 
+  - BonDriver の ini 内の `DisplayErrorMessage` を 1 に設定すると今まで通り MessageBox が表示される
 - バージョン情報が DLL のプロパティに表示されないのを修正
+- チャンネル切り替え、USB の切断・再接続、内蔵カードリーダーとの同時利用に関する安定性を改善 (v0.6.0 以降)
+
+#### ビルド・ドキュメント
+
 - ビルドとパッケージングを全自動で行うスクリプトを追加
   - Visual Studio 2022 が入っていれば、build.ps1 を実行するだけで全自動でビルドからパッケージングまで行える
-- 各機種の内蔵 B-CAS カードリーダーを利用するためのドライバを追加 (v0.6.0 以降)
-  - 同梱の `WinSCard.dll` を利用するアプリケーションの実行ファイルと同じフォルダに配置すると、内蔵カードリーダーを優先して利用できるようになる
-  - Windows が認識している外付けカードリーダーも引き続き利用できる
-- チャンネル切り替え、USB の切断・再接続、内蔵カードリーダーとの同時利用に関する安定性を改善 (v0.6.0 以降)
 - fwtool: PX-W3PE5 / PX-Q3PE4 / PX-Q3PE5 / PX-W3U4 / PX-Q3U4 / PX-MLT5PE / PX-MLT8PE の2021年版公式 Windows ドライバからのファームウェア抽出に対応
   - 既定の抽出済みファームウェアで問題なく動作することが知られているため、特段実用性はない
 - README（このページ）に WinUSB 版のインストール方法などを追記
@@ -47,18 +61,32 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 
 動作確認は Ubuntu 22.04 LTS (x64) で行っています。
 
-- チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U に対応
-- [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み、安定性と互換性を改善
+#### 新デバイス対応・機能追加
+
 - [techmadot 氏のフォーク](https://github.com/techmadot/px4_drv) の更新を取り込み、PX-M1UR / PX-S1UR に対応
-- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の更新を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
 - [hendecarows 氏のフォーク](https://github.com/hendecarows/px4_drv) での更新を取り込み、DTV03A-1TU に対応
-- PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応
-- WinUSB 版と同じく、PX-S1UR を ISDB2056 系の共通処理に統合し、設計の異なる DTV03A-1TU (ISDBT2071) を単独の実装に分離
-- Linux 4.15 (Ubuntu 18.04 の初期カーネル) 以降でビルドできるように修正
-- https://github.com/tsukumijima/px4_drv/pull/33 をマージし、IBT (Indirect Branch Tracking) 対応に伴う `objtool` の検査強化により、Linux 6.15 系などでモジュールをビルド・ロードできない問題に対応
-  - 当初は保守的に Linux 6.15.4 以降でのみ `module_init()` と `module_exit()` を使っていたが、これらは古いカーネルでも利用できるため、v0.6.0 以降ではカーネル版による分岐を削除して統一
-- https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
+- チップ構成が一部変更された、ロット番号 2309 (2023年9月) 以降の DTV02A-1T1S-U に対応
+- PX-MLT5PE のリブランド品である DTV02A-5TS-P (USB Product ID: 0x924e) に対応 (v0.6.1 以降)
+- 各機種の内蔵 B-CAS カードリーダーを利用するためのドライバを追加 (v0.7.0 以降)
+  - 別途 `px4-drv-pcsc` ドライバをインストールすることで、pcscd から内蔵カードリーダーを認識・利用できるようになる
+  - pcscd が既定で認識している外付けカードリーダーも引き続き利用できる
+-  PX-MLT 系チューナー (PX-MLT5PE / PX-MLT8PE / DTV02A-4TS-P / DTV02A-5TS-P) において、WinUSB 版と同じくケーブルテレビ (トランスモジュレーション方式: ISDB-C) とスカパー！プレミアムサービス光 (J.83 Annex B) の受信に対応 (v0.7.0 以降)
+  - 受信方法は [ケーブルテレビ (ISDB-C) / スカパー！プレミアムサービス光 (J.83B) の受信](#ケーブルテレビ-isdb-c--スカパープレミアムサービス光-j83b-の受信) を参照のこと
+
+#### ドライバの品質改善
+
+- [otya 氏のフォーク](https://github.com/otya128/px4_drv) での更新を取り込み、安定性と互換性を改善
 - https://github.com/tsukumijima/px4_drv/pull/3 をマージし、`ctrl_timeout` をモジュールパラメーターに追加
+- [kznrluk 氏のフォーク](https://github.com/kznrluk/px4_drv) の更新を取り込み、Linux カーネル 6.4 系以降の API 変更に対応
+- https://github.com/tsukumijima/px4_drv/pull/6 をマージし、Linux カーネル 6.8 系以降の API 変更に対応
+- https://github.com/tsukumijima/px4_drv/pull/33 をマージし、IBT (Indirect Branch Tracking) 対応に伴う `objtool` の検査強化により、Linux 6.15 系などでモジュールをビルド・ロードできない問題に対応 (v0.6.0 以降)
+  - 当初は保守的に Linux 6.15.4 以降でのみ `module_init()` と `module_exit()` を使っていたが、これらは古いカーネルでも利用できるため、v0.6.0 以降ではカーネル版による分岐を削除して統一した
+- チャンネル切り替え、USB の切断・再接続に関する安定性を改善 (v0.6.0 以降)
+- Linux 4.15 (Ubuntu 18.04 の初期カーネル) 以降でビルドできるように修正 (v0.7.0 以降)
+- WinUSB 版と同じく、PX-S1UR を ISDB2056 系の共通処理に統合し、設計の異なる DTV03A-1TU (ISDBT2071) を単独の実装に分離 (v0.7.0 以降)
+
+#### ビルド・ドキュメント
+
 - Debian パッケージ (.deb) の作成とインストールに対応
 - DKMS でのインストール時にファームウェアを自動でインストールするように変更
 - README (このページ) に Debian パッケージからのインストール方法などを追記
@@ -350,19 +378,14 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 
 ### 4. 内蔵 B-CAS カードリーダーの利用
 
-次の機種の内蔵カードリーダーは、pcscd 用のドライバー (`px4-drv-pcsc`) をインストールすると、外付けのカードリーダーと同じように、Mirakurun や EDCB などの PC/SC に対応したアプリケーションから使えます。  
-内蔵カードリーダーを使わない場合は、この手順は不要です。
-
-- PLEX PX-W3U4 / PX-Q3U4 / PX-W3PE4 / PX-Q3PE4 / PX-W3PE5 / PX-Q3PE5
-- PLEX PX-MLT5PE / PX-MLT8PE
-- PLEX PX-M1UR / PX-S1UR
-- e-Better DTV02A-5TS-P / DTV02A-4TS-P / DTV02A-1T1S-U / DTV03A-1TU
+**v0.7.0 以降、pcscd 用ドライバ (`px4-drv-pcsc`) を別途インストールすることで、内蔵カードリーダーを外付けカードリーダー同様に利用できるようになりました！**  
+内蔵 B-CAS カードリーダーを使わない場合は、この手順は不要です。
 
 > [!NOTE]
-> Docker で Mirakurun などを動かしている場合は、pcscd をホストとコンテナのどちらで動かすかによって、ドライバーをインストールする場所が変わります。  
-> 先に [Docker で使う場合](#docker-で使う場合) を読んでください。
+> Mirakurun などを Docker 環境で稼働させている場合は、pcscd をホストとコンテナのどちらで動かすかによって、ドライバのインストール先が異なります。  
+> 先に [Docker 環境からカードリーダーにアクセスする場合](#docker-環境からカードリーダーにアクセスする場合) をお読みください。 
 
-#### pcscd 用ドライバーのインストール
+#### pcscd 用ドライバ (px4-drv-pcsc) のインストール
 
 Releases から、CPU アーキテクチャに合った Debian パッケージ (amd64 か arm64) をダウンロードし、pcscd と一緒にインストールします。  
 Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビューションで動作します。
@@ -375,26 +398,27 @@ Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビュ�
 
 `udevadm` の2行は、すでに接続しているチューナーのカードリーダーを、新しくインストールした pcscd から開けるようにするためのものです。
 
-> [!NOTE]
-> 更新したときも、インストールの後に pcscd を再起動すると読み込まれます。  
-> カードを使っている最中に再起動すると復号が途切れるため、録画や視聴をしていないときに実行してください。
+> [!IMPORTANT]
+> 基本的に、異なるバージョンの px4_drv と px4-drv-pcsc を混在させて利用することはできません。  
+> px4_drv と px4-drv-pcsc の更新後は、必ず pcscd を再起動してください。
 
-> [!TIP]
-> ソースからビルドしてインストールすることもできます。C++17 に対応したコンパイラー、make 、pkg-config 、pcsc-lite の開発用ファイル (Debian / Ubuntu では `libpcsclite-dev`) が必要です。  
+> [!TIP]  
+> ソースからビルドしてインストールすることもできます。  
+> C++17 に対応したコンパイラー、make 、pkg-config 、pcsc-lite の開発用ヘッダー (Debian / Ubuntu では `libpcsclite-dev`) が必要です。  
 > ```
 > $ make -C pcsc
 > $ sudo make -C pcsc install
 > ```
 
-#### 認識の確認
+#### 内蔵カードリーダーの認識を確認
 
 B-CAS カードを挿した状態で、`pcsc-tools` の `pcsc_scan` を実行します。
 
 	$ sudo apt install -y pcsc-tools
 	$ pcsc_scan
 
-次のように、内蔵カードリーダーの名前の下に `Card inserted` と、末尾に `B-CAS Card` の判定が表示されれば使えます。  
-確かめたら、Ctrl+C で終了します。
+次のように、内蔵カードリーダーの名前の下に `Card inserted` と、末尾に `B-CAS Card` の判定が表示されれば利用可能です。  
+確認が完了したら、Ctrl+C で `pcsc_scan` を終了します。
 
 ```
  Reader 0: PLEX PX-W3U4 Smart Card Reader [ID: CD65353E4231AA77] (000001711009061) 00 00
@@ -407,27 +431,38 @@ Possibly identified card (using /usr/share/pcsc/smartcard_list.txt):
 	Japanese Chijou Digital B-CAS Card (pay TV)
 ```
 
-リーダー名の `[ID: ...]` は、Windows 版のリーダー名の `(ID: ...)` と同じ値です。  
-Windows と Linux の両方で、同じ機器を共通の ID で識別できます。
+> [!TIP]  
+> リーダー名の `[ID: ...]` は、Windows 版のリーダー名の `(ID: ...)` と同じ値になるよう設計されています。  
+> Windows と Linux の両方で、同じチューナー機器を共通の ID で識別できます。
 
-#### 認識されない場合
+#### 内蔵カードリーダーが認識されない場合
 
-- **カードリーダーが表示されない:** `ls /dev/px4card/` で、カードリーダーのデバイスファイルがあるかを確かめます。  
-  ない場合は、インストールした px4_drv が内蔵カードリーダーに対応したバージョンかを確かめます。  
-  ある場合は、[インストール](#pcscd-用ドライバーのインストール) の `udevadm` の2行と pcscd の再起動を、もう一度実行します
-- **`Card state` が `Card inserted` にならない:** B-CAS カードの向き (裏表) と、奥まで挿し込まれているかを確かめます
-- **リーダー名に `[ID: ...]` が入っていない:** カーネルモジュールを読み込み直したときなどに起きます。pcscd を再起動すると解消します
+- **カードリーダーが表示されない:** `ls /dev/px4card/` で、カードリーダーのデバイスファイルが存在するかを確認してください。  
+  デバイスファイルが存在しない場合は、インストールした px4_drv が内蔵カードリーダーに対応したバージョンかを確認してください。  
+  デバイスファイルが存在する場合は、以下のコマンドを再度実行してください。  
+  ```
+  $ sudo udevadm trigger --subsystem-match=px4card
+  $ sudo udevadm settle
+  $ sudo systemctl restart pcscd
+  ```
+- **`Card state` が `Card inserted` にならない:** B-CAS カードの向き (裏表) と、奥まで挿し込まれているかを確認してください。
+- **リーダー名に `[ID: ...]` が入っていない:** カーネルモジュールを読み込み直したときなどに発生します。pcscd を再起動することで解消されます。
 
-それでも表示されない場合は、`journalctl -u pcscd` で pcscd のログを確かめます。  
-デバイスファイルを開けなかったときは、`open(...) failed` と、その理由が出ます。
+それでもカードリーダーが表示されない場合は、`journalctl -u pcscd` で pcscd のログを確認してください。  
+デバイスファイルのオープンに失敗した際には `open(...) failed` と、その理由が出力されます。
 
-#### root 以外のサービスから使う場合
+#### root 以外のサービスから使う場合 (Ubuntu 24.04 / Debian 13 以降)
 
-Ubuntu 24.04 以降と Debian 13 以降の pcscd は、接続してきたプログラムを polkit で確かめ、ログインしていないユーザーからの接続を拒否します。  
-このため、Mirakurun や EDCB を root 以外のユーザーの systemd サービスとして動かすと、カードリーダーを使えません (外付けのカードリーダーでも同じで、pcscd のログに `is NOT authorized for action: access_pcsc` が出ます)。  
-Ubuntu 22.04 以前と Debian 12 以前の pcscd はこの確認をしないため、次の設定は不要です。
+Ubuntu 24.04 / Debian 13 以降の pcscd は、接続してきたプログラムを polkit で検証し、ログインしていないユーザーからの接続を拒否します。  
+このため、Mirakurun / EDCB を一般ユーザー権限 (root 以外) の systemd サービスとして稼働させている場合、カードリーダーにアクセスできなくなります。
 
-接続が拒否される場合は、次の polkit のルールを `/etc/polkit-1/rules.d/50-pcscd-recorder.rules` に置き、サービスのユーザー (この例では `mirakurun`) に許可します。
+> [!NOTE]
+> この問題は内蔵カードリーダー固有の問題ではなく、外付けカードリーダーでも同様に発生します。  
+> カードリーダーへのアクセスが拒否された場合、pcscd のログに `is NOT authorized for action: access_pcsc` が出力されます。
+> なお、Ubuntu 22.04 / Debian 12 以前の pcscd は当該チェックを行わないため、この設定を記述する必要はありません。
+
+カードリーダーへのアクセスが拒否される場合には、次の polkit ルールを `/etc/polkit-1/rules.d/50-pcscd-recorder.rules` に配置し、  
+systemd サービスの起動ユーザー (この例では `mirakurun`) がカードリーダーにアクセスできるように設定してください。
 
 ```js
 polkit.addRule(function(action, subject) {
@@ -440,49 +475,52 @@ polkit.addRule(function(action, subject) {
 ```
 
 > [!NOTE]
-> 録画アプリケーションはカードリーダーのデバイスファイルを直接開かず、pcscd に接続します。  
-> チューナーの `video` グループとは違い、アプリケーションのユーザーを `pcscd` グループに加える必要はありません。
+> recisdb などの受信ソフトウェアは、カードリーダーのデバイスファイルには直接アクセスせず、pcscd 経由で間接的にアクセスします。  
+> チューナーデバイスの `video` グループと異なり、recisdb を実行するユーザーを `pcscd` グループに追加する必要はありません。
 
-#### Docker で使う場合
+#### Docker 環境からカードリーダーにアクセスする場合
 
-カーネルモジュールはホストにインストールします。  
-pcscd は、ホストとコンテナのどちらか一方だけで動かし、それに合わせて pcscd 用ドライバーをインストールする場所を選びます。
+Docker 環境からカードリーダーにアクセスするには、ホストの pcscd を使うか、コンテナ内で pcscd を立ち上げるかの2つの方法があります。
 
-- **コンテナ内で pcscd を動かす (Mirakurun の既定の構成):** コンテナのイメージにドライバーを追加してビルドし直します
-- **ホストの pcscd を使う:** イメージはそのままで済みますが、ホストとコンテナの pcsc-lite のバージョンが大きく違うと接続できないことがあります
+- **コンテナ内で pcscd を動かす (Mirakurun の既定の構成):** コンテナのイメージにドライバを追加してビルドし直します
+- **ホストの pcscd を使う:** イメージはそのままで済みますが、ホストとコンテナの pcsc-lite のバージョンが異なる場合は接続できないことがあります
 
 > [!WARNING]
-> ホストとコンテナの両方で pcscd を動かすと、カードリーダーへのアクセスが競合し、片方が使えなくなります。
+> 事前に px4_drv のカーネルモジュールがホスト側にインストールされている必要があります。  
+> ホストとコンテナの両方で pcscd を起動するとカードリーダーへのアクセスが競合し、どちらか一方が正常に動作しなくなってしまいます。
 
 ##### コンテナ内で pcscd を動かす
 
-Mirakurun の公式イメージには pcscd 用ドライバーが入っていないので、Debian パッケージを追加したイメージを作ります。  
-arm64 の機器 (Raspberry Pi など) では、ファイル名の `amd64` を `arm64` に変えます。
+Mirakurun の公式イメージには pcscd 用ドライバが入っていないため、事前に px4-drv-pcsc の Debian パッケージを追加したイメージを作成します。  
+起動用の `docker-compose.yml` は Mirakurun 公式のものをベースに、`image` だけをこのイメージに変更してください。  
 
 ```dockerfile
+# arm64 環境では "amd64" を "arm64" に変更してください
 FROM chinachu/mirakurun:latest
 ADD https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-pcsc_0.6.1_amd64.deb /tmp/
 RUN dpkg -i /tmp/px4-drv-pcsc_0.6.1_amd64.deb && rm /tmp/px4-drv-pcsc_0.6.1_amd64.deb
 ```
 
-`docker-compose.yml` は Mirakurun の公式のもの (`/dev:/dev` の volume 、`network_mode: host` 、`device_cgroup_rules`) のまま、`image` だけをこのイメージに変えます。  
-そのうえで、ホストの pcscd を止めます。
+完了したら、ホストの pcscd を停止します。
 
 	$ sudo systemctl disable --now pcscd.socket pcscd.service
 
 > [!NOTE]
-> すべての機器を取り外すと `/dev/px4card` ごと消えるため、`/dev/px4card` だけをコンテナへマウントすると、抜き差しした後にコンテナから見えなくなります。  
-> 公式の構成のとおり、`/dev` 全体をマウントしてください。
+> 全てのチューナー機器が取り外されると、`/dev/px4card` はディレクトリごと消滅します。  
+> `/dev/px4card` だけをコンテナへマウントしてしまうと、USB を抜き差しした後にデバイスファイルがコンテナから見えなくなってしまう可能性があります。  
+> 公式の Docker Compose に従い、`/dev` 全体をマウントしてください。
 
 ##### ホストの pcscd を使う
 
-ホストに pcscd 用ドライバーを [インストール](#pcscd-用ドライバーのインストール) し、コンテナ内の pcscd は動かさずに、ホストの pcscd のソケットディレクトリをコンテナへマウントします。  
-Mirakurun では、環境変数 `DISABLE_PCSCD=1` を設定し、`/var/run/pcscd:/var/run/pcscd` をマウントします。
+事前に pcscd 用ドライバをホストマシンに [インストール](#pcscd-用ドライバ-px4-drv-pcsc-のインストール) しておいてください。
+
+その後、コンテナ内では pcscd を起動させず、代わりにホスト上の pcscd のソケットディレクトリをコンテナ内にマウントします。  
+Mirakurun の場合は、環境変数 `DISABLE_PCSCD=1` を設定した上で、`/var/run/pcscd:/var/run/pcscd` をコンテナ内にマウントしてください。
 
 > [!WARNING]
-> Mirakurun の `docker-compose.yml` の例のように、ソケットファイル (`pcscd.comm`) だけをマウントすると、ホストの pcscd が再起動したときにコンテナから接続できなくなります。  
-> ディレクトリごとマウントしてください。  
-> また、ホストとコンテナの pcsc-lite のバージョンが大きく違うと接続できないことがあります。その場合は、コンテナ内で pcscd を動かす構成を使ってください。
+> Mirakurun 公式の `docker-compose.yml` のようにソケットファイル (`pcscd.comm`) だけをマウントすると、ホストの pcscd が再起動した際にコンテナから接続できなくなります。  
+> 必ず `/var/run/pcscd` ディレクトリごとコンテナへマウントしてください。  
+> また、ホストとコンテナの pcsc-lite のバージョンが大きく異なると接続できないことがあります。その場合は、コンテナ内で pcscd を動かす構成を検討してください。
 
 ## アンインストール (Windows)
 
@@ -540,6 +578,57 @@ recpt1 や [BonDriverProxy_Linux](https://github.com/u-n-k-n-o-w-n/BonDriverProx
 recpt1 は、PLEX 社より配布されているものを使用する必要はありません。
 
 BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などのデバイスファイル1つで ISDB-T と ISDB-S のどちらも受信可能なチューナーを組み合わせて使用する場合は、BonDriver として BonDriverProxy_Linux に同梱されている BonDriver_LinuxPT の代わりに、[BonDriver_LinuxPTX](https://github.com/nns779/BonDriver_LinuxPTX) を使用してください。
+
+## ケーブルテレビ (ISDB-C) / スカパー！プレミアムサービス光 (J.83B) の受信
+
+**v0.7.0 以降、PX-MLT 系チューナー (PX-MLT5PE / PX-MLT8PE / DTV02A-4TS-P / DTV02A-5TS-P) なら、地上波や BS/CS に加え、ケーブルテレビ (ISDB-C) とスカパー！プレミアムサービス光 (J.83 Annex B) を受信できるようになりました！**
+
+- ISDB-C (J.83 Annex C): ケーブルテレビ局が地上波・地上波 (区域外再送信)・BS・専門チャンネルをトランスモジュレーション方式で再送信する放送
+  - 実装にあたり、実際に PX-MLT5PE とケーブルテレビ（イッツコム）の環境で動作確認を行っています。
+- J.83 Annex B: フレッツ・テレビなどの光回線経由で送られる「スカパー！プレミアムサービス光」の放送
+  - スカパー！プレミアムサービス光は、ユーザーの環境でチャンネルスキャン・受信が正常に行えたと報告を受けています。
+
+### Windows
+
+`BonDriver_PX-MLT.dll` は、既定では従来通り、地上波・BS/CS のみが受信対象として設定されています。  
+ケーブルテレビを受信するには、`BonDriver_PX-MLT.ini` → `[BonDriver]` → `System` に `ISDB-C` を、  
+スカパー！プレミアムサービス光を受信するには `J.83B` を明示的に追加してください (例: `System="ISDB-T,ISDB-S,ISDB-C"`)。
+
+```ini
+[BonDriver]
+Name="PX-MLT"
+System="ISDB-T,ISDB-S"          # ケーブルテレビ (ISDB-C) or スカパー！プレミアムサービス光 (J.83B) を受信する際はこの行をコメントアウトする
+#System="ISDB-T,ISDB-S,ISDB-C"  # ケーブルテレビ (ISDB-C) を受信する際はこの行のコメントアウトを外す
+#System="ISDB-T,ISDB-S,J.83B"   # スカパー！プレミアムサービス光 (J.83B) を受信する際はこの行のコメントアウトを外す
+...
+```
+
+> [!TIP]  
+> EDCB (EpgDataCap_Bon) などの「全チューニング空間の全チャンネルを順に選局して一括でチャンネルスキャンを行う」受信ソフトウェアでは、実際には全て受信できないチューニング空間であっても、チャンネルスキャン時に毎回選局されます。  
+> ケーブルテレビのチャンネル定義は約450行、スカパー！プレミアムサービス光は約110行あり、受信できない環境では1チャンネルごとに受信を待ってから次へ進む形となるため、既定でこれらのチューニング空間を有効にすると、チャンネルスキャンに非常に時間が掛かります。  
+> こうした理由により、アンテナで地上波と BS/CS だけを受信している大半のユーザーのチャンネルスキャンまで遅くなってしまうことから、ISDB-C / J.83B は既定では無効化されています。
+
+> [!NOTE]  
+> ケーブルテレビでは、1つの物理チャンネルで複数の放送をまとめて送出していることがあります (TSMF 方式)。  
+> チャンネル定義にある「C52Ch(TS2)」のような行は、こうした TSMF 方式で送出されているチャンネルの、2本目以降の TS を受信するためのものです。  
+> 当該物理チャンネルに該当する TS がなければ、チャンネルスキャン時に自動的に除外されます。
+
+> [!NOTE]
+> BS4K が再送信されているケーブルテレビにおいて 4K 放送を受信するには、別途 [BonDriver_dantto4k](https://github.com/nekohkr/dantto4k) と組み合わせてご利用ください。
+
+### Linux
+
+[recisdb](https://github.com/kazuki0824/recisdb-rs) を使い、次のようにチャンネルを指定して ISDB-C / J.83B を受信できます。  
+
+- `ISDBC-C52` (ケーブルテレビ: C52)、`ISDBC-20` (ケーブルテレビ: UHF 20ch)
+- `ISDBC-C52_2` (ケーブルテレビ: C52 の2本目の TS (TSMF))
+- `J83B-H01` 〜 `J83B-H105`、`J83B-374950` (スカパー！プレミアムサービス光: 番号か中心周波数 (kHz) で指定)
+
+受信ソフトウェアを開発する方向けの ioctl 仕様は、[ISDB-C と J.83 Annex B の選局の仕様](docs/isdbc_tuning.md) に記載されています。
+
+> [!WARNING]  
+> 2026/10/29 現在、recisdb の ISDB-C / J.83B サポートは [kazuki0824/recisdb-rs#202](https://github.com/kazuki0824/recisdb-rs/pull/202) にて開発中です。  
+> recisdb の新バージョンがリリースされるまでは、こちらのブランチを自ビルドした上でご利用ください。
 
 ## LNB電源の出力
 

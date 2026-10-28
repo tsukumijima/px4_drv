@@ -30,7 +30,7 @@ static void pxmlt_device_release(struct kref *kref);
 
 static int pxmlt_backend_set_power(struct pxmlt_device *pxmlt, bool state)
 {
-	int ret = 0;
+	int ret = 0, i;
 	struct it930x_bridge *it930x = &pxmlt->it930x;
 
 	dev_dbg(pxmlt->dev,
@@ -51,6 +51,10 @@ static int pxmlt_backend_set_power(struct pxmlt_device *pxmlt, bool state)
 			return ret;
 
 		msleep(20);
+
+		/* 電源を入れた直後のチューナーは、PLEX の公開ドライバーと同じ既定の待機状態から始める */
+		for (i = 0; i < pxmlt->chrdevm_num; i++)
+			pxmlt->chrdevm[i].cxd2858er.config.ter.rfin_matching = false;
 	} else {
 		it930x_write_gpio(it930x, 2, false);
 		it930x_write_gpio(it930x, 7, true);
@@ -365,10 +369,35 @@ static int pxmlt_chrdev_release(struct ptx_chrdev *chrdev)
 	return 0;
 }
 
+static int pxmlt_chrdev_set_null_packet_filter(struct ptx_chrdev *chrdev, bool enable)
+{
+	struct pxmlt_chrdev *chrdevm = chrdev->priv;
+	struct pxmlt_device *pxmlt = chrdevm->parent;
+	struct it930x_pid_filter filter;
+	int ret;
+
+	if (!chrdev->discard_null_packets ||
+	    chrdevm->null_packet_filter_disabled == !enable)
+		return 0;
+
+	filter.block = true;
+	filter.num = 1;
+	filter.pid[0] = 0x1fff;
+
+	mutex_lock(&pxmlt->lock);
+	ret = it930x_set_pid_filter(&pxmlt->it930x, chrdev->id,
+				  enable ? &filter : NULL);
+	if (!ret)
+		chrdevm->null_packet_filter_disabled = !enable;
+	mutex_unlock(&pxmlt->lock);
+
+	return ret;
+}
+
 static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 			     struct ptx_tune_params *params)
 {
-	int ret = 0;
+	int ret = 0, i;
 	struct ptx_chrdev_group *chrdev_group = chrdev->parent;
 	struct pxmlt_chrdev *chrdevm = chrdev->priv;
 	struct pxmlt_device *pxmlt = chrdevm->parent;
@@ -378,6 +407,12 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		"pxmlt_chrdev_tune %u:%u\n", chrdev_group->id, chrdev->id);
 
 	memset(&demod_params, 0, sizeof(demod_params));
+
+	if (chrdevm->null_packet_filter_disabled && params->system != PTX_ISDB_C_SYSTEM) {
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev, true);
+		if (ret)
+			return ret;
+	}
 
 	switch (params->system) {
 	case PTX_ISDB_T_SYSTEM:
@@ -400,6 +435,64 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		if (ret)
 			dev_err(pxmlt->dev,
 				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(CXD2856ER_ISDB_S_SYSTEM) failed. (ret: %d)\n",
+				chrdev_group->id, chrdev->id, ret);
+
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
+		/* チューナーが待機と動作を切り替えるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
+		 * 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C か J.83B を選局するときにだけ、全チューナーを待機中も整合を保つ設定 (rfin_matching) にする
+		 * 閉じているチューナーは、256QAM の受信が始まる前にこの設定で初期化し直して待機させる
+		 * 開いているチューナーの I2C は、その受信機の復調器のバンクの選択と同じ経路を通るため、ここからは書き込まず、次に待機へ戻るときにこの設定を書き込ませる
+		 * 初期化は1台ずつ、開く処理と同じ時間だけデバイスのロックを持って行い、ほかの受信機の操作とカードの通信を長く待たせない */
+		for (i = 0; i < pxmlt->chrdevm_num; i++) {
+			struct pxmlt_chrdev *other = &pxmlt->chrdevm[i];
+
+			mutex_lock(&pxmlt->lock);
+
+			if (other->cxd2858er.config.ter.rfin_matching) {
+				mutex_unlock(&pxmlt->lock);
+				continue;
+			}
+
+			other->cxd2858er.config.ter.rfin_matching = true;
+
+			if (!atomic_read(&other->chrdev->open)) {
+				ret = cxd2856er_init(&other->cxd2856er);
+				if (!ret) {
+					mutex_lock(other->tuner_lock);
+					ret = cxd2858er_init(&other->cxd2858er);
+					mutex_unlock(other->tuner_lock);
+				}
+				cxd2856er_term(&other->cxd2856er);
+
+				if (ret) {
+					/* 初期化できなかったチューナーは、次に ISDB-C か J.83B を選局するときに初期化し直す */
+					dev_err(pxmlt->dev,
+						"pxmlt_chrdev_tune %u:%u: tuner %d initialization failed. (ret: %d)\n",
+						chrdev_group->id, chrdev->id, i, ret);
+					other->cxd2858er.config.ter.rfin_matching = false;
+					ret = 0;
+				}
+			}
+
+			mutex_unlock(&pxmlt->lock);
+		}
+
+		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る
+		 * J.83 Annex B は TSMF を使わないため、地デジと同じくブリッジで除く */
+		ret = pxmlt_chrdev_set_null_packet_filter(chrdev,
+			params->system == PTX_J83B_SYSTEM);
+		if (ret)
+			break;
+
+		ret = cxd2856er_wakeup(&chrdevm->cxd2856er,
+				       (params->system == PTX_J83B_SYSTEM) ? CXD2856ER_J83B_SYSTEM : CXD2856ER_ISDB_C_SYSTEM,
+				       &demod_params);
+		if (ret)
+			dev_err(pxmlt->dev,
+				"pxmlt_chrdev_tune %u:%u: cxd2856er_wakeup(ISDB-C / J.83B) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id, ret);
 
 		break;
@@ -434,6 +527,18 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 		if (ret)
 			dev_err(pxmlt->dev,
 				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_s(%u, 28860) failed. (ret: %d)\n",
+				chrdev_group->id, chrdev->id,
+				params->freq, ret);
+
+		break;
+
+	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
+		ret = cxd2858er_set_params_c(&chrdevm->cxd2858er,
+					     params->freq, params->system == PTX_J83B_SYSTEM);
+		if (ret)
+			dev_err(pxmlt->dev,
+				"pxmlt_chrdev_tune %u:%u: cxd2858er_set_params_c(%u) failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id,
 				params->freq, ret);
 
@@ -476,6 +581,12 @@ static int pxmlt_chrdev_check_lock(struct ptx_chrdev *chrdev, bool *locked)
 
 	case PTX_ISDB_S_SYSTEM:
 		ret = cxd2856er_is_ts_locked_isdbs(&chrdevm->cxd2856er, locked);
+		break;
+
+	/* J.83B も ISDB-C と同じ SLV-T バンク 0x40 のロックの表示を使う */
+	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
+		ret = cxd2856er_is_ts_locked_isdbc(&chrdevm->cxd2856er, locked);
 		break;
 
 	default:
@@ -829,6 +940,21 @@ static int pxmlt_chrdev_read_cnr_raw(struct ptx_chrdev *chrdev, u32 *value)
 		break;
 	}
 
+	case PTX_ISDB_C_SYSTEM:
+	case PTX_J83B_SYSTEM:
+	{
+		u16 val;
+
+		/* 地デジや BS/CS と同じく、復調器の C/N 推定用の生値 (IREG_SNR_ESTIMATE) をそのまま返す
+		 * dB への換算は受信ソフトウェアが Sony の sony_demod_isdbc_monitor_SNR() の式で行う (J.83B も同じ式を使う) */
+		ret = cxd2856er_read_cnr_raw_isdbc(&chrdevm->cxd2856er, &val);
+		if (ret)
+			break;
+
+		*value = val;
+		break;
+	}
+
 	default:
 		ret = -EINVAL;
 		break;
@@ -893,7 +1019,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		struct it930x_stream_input *input = &it930x->config.input[i];
 		struct pxmlt_chrdev *chrdevm = &pxmlt->chrdevm[i];
 
-		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM;
+		chrdev_config[i].system_cap = PTX_ISDB_T_SYSTEM | PTX_ISDB_S_SYSTEM | PTX_ISDB_C_SYSTEM | PTX_J83B_SYSTEM;
 
 		input->enable = true;
 		input->is_parallel = false;
@@ -916,6 +1042,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		chrdevm->cxd2858er.i2c_addr = 0x60;
 		chrdevm->cxd2858er.config.xtal = 16000;
 		chrdevm->cxd2858er.config.ter.lna = true;
+		chrdevm->cxd2858er.config.ter.rfin_matching = false;
 		chrdevm->cxd2858er.config.sat.lna = true;
 	}
 
@@ -1106,6 +1233,10 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 	for (i = 0; i < pxmlt->chrdevm_num; i++) {
 		pxmlt->chrdevm[i].chrdev = &chrdev_group->chrdev[i];
 		stream_ctx->chrdev[i] = &chrdev_group->chrdev[i];
+
+		/* ブリッジの設定は初期化のときの値で決まるため、実行中にモジュールパラメーターを書き換えても、ここで渡した値を TSMF の分離に使い続ける */
+		chrdev_group->chrdev[i].discard_null_packets = px4_device_params.discard_null_packets;
+		chrdev_group->chrdev[i].tsmf_stale_packets = it930x->config.xfer_size / 188;
 	}
 
 	atomic_set(&pxmlt->available, 1);

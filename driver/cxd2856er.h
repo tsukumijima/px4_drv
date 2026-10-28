@@ -32,7 +32,9 @@ enum cxd2856er_state {
 enum cxd2856er_system {
 	CXD2856ER_UNSPECIFIED_SYSTEM = 0,
 	CXD2856ER_ISDB_T_SYSTEM,
-	CXD2856ER_ISDB_S_SYSTEM
+	CXD2856ER_ISDB_S_SYSTEM,
+	CXD2856ER_ISDB_C_SYSTEM,
+	CXD2856ER_J83B_SYSTEM
 };
 
 enum cxd2856er_i2c_target {
@@ -55,6 +57,9 @@ struct cxd2856er_demod {
 	struct cxd2856er_config config;
 	enum cxd2856er_state state;
 	enum cxd2856er_system system;
+	/* ISDB-C と J.83B の起動は、途中で失敗しても停止で既定値へ戻せるよう、先に起動中の状態にする
+	 * その起動が最後まで終わっていないと、同じ方式の選局し直しで済ませずに、停止してから起動し直す */
+	bool cable_wakeup_incomplete;
 };
 
 #ifdef __cplusplus
@@ -145,8 +150,10 @@ int cxd2856er_set_tsid_isdbs(struct cxd2856er_demod *demod, u16 tsid);
 int cxd2856er_is_ts_locked_isdbt(struct cxd2856er_demod *demod,
 				 bool *locked, bool *unlocked);
 int cxd2856er_is_ts_locked_isdbs(struct cxd2856er_demod *demod, bool *locked);
+int cxd2856er_is_ts_locked_isdbc(struct cxd2856er_demod *demod, bool *locked);
 int cxd2856er_read_cnr_raw_isdbt(struct cxd2856er_demod *demod, u16 *value);
 int cxd2856er_read_cnr_raw_isdbs(struct cxd2856er_demod *demod, u16 *value);
+int cxd2856er_read_cnr_raw_isdbc(struct cxd2856er_demod *demod, u16 *value);
 #ifdef __cplusplus
 }
 #endif

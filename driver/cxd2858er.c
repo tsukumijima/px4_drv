@@ -3,6 +3,10 @@
  * Sony CXD2858ER driver (cxd2858er.c)
  *
  * Copyright (c) 2018-2021 nns779
+ *
+ * ISDB-C と J.83B 用に参照した PLEX の Linux ドライバーの Sony のコード (sony_helene.c・sony_tuner_helene.c):
+ * https://github.com/soralis0912/it930x_driver_native/tree/64fd4f3fd04cd8c19855250ebd88278734d4eba6/api/DW_Frontend/CXD2856/tuner/terr_cable_sat_helene
+ * Copyright 2016 Sony Semiconductor Solutions Corporation
  */
 
 #include "print_format.h"
@@ -104,7 +108,11 @@ static int cxd2858er_power_on(struct cxd2858er_tuner *tuner)
 	if (ret)
 		return ret;
 
-	ret = cxd2858er_write_reg(tuner, 0x67, 0x00);
+	/* rfin_matching のときは、Sony の SONY_HELENE_CONFIG_POWERSAVE_TERR_RFIN_MATCHING に従い、待機中も地上波の RF 入力の整合を保つ
+	 * PX-MLT5PE は1つの地上波・ケーブルの RF 入力を全チューナーへ分配していて、既定の待機状態では、チューナーが待機と動作を切り替えるときに
+	 * 隣のチューナーで受信中の 256QAM (ISDB-C の UHF 帯や J.83B) に誤りが出る
+	 * 地デジと BS/CS の受信ではこの誤りは出ないため、PLEX の公開ドライバーと同じ既定の待機状態を基本とし、ISDB-C か J.83B を使うときだけ整合を保つ */
+	ret = cxd2858er_write_reg(tuner, 0x67, (tuner->config.ter.rfin_matching) ? 0x02 : 0x00);
 	if (ret)
 		return ret;
 
@@ -260,6 +268,7 @@ int cxd2858er_term(struct cxd2858er_tuner *tuner)
 	if (!ret) {
 		switch (tuner->system) {
 		case CXD2858ER_ISDB_T_SYSTEM:
+		case CXD2858ER_ISDB_C_SYSTEM:
 			cxd2858er_stop_t(tuner);
 			break;
 
@@ -408,6 +417,113 @@ exit:
 	return ret;
 }
 
+int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
+			   u32 freq, bool j83b)
+{
+	int ret = 0;
+	u8 data[17];
+
+	/* 周波数のレジスターは kHz の20ビットのため、その範囲の周波数だけを書き込む */
+	if (freq > 0xfffff)
+		return -EINVAL;
+
+	ret = i2c_comm_master_gate_ctrl(tuner->i2c, true);
+	if (ret)
+		return ret;
+
+	switch (tuner->system) {
+	case CXD2858ER_ISDB_S_SYSTEM:
+		ret = cxd2858er_stop_s(tuner);
+		break;
+
+	default:
+		break;
+	}
+	if (ret)
+		goto exit;
+
+	ret = cxd2858er_write_reg(tuner, 0x01, 0x00);
+	if (ret)
+		goto exit;
+	ret = cxd2858er_write_reg(tuner, 0x74, 0x02);
+	if (ret)
+		goto exit;
+
+	data[0] = 0xc4;
+	data[1] = 0x40;
+	ret = cxd2858er_write_regs(tuner, 0x87, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x16;
+	data[1] = 0x26;
+	ret = cxd2858er_write_regs(tuner, 0x91, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x00;
+	data[1] = 0x00;
+	ret = cxd2858er_write_regs(tuner, 0x9c, data, 2);
+	if (ret)
+		goto exit;
+
+	data[0] = 0xee;
+	data[1] = 0x02;
+	data[2] = 0x1e;
+	data[3] = 0x67;
+	/* sony_helene.c の TER_tune() に従い、ケーブル受信用の REF_R (Fref = 1 MHz) を水晶周波数に合わせる */
+	data[4] = (tuner->config.xtal == 16000) ? 0x10 : 0x18;
+	data[5] = 0x1c;
+	data[6] = 0x78;
+	data[7] = 0x08;
+	data[8] = 0x1c;
+	ret = cxd2858er_write_regs(tuner, 0x5e, data, 9);
+	if (ret)
+		goto exit;
+
+	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x00, 0x02);
+	if (ret)
+		goto exit;
+
+	data[0] = 0x00;
+	/* Sony の sony_helene.c の CXD2856 世代の表では、DVB-C 6 MHz (ISDB-C が使う設定) と J.83B 5.6 Msps の IF_BPF_GC はどちらも 0x04 */
+	data[1] = 0x84;
+	data[2] = 0x00;
+	data[3] = 0x02;
+	data[4] = 0x21;
+	data[5] = 0x00;
+	/* sony_helene.c の SONY_HELENE_DTV_J83B_5_6 に従い、J.83B では FIF_OFFSET=-5、BW_OFFSET=+2 を5ビットで格納する
+	 * 他の設定値は DVB-C 6 MHz と共通で、書き込み後は sony_tuner_helene.c と同じ50ミリ秒の校正待ちが必要 */
+	data[6] = j83b ? 0x1b : 0x1a;
+	data[7] = j83b ? 0x02 : 0x1c;
+	data[8] = freq & 0xff;
+	data[9] = (freq >> 8) & 0xff;
+	data[10] = (freq >> 16) & 0x0f;
+	data[11] = 0xff;
+	data[12] = 0x01;
+	data[13] = 0xd9;
+	data[14] = 0x0f;
+	data[15] = 0x24;
+	data[16] = 0x87;
+	ret = cxd2858er_write_regs(tuner, 0x68, data, 17);
+	if (ret)
+		goto exit;
+
+	msleep(50);
+	ret = cxd2858er_write_reg(tuner, 0x88, 0x00);
+	if (ret)
+		goto exit;
+	ret = cxd2858er_write_reg(tuner, 0x87, 0xc0);
+	if (ret)
+		goto exit;
+
+	tuner->system = CXD2858ER_ISDB_C_SYSTEM;
+
+exit:
+	i2c_comm_master_gate_ctrl(tuner->i2c, false);
+	return ret;
+}
+
 int cxd2858er_set_params_s(struct cxd2858er_tuner *tuner,
 			   enum cxd2858er_system system,
 			   u32 freq, u32 symbol_rate)
@@ -424,6 +540,7 @@ int cxd2858er_set_params_s(struct cxd2858er_tuner *tuner,
 
 	switch (tuner->system) {
 	case CXD2858ER_ISDB_T_SYSTEM:
+	case CXD2858ER_ISDB_C_SYSTEM:
 		ret = cxd2858er_stop_t(tuner);
 		break;
 
@@ -538,14 +655,17 @@ static int cxd2858er_stop_t(struct cxd2858er_tuner *tuner)
 	int ret = 0;
 	u8 data[3];
 
-	if (tuner->system != CXD2858ER_ISDB_T_SYSTEM)
+	/* ISDB-C も地上波側の RF 経路を使うため同じ手順で停止する */
+	if (tuner->system != CXD2858ER_ISDB_T_SYSTEM &&
+	    tuner->system != CXD2858ER_ISDB_C_SYSTEM)
 		return -EINVAL;
 
 	ret = cxd2858er_write_reg(tuner, 0x74, 0x02);
 	if (ret)
 		return ret;
 
-	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x00, 0xfe);
+	/* 電源投入時と同じく、rfin_matching のときは待機中も RF 入力の整合を保つ (bit0 の RF_EXT は保持する) */
+	ret = cxd2858er_write_reg_mask(tuner, 0x67, (tuner->config.ter.rfin_matching) ? 0x02 : 0x00, 0xfe);
 	if (ret)
 		return ret;
 
@@ -607,6 +727,13 @@ static int cxd2858er_stop_s(struct cxd2858er_tuner *tuner)
 	if (ret)
 		return ret;
 
+	/* 衛星の受信中に rfin_matching になったチューナーも、待機へ戻るときに地上波の RF 入力の整合を保つ状態にそろえる */
+	if (tuner->config.ter.rfin_matching) {
+		ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x02, 0x02);
+		if (ret)
+			return ret;
+	}
+
 	tuner->system = CXD2858ER_UNSPECIFIED_SYSTEM;
 	return 0;
 }
@@ -624,6 +751,7 @@ int cxd2858er_stop(struct cxd2858er_tuner *tuner)
 
 	switch (tuner->system) {
 	case CXD2858ER_ISDB_T_SYSTEM:
+	case CXD2858ER_ISDB_C_SYSTEM:
 		cxd2858er_stop_t(tuner);
 		break;
 

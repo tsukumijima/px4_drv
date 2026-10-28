@@ -233,6 +233,10 @@ int PxMltDevice::Init()
 		wcscpy_s(ri.receiver_name, it->name.c_str());
 		ri.receiver_guid = it->guid;
 		ri.systems = it->systems;
+		// ISDB-C と J.83B は地上波と同じ RF 入力を使うため、地上波を受信できる受信機では ini に書かなくても受け付ける
+		// ini に書く方式を地デジと BS/CS のままにしておけば、古い DriverHost_PX4.exe が新しい ini を読んでも受信機を登録できる
+		if ((it->systems & px4::SystemType::ISDB_T) == px4::SystemType::ISDB_T)
+			ri.systems |= px4::SystemType::ISDB_C | px4::SystemType::J83B;
 		ri.index = it->index;
 		ri.data_id = 0;
 
@@ -407,6 +411,10 @@ int PxMltDevice::SetBackendPower(bool state)
 			return ret;
 
 		Sleep(20);
+
+		// 電源を入れた直後のチューナーは、PLEX の公開ドライバーと同じ既定の待機状態から始める
+		for (int i = 0; i < receiver_num_; i++)
+			receivers_[i]->cxd2858er_.config.ter.rfin_matching = false;
 	} else {
 		it930x_write_gpio(&it930x_, 2, false);
 		it930x_write_gpio(&it930x_, 7, true);
@@ -647,7 +655,9 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	close_cond_(),
 	lnb_power_(false),
 	current_system_(px4::SystemType::UNSPECIFIED),
-	streaming_(false)
+	streaming_(false),
+	tsmf_(false),
+	null_packet_filter_(parent.config_.device.discard_null_packets)
 {
 	auto i2c_addr = parent_.params_[static_cast<int>(parent_.model_)][index_].i2c_addr;
 	auto i2c_bus = parent_.params_[static_cast<int>(parent_.model_)][index_].i2c_bus;
@@ -669,6 +679,7 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	cxd2858er_.i2c_addr = 0x60;
 	cxd2858er_.config.xtal = 16000;
 	cxd2858er_.config.ter.lna = true;
+	cxd2858er_.config.ter.rfin_matching = false;
 	cxd2858er_.config.sat.lna = true;
 }
 
@@ -834,6 +845,20 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 
 	current_system_ = px4::SystemType::UNSPECIFIED;
 
+	// ISDB-C は、TSMF のヘッダーの有無を受信した TS から判断するため、選局のたびに TSMF の分離を通す
+	// J.83 Annex B は TSMF を使わないため、地デジと同じく分離を通さずにブリッジで null パケットを除く
+	const bool tsmf = (params_.system == px4::SystemType::ISDB_C);
+
+	if (tsmf_ && !tsmf) {
+		stream_buf_->StopTsmf();
+		tsmf_ = false;
+	}
+
+	// TSMF はヘッダーからの位置で TS を選ぶため、ブリッジで null パケットを除くと位置がずれる
+	ret = SetNullPacketFilter(!tsmf);
+	if (ret)
+		return ret;
+
 	switch (params_.system) {
 	case px4::SystemType::ISDB_T:
 		demod_params.bandwidth = (params_.bandwidth) ? params_.bandwidth : 6;
@@ -848,6 +873,57 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 		ret = cxd2856er_wakeup(&cxd2856er_, CXD2856ER_ISDB_S_SYSTEM, &demod_params);
 		if (ret)
 			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(CXD2856ER_ISDB_S_SYSTEM) failed. (ret: %d)\n", index_, ret);
+
+		break;
+
+	case px4::SystemType::ISDB_C:
+	case px4::SystemType::J83B:
+	{
+		// チューナーが待機と動作を切り替えるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
+		// 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C か J.83B を選局するときにだけ、全チューナーを待機中も整合を保つ設定 (rfin_matching) にする
+		// 閉じているチューナーは、256QAM の受信が始まる前にこの設定で初期化し直して待機させる
+		// 開いているチューナーの I2C は、その受信機の復調器のバンクの選択と同じ経路を通るため、ここからは書き込まず、次に待機へ戻るときにこの設定を書き込ませる
+		// 初期化は1台ずつ、開く処理と同じ時間だけデバイスのロックを持って行い、ほかの受信機の操作とカードの通信を長く待たせない
+		for (int i = 0; i < parent_.receiver_num_; i++) {
+			PxMltReceiver &receiver = *parent_.receivers_[i];
+			std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
+
+			if (receiver.cxd2858er_.config.ter.rfin_matching)
+				continue;
+
+			receiver.cxd2858er_.config.ter.rfin_matching = true;
+
+			if (receiver.open_)
+				continue;
+
+			ret = cxd2856er_init(&receiver.cxd2856er_);
+			if (!ret) {
+				std::lock_guard<std::mutex> tuner_lock(*receiver.tuner_lock_);
+				ret = cxd2858er_init(&receiver.cxd2858er_);
+			}
+			cxd2856er_term(&receiver.cxd2856er_);
+
+			if (ret) {
+				// 初期化できなかったチューナーは、次に ISDB-C か J.83B を選局するときに初期化し直す
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): tuner %d initialization failed. (ret: %d)\n", index_, i, ret);
+				receiver.cxd2858er_.config.ter.rfin_matching = false;
+				ret = 0;
+			}
+		}
+	}
+
+		if (tsmf) {
+			if (!stream_buf_->StartTsmf(params_.tsmf_stream, parent_.config_.device.discard_null_packets, parent_.config_.usb.xfer_packets)) {
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): StartTsmf() failed.\n", index_);
+				ret = -ENOMEM;
+				break;
+			}
+			tsmf_ = true;
+		}
+
+		ret = cxd2856er_wakeup(&cxd2856er_, (params_.system == px4::SystemType::J83B) ? CXD2856ER_J83B_SYSTEM : CXD2856ER_ISDB_C_SYSTEM, &demod_params);
+		if (ret)
+			dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2856er_wakeup(ISDB-C / J.83B) failed. (ret: %d)\n", index_, ret);
 
 		break;
 
@@ -874,6 +950,14 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			ret = cxd2858er_set_params_s(&cxd2858er_, CXD2858ER_ISDB_S_SYSTEM, params_.freq, 28860);
 			if (ret)
 				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_s(%u, 28860) failed. (ret: %d)\n");
+
+			break;
+
+		case px4::SystemType::ISDB_C:
+		case px4::SystemType::J83B:
+			ret = cxd2858er_set_params_c(&cxd2858er_, params_.freq, params_.system == px4::SystemType::J83B);
+			if (ret)
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): cxd2858er_set_params_c(%u) failed. (ret: %d)\n", index_, params_.freq, ret);
 
 			break;
 
@@ -920,6 +1004,12 @@ int PxMltDevice::PxMltReceiver::CheckLock(bool &locked)
 		ret = cxd2856er_is_ts_locked_isdbs(&cxd2856er_, &locked);
 		break;
 
+	// J.83B も ISDB-C と同じ SLV-T バンク 0x40 のロックの表示を使う
+	case px4::SystemType::ISDB_C:
+	case px4::SystemType::J83B:
+		ret = cxd2856er_is_ts_locked_isdbc(&cxd2856er_, &locked);
+		break;
+
 	default:
 		ret = -EINVAL;
 		break;
@@ -950,6 +1040,29 @@ int PxMltDevice::PxMltReceiver::SetStreamId()
 	}
 
 	return ret;
+}
+
+int PxMltDevice::PxMltReceiver::SetNullPacketFilter(bool enable)
+{
+	if (!parent_.config_.device.discard_null_packets || null_packet_filter_ == enable)
+		return 0;
+
+	int ret = 0;
+	it930x_pid_filter filter;
+	std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
+
+	filter.block = true;
+	filter.num = 1;
+	filter.pid[0] = 0x1fff;
+
+	ret = it930x_set_pid_filter(&parent_.it930x_, static_cast<int>(index_), (enable) ? &filter : nullptr);
+	if (ret) {
+		dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetNullPacketFilter(%u): it930x_set_pid_filter() failed. (ret: %d)\n", index_, ret);
+		return ret;
+	}
+
+	null_packet_filter_ = enable;
+	return 0;
 }
 
 int PxMltDevice::PxMltReceiver::SetLnbVoltage(std::int32_t voltage)
@@ -1078,6 +1191,22 @@ int PxMltDevice::PxMltReceiver::ReadStat(px4::command::StatType type, std::int32
 					break;
 				}
 			}
+
+			break;
+		}
+
+		case px4::SystemType::ISDB_C:
+		case px4::SystemType::J83B:
+		{
+			std::uint16_t val;
+
+			ret = cxd2856er_read_cnr_raw_isdbc(&cxd2856er_, &val);
+			if (ret)
+				break;
+
+			// Sony の sony_demod_isdbc_monitor_SNR() の 64QAM・256QAM 用の換算式 (J.83B も同じ式を使う)
+			if (val)
+				value = static_cast<std::int32_t>(-9500 * std::log((val < 126) ? 126 : val) + 95941);
 
 			break;
 		}

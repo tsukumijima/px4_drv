@@ -24,8 +24,11 @@ struct ptx_tune_params {
 	u32 freq;
 	u32 bandwidth;
 	u16 stream_id;
+	/* TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか */
+	u32 tsmf_stream;
 };
 
+struct ptx_tsmf_stream;
 struct ptx_chrdev;
 struct ptx_chrdev_group;
 struct ptx_chrdev_context;
@@ -84,6 +87,13 @@ struct ptx_chrdev {
 	wait_queue_head_t ringbuf_wait;
 	size_t ringbuf_threshold_size;
 	size_t ringbuf_write_size;
+	/* ISDB-C を受信できる機種がキャラクタデバイスを作った後に設定する (ほかの機種では 0 のまま使わない)
+	 * ブリッジで null パケットを除いているか (TSMF を分離する受信機は、TS を選んだ後で除く) */
+	bool discard_null_packets;
+	/* TSMF の分離で、選局し直した直後に前の搬送波の TS として判断に使わずに捨てるパケット数 (ブリッジの転送1回分) */
+	unsigned int tsmf_stale_packets;
+	struct ptx_tsmf_stream *tsmf;
+	bool tsmf_active;
 	void *priv;
 };
 

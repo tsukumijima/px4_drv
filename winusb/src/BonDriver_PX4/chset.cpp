@@ -4,6 +4,7 @@
 
 #include <mutex>
 #include <fstream>
+#include <cstdlib>
 
 #include "util.hpp"
 
@@ -89,13 +90,22 @@ bool ChannelSet::Load(const std::wstring &path, px4::SystemType system) noexcept
 			Split(&tmp_head, &tmp_tail, '\t');
 			ch_id = px4::util::atoui32(tmp_head);
 
-			// ptx_ch
-			Split(&tmp_head, &tmp_tail, '\t');
-			ch.ptx_ch = px4::util::atoui32(tmp_head);
+			if (system == px4::SystemType::ISDB_C || system == px4::SystemType::J83B) {
+				if (!ParseCable(&tmp_head, &tmp_tail, system, ch)) {
+					if (strict_)
+						return false;
+					else
+						continue;
+				}
+			} else {
+				// ptx_ch
+				Split(&tmp_head, &tmp_tail, '\t');
+				ch.ptx_ch = px4::util::atoui32(tmp_head);
 
-			// tsid
-			Split(&tmp_head, &tmp_tail, '\t');
-			ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
+				// tsid
+				Split(&tmp_head, &tmp_tail, '\t');
+				ch.tsid = static_cast<std::uint16_t>(px4::util::atoui32(tmp_head));
+			}
 
 			if (!AddChannel(space_id, ch_id, ch))
 				return false;
@@ -208,6 +218,48 @@ void ChannelSet::Split(char **head, char **tail, char c) noexcept
 	*tail = t;
 
 	return;
+}
+
+bool ChannelSet::ParseCable(char **head, char **tail, px4::SystemType system, ChannelInfo &ch) noexcept
+{
+	auto parse = [](const char *str, long min, long max, long &value) noexcept {
+		char *end;
+
+		value = std::strtol(str, &end, 10);
+		return end != str && *end == '\0' && value >= min && value <= max;
+	};
+	long value;
+
+	// J.83 Annex B は地域によって 6.5MHz 刻みからずれた周波数で送られるため、番号から計算せずに中心周波数 (kHz) を書く
+	// 範囲は ISDB-C と同じ VHF 1ch から UHF 62ch までの帯域で、TSMF を使わないため列はここで終わる
+	if (system == px4::SystemType::J83B) {
+		if (!*tail)
+			return false;
+		Split(head, tail, '\t');
+		if (!parse(*head, 90000, 770000, value) || *tail)
+			return false;
+		ch.freq = static_cast<std::uint32_t>(value);
+
+		return true;
+	}
+
+	// ISDB-C の物理チャンネル番号 (0〜112)
+	if (!*tail)
+		return false;
+	Split(head, tail, '\t');
+	if (!parse(*head, 0, 112, value))
+		return false;
+	ch.ptx_ch = static_cast<std::uint32_t>(value);
+
+	// TSMF のヘッダーに載っている有効な TS の何本目か
+	if (!*tail)
+		return false;
+	Split(head, tail, '\t');
+	if (!parse(*head, 1, 15, value) || *tail)
+		return false;
+	ch.tsmf_stream = static_cast<std::uint8_t>(value);
+
+	return true;
 }
 
 } // namespace px4

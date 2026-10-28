@@ -17,6 +17,7 @@
 #include "pipe_client.hpp"
 #include "command.hpp"
 #include "util.hpp"
+#include "../../../driver/isdbc_channel.h"
 
 namespace px4 {
 
@@ -180,6 +181,56 @@ bool BonDriver::Init()
 
 			if (result)
 				chset_.Merge(chset_s);
+		}
+
+		if ((systems_ & px4::SystemType::ISDB_C) == px4::SystemType::ISDB_C) {
+			px4::ChannelSet chset_c;
+			bool result;
+
+			try {
+				std::wstring chset_path = configs_.Get(L"BonDriver.ISDB-C").Get(L"ChSetPath");
+				WCHAR path[MAX_PATH];
+
+				if (PathIsRelativeW(chset_path.c_str()) && PathCanonicalizeW(path, (dir_path + chset_path).c_str()))
+					chset_path = path;
+
+				result = chset_c.Load(chset_path, px4::SystemType::ISDB_C);
+			} catch (const std::out_of_range&) {
+				result = false;
+			}
+
+			if (!result) {
+				chset_c.Clear();
+				result = chset_c.Load(dir_path + L"BonDriver_PX4-C.ChSet.txt", px4::SystemType::ISDB_C);
+			}
+
+			if (result)
+				chset_.Merge(chset_c);
+		}
+
+		if ((systems_ & px4::SystemType::J83B) == px4::SystemType::J83B) {
+			px4::ChannelSet chset_j;
+			bool result;
+
+			try {
+				std::wstring chset_path = configs_.Get(L"BonDriver.J.83B").Get(L"ChSetPath");
+				WCHAR path[MAX_PATH];
+
+				if (PathIsRelativeW(chset_path.c_str()) && PathCanonicalizeW(path, (dir_path + chset_path).c_str()))
+					chset_path = path;
+
+				result = chset_j.Load(chset_path, px4::SystemType::J83B);
+			} catch (const std::out_of_range&) {
+				result = false;
+			}
+
+			if (!result) {
+				chset_j.Clear();
+				result = chset_j.Load(dir_path + L"BonDriver_PX4-J83B.ChSet.txt", px4::SystemType::J83B);
+			}
+
+			if (result)
+				chset_.Merge(chset_j);
 		}
 
 		receivers_.Load(configs_);
@@ -516,6 +567,28 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 		break;
 
+	case px4::SystemType::ISDB_C:
+	{
+		// 物理チャンネル番号から中心周波数への変換は、Linux 版と isdbc_channel.h で共有する
+		int khz = isdbc_channel_to_khz(static_cast<int>(channel.ptx_ch));
+
+		if (khz < 0) {
+			// unknown channel
+			return FALSE;
+		}
+
+		real_freq = static_cast<std::uint32_t>(khz);
+		num_param = 1;
+
+		break;
+	}
+
+	case px4::SystemType::J83B:
+		// J.83 Annex B (スカパー！プレミアムサービス光) は、ChSet に中心周波数 (kHz) を書く
+		real_freq = channel.freq;
+
+		break;
+
 	default:
 		// unknown system
 		return FALSE;
@@ -535,6 +608,11 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 	if (system == px4::SystemType::ISDB_S && num_param) {
 		param_set->params[0].type = px4::command::ParameterType::STREAM_ID;
 		param_set->params[0].value = channel.tsid;
+	}
+
+	if (system == px4::SystemType::ISDB_C) {
+		param_set->params[0].type = px4::command::ParameterType::TSMF_STREAM;
+		param_set->params[0].value = channel.tsmf_stream;
 	}
 
 	bool ret = true;
@@ -567,6 +645,9 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 	delete[] reinterpret_cast<std::uint8_t*>(param_set);
 
+	// TSMF で選んだ TS は毎秒数十 KB のことがあり、バッファーが埋まるまで待つと最初のデータまで数秒かかるため、ISDB-C だけ 200ms で途中まででも渡す
+	// 地デジや BS/CS は 192KB を 0.1 秒前後で埋めるので、従来どおり埋まるまで待つ
+	ioq_->SetReadFlushInterval(std::chrono::milliseconds((system == px4::SystemType::ISDB_C) ? 200 : 0));
 	PurgeTsStream();
 
 	if (ret) {
