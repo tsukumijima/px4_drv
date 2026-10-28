@@ -117,12 +117,15 @@ int wmain(int argc, wchar_t **argv)
 		CHECK(j83b_dist.Load(argv[2], px4::SystemType::J83B));
 		while (j83b_dist.ExistsChannel(0, j83b))
 			j83b++;
-		CHECK(j83b == 77 + 5);
+		// 6.5MHz 刻みの H01〜H105 と、ずれた周波数の6波
+		CHECK(j83b == 105 + 6);
 
 		CHECK(j83b_dist.GetChannel(0, 0).freq == 93250);
 		// H11 は 6.5MHz 刻みの 158.25MHz と、1MHz ずれた 159.25MHz の2行
 		CHECK(j83b_dist.GetChannel(0, 10).freq == 158250 && j83b_dist.GetChannel(0, 11).freq == 159250);
-		CHECK(j83b_dist.GetChannel(0, j83b - 1).freq == 587250);
+		// H44 は 6.5MHz 刻みの 372.75MHz と、2.2MHz ずれた 374.95MHz の2行
+		CHECK(j83b_dist.GetChannel(0, 48).freq == 372750 && j83b_dist.GetChannel(0, 49).freq == 374950);
+		CHECK(j83b_dist.GetChannel(0, j83b - 1).freq == 769250);
 		std::puts("Distributed ISDB-C and J.83B ChSet: PASS");
 	}
 
