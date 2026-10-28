@@ -35,8 +35,7 @@ PxMltDevice::PxMltDevice(const std::wstring &path, const px4::DeviceDefinition &
 	card_open_(false),
 	lnb_power_count_(0),
 	streaming_count_(0),
-	tuner_lock_{},
-	tuner_initialized_{}
+	tuner_lock_{}
 {
 	if (usb_dev_.descriptor.idVendor != 0x0511)
 		throw DeviceError("px4::PxMltDevice::PxMltDevice: unsupported device. (unknown vendor id)");
@@ -409,9 +408,9 @@ int PxMltDevice::SetBackendPower(bool state)
 
 		Sleep(20);
 
-		// 電源を入れた直後のチューナーは、どれも初期化されていない
+		// 電源を入れた直後のチューナーは、PLEX の公開ドライバーと同じ既定の待機状態から始める
 		for (int i = 0; i < receiver_num_; i++)
-			tuner_initialized_[i] = false;
+			receivers_[i]->cxd2858er_.config.ter.rfin_matching = false;
 	} else {
 		it930x_write_gpio(&it930x_, 2, false);
 		it930x_write_gpio(&it930x_, 7, true);
@@ -676,6 +675,7 @@ PxMltDevice::PxMltReceiver::PxMltReceiver(PxMltDevice &parent, std::uintptr_t in
 	cxd2858er_.i2c_addr = 0x60;
 	cxd2858er_.config.xtal = 16000;
 	cxd2858er_.config.ter.lna = true;
+	cxd2858er_.config.ter.rfin_matching = false;
 	cxd2858er_.config.sat.lna = true;
 }
 
@@ -724,8 +724,6 @@ int PxMltDevice::PxMltReceiver::Open()
 			goto fail_tuner_init;
 		}
 	}
-
-	parent_.tuner_initialized_[index_] = true;
 
 	ret = cxd2856er_write_slvt_reg(&cxd2856er_, 0x00, 0x00);
 	if (ret)
@@ -877,16 +875,22 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	case px4::SystemType::ISDB_C:
 	case px4::SystemType::J83B:
 	{
-		// チューナーは、初期化されていない状態から待機へ切り替わるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
-		// 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C を選局するときにだけ、まだ初期化していないチューナーを
-		// 待機中も整合を保つ状態 (cxd2858er_init()) にしておく (地デジと BS/CS だけの利用では、この初期化の時間はかからない)
-		std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
-
+		// チューナーが待機と動作を切り替えるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
+		// 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C か J.83B を選局するときにだけ、全チューナーを待機中も整合を保つ設定 (rfin_matching) にする
+		// 閉じているチューナーは、256QAM の受信が始まる前にこの設定で初期化し直して待機させる
+		// 開いているチューナーの I2C は、その受信機の復調器のバンクの選択と同じ経路を通るため、ここからは書き込まず、次に待機へ戻るときにこの設定を書き込ませる
+		// 初期化は1台ずつ、開く処理と同じ時間だけデバイスのロックを持って行い、ほかの受信機の操作とカードの通信を長く待たせない
 		for (int i = 0; i < parent_.receiver_num_; i++) {
-			if (parent_.tuner_initialized_[i])
+			PxMltReceiver &receiver = *parent_.receivers_[i];
+			std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
+
+			if (receiver.cxd2858er_.config.ter.rfin_matching)
 				continue;
 
-			PxMltReceiver &receiver = *parent_.receivers_[i];
+			receiver.cxd2858er_.config.ter.rfin_matching = true;
+
+			if (receiver.open_)
+				continue;
 
 			ret = cxd2856er_init(&receiver.cxd2856er_);
 			if (!ret) {
@@ -896,13 +900,11 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 			cxd2856er_term(&receiver.cxd2856er_);
 
 			if (ret) {
-				// 初期化できなかったチューナーは、次に ISDB-C を選局するときに初期化し直す
+				// 初期化できなかったチューナーは、次に ISDB-C か J.83B を選局するときに初期化し直す
 				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): tuner %d initialization failed. (ret: %d)\n", index_, i, ret);
+				receiver.cxd2858er_.config.ter.rfin_matching = false;
 				ret = 0;
-				continue;
 			}
-
-			parent_.tuner_initialized_[i] = true;
 		}
 	}
 

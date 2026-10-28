@@ -373,8 +373,21 @@ int main(void)
 	}
 	printf("J83B %u tuner I/O failure boundaries and gate release: PASS\n", count);
 
-	/* 待機中は RF 入力の整合を保ち (0x67 bit1)、動作中は同じビットの LT_AMP_EN を 0 にし、bit0 の RF_EXT は保持する */
+	/* 既定の待機状態 (PLEX の公開ドライバーと同じ) では、地デジと BS/CS の利用者のチューナーは待機中も RF 入力の整合を保たない (0x67 bit1 が 0) */
 	reset(&demod, &tuner);
+	CHECK(cxd2858er_init(&tuner) == 0);
+	CHECK(bus.regs[2][0][0x67] == 0x00 && bus.regs[2][0][0x5e] == 0x15);
+	bus.regs[2][0][0x67] |= 0x01;
+	CHECK(cxd2858er_set_params_t(&tuner, CXD2858ER_ISDB_T_SYSTEM, 557143, 6) == 0);
+	CHECK(cxd2858er_stop(&tuner) == 0);
+	CHECK(bus.regs[2][0][0x67] == 0x01);
+	CHECK(cxd2858er_set_params_s(&tuner, CXD2858ER_ISDB_S_SYSTEM, 1049480, 28860) == 0);
+	CHECK(cxd2858er_stop(&tuner) == 0);
+	CHECK(bus.regs[2][0][0x67] == 0x01);
+
+	/* rfin_matching のときは待機中も RF 入力の整合を保ち (0x67 bit1)、動作中は同じビットの LT_AMP_EN を 0 にし、bit0 の RF_EXT は保持する */
+	reset(&demod, &tuner);
+	tuner.config.ter.rfin_matching = true;
 	CHECK(cxd2858er_init(&tuner) == 0);
 	CHECK(bus.regs[2][0][0x67] == 0x02 && bus.regs[2][0][0x5e] == 0x15);
 	bus.regs[2][0][0x67] |= 0x01;
@@ -386,6 +399,15 @@ int main(void)
 	CHECK(bus.regs[2][0][0x67] == 0x01);
 	CHECK(cxd2858er_set_params_s(&tuner, CXD2858ER_ISDB_S_SYSTEM, 1049480, 28860) == 0);
 	CHECK(bus.regs[2][0][0x67] == 0x03);
+
+	/* 衛星の受信中に rfin_matching になったチューナーも、待機へ戻るときに整合を保つ状態にそろえる */
+	reset(&demod, &tuner);
+	CHECK(cxd2858er_init(&tuner) == 0);
+	CHECK(cxd2858er_set_params_s(&tuner, CXD2858ER_ISDB_S_SYSTEM, 1049480, 28860) == 0);
+	CHECK(bus.regs[2][0][0x67] == 0x00);
+	tuner.config.ter.rfin_matching = true;
+	CHECK(cxd2858er_stop(&tuner) == 0);
+	CHECK(bus.regs[2][0][0x67] == 0x02);
 	puts("Tuner RF input matching in standby: PASS");
 	return 0;
 }

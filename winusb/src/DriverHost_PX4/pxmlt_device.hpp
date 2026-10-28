@@ -116,6 +116,9 @@ private:
 		int SetStreamId() override;
 
 	private:
+		// 電源を入れたときに、全受信機のチューナーの待機の設定を既定へ戻す
+		friend class PxMltDevice;
+
 		int SetNullPacketFilter(bool enable);
 
 		static const struct PxMltReceiverCnTableIsdbS final {
@@ -170,7 +173,6 @@ private:
 	std::mutex tuner_lock_[2];
 	int receiver_num_;
 	std::unique_ptr<PxMltReceiver> receivers_[5];
-	bool tuner_initialized_[5];
 	it930x_bridge it930x_;
 	StreamContext stream_ctx_;
 };
