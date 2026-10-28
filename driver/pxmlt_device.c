@@ -380,7 +380,7 @@ static int pxmlt_chrdev_set_null_packet_filter(struct ptx_chrdev *chrdev, bool e
 	struct it930x_pid_filter filter;
 	int ret;
 
-	if (!px4_device_params.discard_null_packets ||
+	if (!chrdev->discard_null_packets ||
 	    chrdevm->null_packet_filter_disabled == !enable)
 		return 0;
 
@@ -1247,6 +1247,10 @@ int pxmlt_device_init(struct pxmlt_device *pxmlt, struct device *dev,
 	for (i = 0; i < pxmlt->chrdevm_num; i++) {
 		pxmlt->chrdevm[i].chrdev = &chrdev_group->chrdev[i];
 		stream_ctx->chrdev[i] = &chrdev_group->chrdev[i];
+
+		/* ブリッジの設定は初期化のときの値で決まるため、実行中にモジュールパラメーターを書き換えても、ここで渡した値を TSMF の分離に使い続ける */
+		chrdev_group->chrdev[i].discard_null_packets = px4_device_params.discard_null_packets;
+		chrdev_group->chrdev[i].tsmf_stale_packets = it930x->config.xfer_size / 188;
 	}
 
 	atomic_set(&pxmlt->available, 1);

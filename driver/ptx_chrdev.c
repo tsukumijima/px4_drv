@@ -8,8 +8,6 @@
 #include "print_format.h"
 #include "ptx_chrdev.h"
 #include "isdb2056_device.h"
-#include "px4_device_params.h"
-#include "px4_usb_params.h"
 #include "tsmf.h"
 
 #include <linux/kernel.h>
@@ -216,8 +214,8 @@ static void ptx_chrdev_reset_tsmf(struct ptx_chrdev *chrdev)
 
 	spin_lock_irqsave(&stream->lock, flags);
 	tsmf_filter_init(&stream->filter, chrdev->params.tsmf_stream,
-			 px4_device_params.discard_null_packets,
-			 px4_usb_params.xfer_packets);
+			 chrdev->discard_null_packets,
+			 chrdev->tsmf_stale_packets);
 	spin_unlock_irqrestore(&stream->lock, flags);
 }
 
