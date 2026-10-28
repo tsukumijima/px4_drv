@@ -232,10 +232,16 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 		return 0;
 
 	if (filter->slot >= TSMF_SLOT_NUM) {
-		/* ヘッダーの欠落でスロットの位置が分からなくなったため、次のヘッダーまで出力しない */
+		/* 52パケットの後のヘッダーの位置に、ヘッダーと同じ PID の壊れたパケットが届いたときは、受信の誤りで CRC が合わなかったヘッダーとみなす
+		 * パケットの欠落ではないため前のフレームの位置は正しく、そろった52パケットのフレームを出力する
+		 * それ以外のパケットはパケットの欠落でスロットの位置が分からなくなった印で、前のフレームも捨てる
+		 * どちらの場合も、直後のフレームは位置の基準となるヘッダーがないため、次のヘッダーまで出力を待つ */
+		if ((((packet[1] & 0x1f) << 8) | packet[2]) == 0x002f)
+			size = tsmf_flush_frame(filter, out);
+
 		filter->slot = -1;
 		filter->tlv_size = 0;
-		return 0;
+		return size;
 	}
 
 	if (filter->slot_stream[filter->slot++] != filter->stream + 1 || filter->stream < 0)
