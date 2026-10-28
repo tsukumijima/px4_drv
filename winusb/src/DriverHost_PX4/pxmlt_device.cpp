@@ -233,6 +233,10 @@ int PxMltDevice::Init()
 		wcscpy_s(ri.receiver_name, it->name.c_str());
 		ri.receiver_guid = it->guid;
 		ri.systems = it->systems;
+		// ISDB-C と J.83B は地上波と同じ RF 入力を使うため、地上波を受信できる受信機では ini に書かなくても受け付ける
+		// ini に書く方式を地デジと BS/CS のままにしておけば、古い DriverHost_PX4.exe が新しい ini を読んでも受信機を登録できる
+		if ((it->systems & px4::SystemType::ISDB_T) == px4::SystemType::ISDB_T)
+			ri.systems |= px4::SystemType::ISDB_C | px4::SystemType::J83B;
 		ri.index = it->index;
 		ri.data_id = 0;
 
