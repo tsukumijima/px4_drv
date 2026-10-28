@@ -597,9 +597,11 @@ BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などの�
 ```ini
 [BonDriver]
 Name="PX-MLT"
-System="ISDB-T,ISDB-S"          # ケーブルテレビ (ISDB-C) or スカパー！プレミアムサービス光 (J.83B) を受信する際はこの行をコメントアウトする
-#System="ISDB-T,ISDB-S,ISDB-C"  # ケーブルテレビ (ISDB-C) を受信する際はこの行のコメントアウトを外す
-#System="ISDB-T,ISDB-S,J.83B"   # スカパー！プレミアムサービス光 (J.83B) を受信する際はこの行のコメントアウトを外す
+; ケーブルテレビ (ISDB-C) を受信する際は 2つ目、スカパー！プレミアムサービス光 (J.83B) を受信する際は
+; 3つ目の System の行の先頭の ; を外し、1つ目の行の先頭に ; を付ける
+System="ISDB-T,ISDB-S"
+;System="ISDB-T,ISDB-S,ISDB-C"
+;System="ISDB-T,ISDB-S,J.83B"
 ...
 ```
 
