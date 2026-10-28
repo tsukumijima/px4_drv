@@ -148,6 +148,30 @@ int main(void)
 	}
 	puts("Nth valid stream selection with relative numbers from 1: PASS");
 
+	/* 何本目の指定は最初のヘッダーで相対 TS 番号に決まり、有効な TS の組が変わっても別の TS へ切り替わらない */
+	{
+		size_t n;
+
+		tsmf_filter_init(&filter, 2, false, 0);
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+		out_size = 0;
+		/* 相対 TS 番号 1 が無効になると、数え直せば2本目はなくなるが、決めた相対 TS 番号 3 を出力し続ける */
+		feed_frame(slots, 1u << 3, 0);
+		feed_frame(slots, 1u << 3, 0);
+		CHECK(out_size == 17 * 188 * 2);
+		for (n = 0; n < out_size; n += 188)
+			CHECK(out_buf[n + 4] == 3);
+		/* 決めた相対 TS 番号の TS が無効になれば、ほかの TS は出力しない */
+		out_size = 0;
+		feed_frame(slots, 1u << 1, 0);
+		feed_frame(slots, 1u << 1, 0);
+		CHECK(out_size == 17 * 188 && out_buf[4] == 3);
+		out_size = 0;
+		feed_frame(slots, 1u << 1, 0);
+		CHECK(out_size == 0);
+	}
+	puts("Selected relative stream is kept when valid streams change: PASS");
+
 	/* 分割 TLV の TS は TLV を取り出し、MPEG-2 TS の TS はそのまま出力する */
 	{
 		static const int tlv_slots[TSMF_SLOT_NUM] = { 0, 0, 0, 1, -1 };
