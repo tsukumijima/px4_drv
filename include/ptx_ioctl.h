@@ -11,9 +11,9 @@ enum ptx_system_type {
 	PTX_UNSPECIFIED_SYSTEM = 0x00000000,
 	PTX_ISDB_T_SYSTEM = 0x00000010,
 	PTX_ISDB_S_SYSTEM = 0x00000020,
-	/* トランスモジュレーション方式 CATV (ITU-T J.83 Annex C) */
+	/* トランスモジュレーション方式 CATV (ITU-T J.83 Annex C / ISDB-C) */
 	PTX_ISDB_C_SYSTEM = 0x00000040,
-	/* スカパー！プレミアムサービス光 (ITU-T J.83 Annex B、5.6 Msps) */
+	/* スカパー！プレミアムサービス光 (ITU-T J.83 Annex B, 5.6 Msps) */
 	PTX_J83B_SYSTEM = 0x00000080
 };
 
