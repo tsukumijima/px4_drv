@@ -212,6 +212,22 @@ int main(void)
 		for (i = 185; i < out_size; i++)
 			CHECK(out_buf[i] == 'B');
 
+		/* 受信エラーで PID が壊れたパケット (TEI あり) が混ざっても、分割 TLV の出力を続ける */
+		make_packet(packet, 0x0100, 'E');
+		packet[1] |= 0x80;
+		feed(packet);
+		make_packet(packet, 0x002d, 'F');
+		feed(packet);
+		feed(packet);
+		make_packet(packet, 0x0100, 'D');
+		feed(packet);
+		for (i = 4; i < TSMF_SLOT_NUM; i++) {
+			make_packet(packet, 0x0100, 0xee);
+			feed(packet);
+		}
+		feed(hdr);
+		CHECK(!filter.tlv_rejected && filter.output_tlv);
+
 		tsmf_filter_init(&filter, 2, false, 0);
 		out_size = 0;
 		feed(hdr);
