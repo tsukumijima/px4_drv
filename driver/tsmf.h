@@ -43,7 +43,9 @@ struct tsmf_filter {
 	unsigned int detect_packets;
 	/* ヘッダーの stream_type が分割 TLV の TS は、TS のままでは受信ソフトウェアが扱えないため、TLV を取り出して出力する */
 	bool output_tlv;
-	/* ヘッダーから求めた、出力する TS の相対 TS 番号 (見つからなければ -1) */
+	/* 何本目の指定を最初に解決できたヘッダーで決めた相対 TS 番号 (決まるまで -1) */
+	int relative;
+	/* ヘッダーから求めた、出力する TS の相対 TS 番号 (その TS がヘッダーで無効なら -1) */
 	int stream;
 	/* ヘッダーの直後から数えた位置で、位置が分からなければ次のヘッダーまで -1 */
 	int slot;

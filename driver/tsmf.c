@@ -48,14 +48,22 @@ static void tsmf_parse_header(struct tsmf_filter *filter, const u8 *packet)
 	int i, n = 0, stream = -1;
 	bool output_tlv = false;
 
-	/* 相対 TS 番号は 0 から詰めて使われるとは限らないため、有効な TS を順に数える */
-	for (i = 0; i < 15; i++) {
-		if (tsmf_stream_flag(&packet[7], i) && ++n == filter->stream_index) {
-			stream = i;
-			/* stream_type のビットが 0 の TS は分割 TLV、1 の TS は MPEG-2 TS */
-			output_tlv = !tsmf_stream_flag(&packet[125], i);
-			break;
+	/* 相対 TS 番号は 0 から詰めて使われるとは限らないため、有効な TS を順に数えて何本目の相対 TS 番号を求める
+	 * 求めた相対 TS 番号は選局の間保ち、以降のヘッダーではその TS が有効かだけを見る
+	 * ヘッダーのたびに数え直すと、事業者が有効な TS の組を変えたときに同じ指定が別の TS を指し、録画の途中で別の放送の TS を出力してしまう */
+	if (filter->relative < 0) {
+		for (i = 0; i < 15; i++) {
+			if (tsmf_stream_flag(&packet[7], i) && ++n == filter->stream_index) {
+				filter->relative = i;
+				break;
+			}
 		}
+	}
+
+	if (filter->relative >= 0 && tsmf_stream_flag(&packet[7], filter->relative)) {
+		stream = filter->relative;
+		/* stream_type のビットが 0 の TS は分割 TLV、1 の TS は MPEG-2 TS */
+		output_tlv = !tsmf_stream_flag(&packet[125], stream);
 	}
 
 	/* 選ぶ TS か形式が変わったときは、TLV の断片を連結しない */
@@ -147,6 +155,7 @@ void tsmf_filter_init(struct tsmf_filter *filter, int stream_index, bool discard
 	filter->not_found = false;
 	filter->detect_packets = 0;
 	filter->output_tlv = false;
+	filter->relative = -1;
 	filter->stream = -1;
 	filter->slot = -1;
 	filter->frame_size = 0;
