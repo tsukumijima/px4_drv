@@ -427,6 +427,10 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 		tuner->config.xtal != 24000)
 		return -EINVAL;
 
+	/* 周波数のレジスターは kHz の20ビットのため、その範囲の周波数だけを書き込む */
+	if (freq > 0xfffff)
+		return -EINVAL;
+
 	ret = i2c_comm_master_gate_ctrl(tuner->i2c, true);
 	if (ret)
 		return ret;

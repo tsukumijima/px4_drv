@@ -309,16 +309,15 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 	struct ptx_tune_params params = {
 		.system = user_params->system,
 		.freq = user_params->freq,
-		.bandwidth = user_params->system == PTX_ISDB_S_SYSTEM ? 0 : 6,
+		.bandwidth = 6,
 		.tsmf_stream = 1,
 	};
 	u32 i;
 
-	/* チューナーの周波数のレジスターは20ビットで、地上波とケーブルは kHz、衛星は (kHz + 2) / 4 で書くため、その範囲だけを受け付ける */
-	if ((params.system != PTX_ISDB_T_SYSTEM && params.system != PTX_ISDB_S_SYSTEM &&
-	     params.system != PTX_ISDB_C_SYSTEM && params.system != PTX_J83B_SYSTEM) ||
-	    !(chrdev->system_cap & params.system) ||
-	    !params.freq || params.freq > (params.system == PTX_ISDB_S_SYSTEM ? 0x3ffffd : 0xfffff) ||
+	/* 拡張 ioctl は、既存の PTX_SET_CHANNEL で選べない TSMF の2本目以降と J.83 Annex B を選局するためにあり、地デジと BS/CS は既存の ioctl で選局する
+	 * 周波数がチューナーで扱える範囲かは、機種ごとのチューナーの処理が判断する */
+	if ((params.system != PTX_ISDB_C_SYSTEM && params.system != PTX_J83B_SYSTEM) ||
+	    !(chrdev->system_cap & params.system) || !params.freq ||
 	    user_params->num_prop > ARRAY_SIZE(props))
 		return -EINVAL;
 
@@ -330,21 +329,11 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 		u32 value = props[i].data;
 
 		switch (props[i].prop) {
-		case PTXT_BANDWIDTH_PARAM:
-			if (value != params.bandwidth)
-				return -EINVAL;
-			params.bandwidth = value;
-			break;
 		/* J.83 Annex B は TSMF を使わないため、ISDB-C だけで受け付ける */
 		case PTXT_TSMF_STREAM_PARAM:
 			if (params.system != PTX_ISDB_C_SYSTEM || !value || value > TSMF_STREAM_MAX)
 				return -EINVAL;
 			params.tsmf_stream = value;
-			break;
-		case PTXT_STREAM_ID_PARAM:
-			if (params.system != PTX_ISDB_S_SYSTEM || value > 0xffff)
-				return -EINVAL;
-			params.stream_id = value;
 			break;
 		default:
 			return -EINVAL;
