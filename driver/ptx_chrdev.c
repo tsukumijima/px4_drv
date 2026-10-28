@@ -318,10 +318,10 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 	 * 周波数がチューナーで扱える範囲かは、機種ごとのチューナーの処理が判断する */
 	if ((params.system != PTX_ISDB_C_SYSTEM && params.system != PTX_J83B_SYSTEM) ||
 	    !(chrdev->system_cap & params.system) || !params.freq ||
-	    user_params->num_prop > ARRAY_SIZE(props))
+	    user_params->num_prop > ARRAY_SIZE(props) || user_params->reserved)
 		return -EINVAL;
 
-	if (user_params->num_prop && copy_from_user(props, user_params->prop,
+	if (user_params->num_prop && copy_from_user(props, u64_to_user_ptr(user_params->prop),
 				user_params->num_prop * sizeof(props[0])))
 		return -EFAULT;
 

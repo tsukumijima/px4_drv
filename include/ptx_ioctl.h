@@ -61,11 +61,13 @@ struct ptxt_additional_param {
 	__u32 data;
 };
 
+/* 32 ビットと 64 ビットのプロセスで配置が変わらないよう、追加パラメーターの配列のアドレスは __u64 で渡す */
 struct ptxt_params {
-	enum ptx_system_type system;
+	__u32 system;				/* enum ptx_system_type */
 	__u32 freq;				/* 中心周波数 (kHz) */
 	__u32 num_prop;
-	struct ptxt_additional_param *prop;
+	__u32 reserved;
+	__u64 prop;				/* struct ptxt_additional_param の配列のアドレス */
 };
 
 enum ptxt_stat_code {
@@ -85,8 +87,8 @@ struct ptxt_stats {
 };
 
 #define PTXT_GET_INFO		_IOR(0xe7, 0x00, struct ptxt_info *)
-#define PTXT_GET_PARAMS		_IOR(0xe7, 0x01, struct ptxt_params *)
-#define PTXT_SET_PARAMS		_IOW(0xe7, 0x02, struct ptxt_params *)
+#define PTXT_GET_PARAMS		_IOR(0xe7, 0x01, struct ptxt_params)
+#define PTXT_SET_PARAMS		_IOW(0xe7, 0x02, struct ptxt_params)
 #define PTXT_CLEAR_PARAMS	_IO(0xe7, 0x03)
 #define PTXT_TUNE		_IO(0xe7, 0x04)
 #define PTXT_SET_LNB_VOLTAGE	_IOW(0xe7, 0x05, int)
