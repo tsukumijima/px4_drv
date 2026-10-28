@@ -134,12 +134,13 @@ static size_t tsmf_flush_frame(struct tsmf_filter *filter, const u8 **out)
 
 	/* stream_type のビットが分割 TLV を示していても、PID 0x002d と null パケット以外を運んでいる TS は MPEG-2 TS として出力する
 	 * stream_type の位置の読み方は一部の事業者のヘッダーでしか確認できていないため、TS の中身でも分割 TLV かを判断し、読み違えたときも MPEG-2 TS をそのまま出力する
-	 * MPEG-2 TS と分かった TS は、選局し直すまで MPEG-2 TS として出力し続ける */
+	 * MPEG-2 TS と分かった TS は、選局し直すまで MPEG-2 TS として出力し続ける
+	 * 受信エラーで transport_error_indicator が立ったパケットは PID も壊れていることがあるため、この判断には使わない */
 	if (filter->output_tlv) {
 		for (i = 0; i < filter->frame_size; i += 188) {
 			u16 pid = ((filter->frame[i + 1] & 0x1f) << 8) | filter->frame[i + 2];
 
-			if (pid != 0x002d && pid != 0x1fff) {
+			if (!(filter->frame[i + 1] & 0x80) && pid != 0x002d && pid != 0x1fff) {
 				filter->tlv_rejected = true;
 				filter->output_tlv = false;
 				filter->tlv_size = 0;
