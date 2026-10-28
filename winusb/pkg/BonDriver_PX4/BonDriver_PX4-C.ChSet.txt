@@ -8,7 +8,7 @@
 ;                   TSMF を使わない搬送波は 1 で受信し、2 以降の行は選局に失敗します
 ;                   TSMF の TS が 4K 放送の TLV を運んでいる場合は、BonDriver_dantto4k 向けに TLV を取り出して出力します
 ;
-$CATV (ISDB-C)	0
+$CATV(ISDB-C)	0
 1Ch	0	0	0	1
 1Ch (TS2)	0	1	0	2
 1Ch (TS3)	0	2	0	3
