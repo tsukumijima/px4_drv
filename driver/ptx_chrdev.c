@@ -26,7 +26,14 @@
 struct ptx_tsmf_stream {
 	spinlock_t lock;
 	struct tsmf_filter filter;
+	/* TSMF で選んだ TS は毎秒数 KB のこともあり、しきい値までためると読み出しが秒単位で遅れるため、最後に読み出し側を起こしてから一定の時間がたったら途中まででも渡す */
+	unsigned long wake_jiffies;
+	/* 時間で起こしたときは、read() が要求された量を待たずに、それまでに読めた分を返す */
+	atomic_t flush;
 };
+
+/* WinUSB 版の BonDriver が低レートの TS を途中まででも渡す間隔と同じ */
+#define PTX_CHRDEV_TSMF_FLUSH_INTERVAL_MS	200
 
 static LIST_HEAD(ctx_list);
 static DEFINE_MUTEX(ctx_list_lock);
@@ -162,6 +169,11 @@ static ssize_t ptx_chrdev_read(struct file *file,
 
 		p += len;
 		remain -= len;
+
+		/* TSMF で選んだ低レートの TS で時間で起こされたときは、要求された量を待たずに読めた分を返す */
+		if (unlikely(smp_load_acquire(&chrdev->tsmf_active)) && remain &&
+		    atomic_xchg(&chrdev->tsmf->flush, 0))
+			break;
 	}
 
 	return likely(!ret) ? (count - remain) : ret;
@@ -216,6 +228,8 @@ static void ptx_chrdev_reset_tsmf(struct ptx_chrdev *chrdev)
 	tsmf_filter_init(&stream->filter, chrdev->params.tsmf_stream,
 			 chrdev->discard_null_packets,
 			 chrdev->tsmf_stale_packets);
+	stream->wake_jiffies = jiffies;
+	atomic_set(&stream->flush, 0);
 	spin_unlock_irqrestore(&stream->lock, flags);
 }
 
@@ -1298,6 +1312,14 @@ static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t
 		if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
 			wake_up(&chrdev->ringbuf_wait);
 			chrdev->ringbuf_write_size -= chrdev->ringbuf_threshold_size;
+			stream->wake_jiffies = jiffies;
+		} else if (time_after_eq(jiffies, stream->wake_jiffies +
+					 msecs_to_jiffies(PTX_CHRDEV_TSMF_FLUSH_INTERVAL_MS))) {
+			/* しきい値に届かないまま時間がたったときは、たまった分を read() へ渡す */
+			atomic_set(&stream->flush, 1);
+			wake_up(&chrdev->ringbuf_wait);
+			chrdev->ringbuf_write_size = 0;
+			stream->wake_jiffies = jiffies;
 		}
 	}
 	spin_unlock_irqrestore(&stream->lock, flags);
