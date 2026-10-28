@@ -913,7 +913,11 @@ int PxMltDevice::PxMltReceiver::SetFrequency()
 	}
 
 		if (tsmf) {
-			stream_buf_->StartTsmf(params_.tsmf_stream, parent_.config_.device.discard_null_packets, parent_.config_.usb.xfer_packets);
+			if (!stream_buf_->StartTsmf(params_.tsmf_stream, parent_.config_.device.discard_null_packets, parent_.config_.usb.xfer_packets)) {
+				dev_err(&parent_.dev_, "px4::PxMltDevice::PxMltReceiver::SetFrequency(%u): StartTsmf() failed.\n", index_);
+				ret = -ENOMEM;
+				break;
+			}
 			tsmf_ = true;
 		}
 

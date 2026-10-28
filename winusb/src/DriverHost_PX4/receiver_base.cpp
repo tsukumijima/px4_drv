@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <new>
 #include <windows.h>
 
 #include "msg.h"
@@ -324,15 +325,20 @@ bool ReceiverBase::StreamBuffer::Purge() noexcept
 	return ringbuf_.Purge();
 }
 
-void ReceiverBase::StreamBuffer::StartTsmf(std::uint32_t stream_index, bool discard_null_packets, unsigned int stale_packets)
+bool ReceiverBase::StreamBuffer::StartTsmf(std::uint32_t stream_index, bool discard_null_packets, unsigned int stale_packets) noexcept
 {
 	std::lock_guard<std::mutex> lock(tsmf_mtx_);
 
-	if (!tsmf_filter_)
-		tsmf_filter_.reset(new tsmf_filter);
+	// 選局はパイプの処理の noexcept の中から呼ばれ、例外が出ると DriverHost ごと終了して全受信機の録画が止まるため、確保の失敗は選局の失敗として返す
+	if (!tsmf_filter_) {
+		tsmf_filter_.reset(new (std::nothrow) tsmf_filter);
+		if (!tsmf_filter_)
+			return false;
+	}
 
 	tsmf_filter_init(tsmf_filter_.get(), static_cast<int>(stream_index), discard_null_packets, stale_packets);
 	tsmf_ = true;
+	return true;
 }
 
 void ReceiverBase::StreamBuffer::StopTsmf() noexcept
