@@ -8,6 +8,7 @@
 #include "print_format.h"
 #include "ptx_chrdev.h"
 #include "isdb2056_device.h"
+#include "isdbc_channel.h"
 #include "tsmf.h"
 
 #include <linux/kernel.h>
@@ -508,23 +509,21 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 			break;
 
 		case PTX_ISDB_C_SYSTEM:
-			chrdev->params.tsmf_stream = 1;
-			/* ISDB-C の中心周波数には、地上波の 143 kHz オフセットを加えない
-			 * 0-62 は recpt1 と同じく VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch で、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
+		{
+			/* 物理チャンネル番号から中心周波数への変換は、WinUSB 版の BonDriver と isdbc_channel.h で共有する
 			 * slot は既存の addfreq と同じく、符号付きの周波数補正値 (kHz) として使う */
-			if (freq.freq_no >= 0 && freq.freq_no <= 62) {
-				chrdev->params.freq = 93000 + freq.freq_no * 6000 + freq.slot;
-				if (freq.freq_no >= 12 && freq.freq_no <= 16)
-					chrdev->params.freq += 2000;
-			} else if (freq.freq_no >= 63 && freq.freq_no <= 112) {
-				chrdev->params.freq = 95000 + freq.freq_no * 6000 + freq.slot;
-			} else {
+			int khz = isdbc_channel_to_khz(freq.freq_no);
+
+			if (khz < 0) {
 				ret = -EINVAL;
 				break;
 			}
+			chrdev->params.tsmf_stream = 1;
+			chrdev->params.freq = khz + freq.slot;
 			chrdev->params.bandwidth = 6;
 			chrdev->params.stream_id = 0;
 			break;
+		}
 
 		case PTX_UNSPECIFIED_SYSTEM:
 			if (chrdev->system_cap & PTX_ISDB_S_SYSTEM) {
