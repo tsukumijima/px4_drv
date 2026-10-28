@@ -423,11 +423,6 @@ int cxd2858er_set_params_c(struct cxd2858er_tuner *tuner,
 	int ret = 0;
 	u8 data[17];
 
-	/* J.83B の REF_R は、参照元で設定値を確認できる水晶周波数に限定する */
-	if (j83b && tuner->config.xtal != 16000 &&
-		tuner->config.xtal != 24000)
-		return -EINVAL;
-
 	/* 周波数のレジスターは kHz の20ビットのため、その範囲の周波数だけを書き込む */
 	if (freq > 0xfffff)
 		return -EINVAL;
