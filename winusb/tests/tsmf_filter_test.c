@@ -230,6 +230,17 @@ int main(void)
 	}
 	puts("TLV output decided by stream_type: PASS");
 
+	/* stream_type が分割 TLV を示していても、分割 TLV 以外のパケットを運ぶ TS は MPEG-2 TS としてそのまま出力し続ける */
+	tsmf_filter_init(&filter, 1, false, 0);
+	out_size = 0;
+	feed_frame(slots, (1u << 1) | (1u << 3), 1u << 1);
+	feed_frame(slots, (1u << 1) | (1u << 3), 1u << 1);
+	CHECK(out_size == 18 * 188 && out_buf[1] == 0x01 && out_buf[4] == 1);
+	CHECK(filter.tlv_rejected && !filter.output_tlv);
+	feed_frame(slots, (1u << 1) | (1u << 3), 1u << 1);
+	CHECK(out_size == 18 * 188 * 2 && !filter.output_tlv);
+	puts("TS without divided TLV packets stays MPEG-2 TS despite stream_type: PASS");
+
 	/* 選局し直した直後に届く前の搬送波の TSMF のヘッダーは、判定に使わずに捨てる
 	 * 捨てないと、ヘッダーのない新しい搬送波を TSMF と判定し、次のヘッダーを待ち続けて何も出力しない */
 	tsmf_filter_init(&filter, 1, false, 816);
