@@ -15,12 +15,7 @@ namespace px4 {
 class ChannelSet final {
 public:
 	struct ChannelInfo final {
-		ChannelInfo() noexcept
-			: ptx_ch(0),
-			tsid(0),
-			freq(0),
-			tsmf_stream(1)
-		{}
+		ChannelInfo() noexcept : ptx_ch(0), tsid(0), freq(0), tsmf_stream(1) {}
 		std::wstring name;
 		std::uint32_t ptx_ch;
 		std::uint16_t tsid;

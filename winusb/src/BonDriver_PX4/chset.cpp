@@ -5,7 +5,6 @@
 #include <mutex>
 #include <fstream>
 #include <cstdlib>
-#include <cstring>
 
 #include "util.hpp"
 
