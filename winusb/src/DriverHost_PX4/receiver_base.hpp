@@ -24,7 +24,7 @@ public:
 		std::uint32_t freq;
 		std::uint32_t bandwidth;
 		std::uint32_t stream_id;
-		// ISDB-C だけで使う、TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか
+		// ISDB-C だけで使う、TSMF で多重された搬送波で、ヘッダーに載っている有効な TS のうち、0 から数えて何番目 (TS0〜TS14) を選ぶか
 		std::uint32_t tsmf_stream;
 	};
 
@@ -42,7 +42,7 @@ public:
 		void NotifyWrite() noexcept;
 		void HandleRead(std::size_t buf_size, std::function<bool(const void *buf, std::size_t size)> handler);
 		bool Purge() noexcept;
-		// J.83B を除く ISDB-C の選局から次の選局までの間だけ、TSMF の指定した TS を選び、ヘッダーのない搬送波は1本目の指定でそのまま出力する
+		// J.83B を除く ISDB-C の選局から次の選局までの間だけ、TSMF の指定した TS を選び、ヘッダーのない搬送波は TS0 の指定でそのまま出力する
 		bool StartTsmf(std::uint32_t stream_index, bool discard_null_packets, unsigned int stale_packets) noexcept;
 		void StopTsmf() noexcept;
 		void RestartTsmf() noexcept;

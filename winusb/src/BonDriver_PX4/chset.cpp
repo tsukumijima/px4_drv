@@ -251,11 +251,11 @@ bool ChannelSet::ParseCable(char **head, char **tail, px4::SystemType system, Ch
 		return false;
 	ch.ptx_ch = static_cast<std::uint32_t>(value);
 
-	// TSMF のヘッダーに載っている有効な TS の何本目か
+	// TSMF のヘッダーに載っている有効な TS のうち、0 から数えて何番目か (TS0〜TS14)
 	if (!*tail)
 		return false;
 	Split(head, tail, '\t');
-	if (!parse(*head, 1, 15, value) || *tail)
+	if (!parse(*head, 0, 14, value) || *tail)
 		return false;
 	ch.tsmf_stream = static_cast<std::uint8_t>(value);
 

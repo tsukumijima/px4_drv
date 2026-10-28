@@ -60,7 +60,7 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 
 	params_.system = param_set.system;
 	params_.freq = param_set.freq;
-	params_.tsmf_stream = 1;
+	params_.tsmf_stream = 0;
 
 	for (std::uint32_t i = 0; i < param_set.num; i++) {
 		switch (param_set.params[i].type) {
@@ -70,8 +70,7 @@ bool ReceiverBase::SetParameters(const px4::command::ParameterSet &param_set) no
 
 		// J.83 Annex B は TSMF を使わないため、ISDB-C だけで受け付ける
 		case px4::command::ParameterType::TSMF_STREAM:
-			if (params_.system != px4::SystemType::ISDB_C ||
-			    param_set.params[i].value < 1 || param_set.params[i].value > TSMF_STREAM_MAX)
+			if (params_.system != px4::SystemType::ISDB_C || param_set.params[i].value > TSMF_STREAM_MAX)
 				return false;
 			params_.tsmf_stream = param_set.params[i].value;
 			break;
@@ -178,7 +177,7 @@ bool ReceiverBase::TuneIsdbC(std::uint32_t timeout)
 				case TSMF_FILTER_FOUND:
 					return true;
 				case TSMF_FILTER_NOT_FOUND:
-					// 指定した何本目の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
+					// 指定した番号の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
 					return false;
 				default:
 					break;
