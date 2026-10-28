@@ -15,8 +15,9 @@
 #define TSMF_SLOT_NUM		52
 #define TSMF_TLV_MAX_SIZE	65536
 
-/* TSMF の TS は、ヘッダーで有効な TS を相対 TS 番号の順に並べたときの何本目かで選び、1〜15 で指定する */
-#define TSMF_STREAM_MAX		15
+/* TSMF の TS は、ヘッダーで有効な TS を相対 TS 番号の順に並べ、0 から数えた番号 (TS0〜TS14) で選ぶ
+ * BS の TS0・TS1 と同じく、ヘッダーに書かれた相対 TS 番号そのものではなく、有効な TS の並びの中の位置を表す */
+#define TSMF_STREAM_MAX		14
 
 /* ヘッダーが届かずに素通しと判断するまでのパケット数 (1フレームは53パケットで、受信の誤りでヘッダーを数回落としても誤判定しない長さ) */
 #define TSMF_DETECT_PACKETS	(53 * 8)
@@ -33,11 +34,11 @@ struct tsmf_filter {
 	/* 選局し直した直後は、IT930x の転送1回分に前の搬送波の TS が残っていることがあるため、判定に使わずに捨てるパケット数 */
 	unsigned int stale_packets;
 	unsigned int skip_packets;
-	/* 1本目を指定してヘッダーのない搬送波だった場合は、搬送波の TS をそのまま出力する */
+	/* TS0 を指定してヘッダーのない搬送波だった場合は、搬送波の TS をそのまま出力する */
 	bool passthrough;
 	/* 選局してからヘッダーを1つでも受け取ったか */
 	bool header_found;
-	/* ヘッダーに指定した TS がないか、2本目以降の指定でヘッダーのない搬送波だった */
+	/* ヘッダーに指定した TS がないか、TS1 以降の指定でヘッダーのない搬送波だった */
 	bool not_found;
 	/* ヘッダーを探し始めてから受け取ったパケット数で、TSMF_DETECT_PACKETS で止める */
 	unsigned int detect_packets;
@@ -45,7 +46,7 @@ struct tsmf_filter {
 	bool output_tlv;
 	/* stream_type が分割 TLV を示す TS が、分割 TLV 以外のパケットを運んでいて MPEG-2 TS と分かったか */
 	bool tlv_rejected;
-	/* 何本目の指定を最初に解決できたヘッダーで決めた相対 TS 番号 (決まるまで -1) */
+	/* 指定した TS 番号を最初に解決できたヘッダーで決めた相対 TS 番号 (決まるまで -1) */
 	int relative;
 	/* ヘッダーから求めた、出力する TS の相対 TS 番号 (その TS がヘッダーで無効なら -1) */
 	int stream;

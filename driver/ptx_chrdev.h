@@ -24,7 +24,7 @@ struct ptx_tune_params {
 	u32 freq;
 	u32 bandwidth;
 	u16 stream_id;
-	/* TSMF で多重された搬送波で、ヘッダーに載っている有効な TS の何本目 (1〜15) を選ぶか */
+	/* TSMF で多重された搬送波で、ヘッダーに載っている有効な TS のうち、0 から数えて何番目 (TS0〜TS14) を選ぶか */
 	u32 tsmf_stream;
 };
 

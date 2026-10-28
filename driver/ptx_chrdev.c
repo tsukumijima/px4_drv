@@ -298,7 +298,7 @@ static int ptx_chrdev_wait_tsmf(struct ptx_chrdev *chrdev)
 			ret = 0;
 			break;
 		}
-		/* 指定した何本目の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
+		/* 指定した番号の TS がない搬送波は、待っても現れないため、スキャンを長引かせずに失敗させる
 		 * ロックしない搬送波の EAGAIN と区別できるよう、TS がないことは ENODATA で返す */
 		if (state == TSMF_FILTER_NOT_FOUND) {
 			ret = -ENODATA;
@@ -323,11 +323,11 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 		.system = user_params->system,
 		.freq = user_params->freq,
 		.bandwidth = 6,
-		.tsmf_stream = 1,
+		.tsmf_stream = 0,
 	};
 	u32 i;
 
-	/* 拡張 ioctl は、既存の PTX_SET_CHANNEL で選べない TSMF の2本目以降と J.83 Annex B を選局するためにあり、地デジと BS/CS は既存の ioctl で選局する
+	/* 拡張 ioctl は、既存の PTX_SET_CHANNEL で選べない TSMF の TS1 以降と J.83 Annex B を選局するためにあり、地デジと BS/CS は既存の ioctl で選局する
 	 * 周波数がチューナーで扱える範囲かは、機種ごとのチューナーの処理が判断する */
 	if ((params.system != PTX_ISDB_C_SYSTEM && params.system != PTX_J83B_SYSTEM) ||
 	    !(chrdev->system_cap & params.system) || !params.freq ||
@@ -344,7 +344,7 @@ static int ptx_chrdev_set_params(struct ptx_chrdev *chrdev,
 		switch (props[i].prop) {
 		/* J.83 Annex B は TSMF を使わないため、ISDB-C だけで受け付ける */
 		case PTXT_TSMF_STREAM_PARAM:
-			if (params.system != PTX_ISDB_C_SYSTEM || !value || value > TSMF_STREAM_MAX)
+			if (params.system != PTX_ISDB_C_SYSTEM || value > TSMF_STREAM_MAX)
 				return -EINVAL;
 			params.tsmf_stream = value;
 			break;
@@ -518,7 +518,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 				ret = -EINVAL;
 				break;
 			}
-			chrdev->params.tsmf_stream = 1;
+			chrdev->params.tsmf_stream = 0;
 			chrdev->params.freq = khz + freq.slot;
 			chrdev->params.bandwidth = 6;
 			chrdev->params.stream_id = 0;

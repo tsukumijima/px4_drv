@@ -3,7 +3,7 @@
  * TSMF stream selector (tsmf.c)
  *
  * 1つの搬送波に多重化された複数の TS から、TSMF ヘッダーの直後の52パケットの位置で1つの TS を選ぶ
- * ISDB-C の受信はすべてここを通し、ヘッダーのない搬送波は1本目の指定でだけそのまま出力する
+ * ISDB-C の受信はすべてここを通し、ヘッダーのない搬送波は TS0 の指定でだけそのまま出力する
  * J.83 Annex B は TSMF を使わないため、ここを通さない
  * 処理の組み立ては、radi-sh 氏による BonDriver_BDA の TSMF.cpp に合わせている
  */
@@ -48,12 +48,12 @@ static void tsmf_parse_header(struct tsmf_filter *filter, const u8 *packet)
 	int i, n = 0, stream = -1;
 	bool output_tlv = false;
 
-	/* 相対 TS 番号は 0 から詰めて使われるとは限らないため、有効な TS を順に数えて何本目の相対 TS 番号を求める
+	/* 相対 TS 番号は 0 から詰めて使われるとは限らないため、有効な TS を 0 から順に数えて、指定した番号の TS の相対 TS 番号を求める
 	 * 求めた相対 TS 番号は選局の間保ち、以降のヘッダーではその TS が有効かだけを見る
 	 * ヘッダーのたびに数え直すと、事業者が有効な TS の組を変えたときに同じ指定が別の TS を指し、録画の途中で別の放送の TS を出力してしまう */
 	if (filter->relative < 0) {
 		for (i = 0; i < 15; i++) {
-			if (tsmf_stream_flag(&packet[7], i) && ++n == filter->stream_index) {
+			if (tsmf_stream_flag(&packet[7], i) && n++ == filter->stream_index) {
 				filter->relative = i;
 				break;
 			}
@@ -233,10 +233,10 @@ size_t tsmf_filter_packet(struct tsmf_filter *filter, const u8 *packet, const u8
 	}
 
 	if (!filter->header_found) {
-		/* 一定の長さヘッダーが届かなければ TSMF を使わない搬送波と判断し、1本目の指定ならそのまま出力する */
+		/* 一定の長さヘッダーが届かなければ TSMF を使わない搬送波と判断し、TS0 の指定ならそのまま出力する */
 		if (filter->detect_packets < TSMF_DETECT_PACKETS &&
 		    ++filter->detect_packets == TSMF_DETECT_PACKETS) {
-			if (filter->stream_index == 1)
+			if (filter->stream_index == 0)
 				filter->passthrough = true;
 			else
 				filter->not_found = true;
