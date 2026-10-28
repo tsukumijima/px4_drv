@@ -57,6 +57,7 @@ IT930x のバッファーをまとめて捨てる PSB の purge は、ほかの�
 
 選んだ TS の stream_type が分割 TLV の場合は、TLV パケットを取り出して出力します。  
 ただし、その TS が分割 TLV の PID 0x002d と null パケット以外のパケットを運んでいれば、MPEG-2 TS と判断し、選局し直すまでそのまま出力します。  
+受信エラーで transport_error_indicator が立ったパケットは PID も壊れていることがあるため、この判断には使いません。  
 stream_type の位置の読み方はイッツコムのヘッダーでしか確認できていないため、読み違えたときも MPEG-2 TS の出力が空にならないようにしています。  
 4K 放送の TLV は TS のままでは受信ソフトウェアが扱えないため、[BonDriver_dantto4k](https://github.com/nekohkr/dantto4k) などの変換を前提にしています。  
 TLV の出力は、この文書の作成時点で実機の 4K の搬送波では検証していません。
