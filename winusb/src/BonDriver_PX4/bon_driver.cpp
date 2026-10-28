@@ -17,6 +17,7 @@
 #include "pipe_client.hpp"
 #include "command.hpp"
 #include "util.hpp"
+#include "../../../driver/isdbc_channel.h"
 
 namespace px4 {
 
@@ -567,24 +568,20 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		break;
 
 	case px4::SystemType::ISDB_C:
-		if (channel.ptx_ch <= 62) {
-			// VHF 1-3ch, CATV C13-22ch, VHF 4-12ch, CATV C23-63ch (ISDB-T と異なり、中心周波数に 1/7 MHz を加えない)
-			// 番号の割り当ては recpt1 と同じで、帯域が 2MHz ずれている C22ch と VHF 4-7ch だけ 2MHz を加える
-			real_freq = 93000 + (channel.ptx_ch * 6000);
+	{
+		// 物理チャンネル番号から中心周波数への変換は、Linux 版と isdbc_channel.h で共有する
+		int khz = isdbc_channel_to_khz(static_cast<int>(channel.ptx_ch));
 
-			if (channel.ptx_ch >= 12 && channel.ptx_ch <= 16)
-				real_freq += 2000;
-		} else if (channel.ptx_ch >= 63 && channel.ptx_ch <= 112) {
-			// UHF 13-62ch
-			real_freq = 95000 + (channel.ptx_ch * 6000);
-		} else {
+		if (khz < 0) {
 			// unknown channel
 			return FALSE;
 		}
 
+		real_freq = static_cast<std::uint32_t>(khz);
 		num_param = 1;
 
 		break;
+	}
 
 	case px4::SystemType::J83B:
 		// J.83 Annex B (スカパー！プレミアムサービス光) は、ChSet に中心周波数 (kHz) を書く
