@@ -160,7 +160,7 @@ TSMF は、公式は復調器で TS を選びますが、このリポジトリ�
 
 - チューナーの ISDB-C と J.83B の設定 (REF_R、FIF_OFFSET、BW_OFFSET、0x5e〜0x66 と 0x75〜0x78 の値、選局後の50ミリ秒の待ち)。公式は、ISDB-C と J.83B の 5.06・5.36Msps で DVB-C 6MHz の設定を使い、日本の J.83B の 5.6Msps だけ FIF_OFFSET と BW_OFFSET が異なる専用の設定を使う
 - ロックの判定 (バンク 0x40 の 0x88 のビット0と、0x10 のビット5)
-- C/N の式 (`-95 × ln(IREG_SNR_ESTIMATE) + 95941`、dB の1000倍、生値の下限は126)
+- C/N の式 (`-9500 × ln(IREG_SNR_ESTIMATE) + 95941`、dB の1000倍、生値の下限は126)
 - 受信機ごとの復調器の I2C アドレス (PX-MLT5PE は受信機 0〜4 の順に 0xCA・0xD8・0xC8・0xD8・0xC8)
 
 C/N は、公式は AR ロックと QAM の次数 (64QAM か 256QAM) を調べてから計算し、それ以外ではエラーを返します。  
