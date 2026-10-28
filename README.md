@@ -583,7 +583,7 @@ recisdb の対応は [kazuki0824/recisdb-rs#202](https://github.com/kazuki0824/r
 
 - `ISDBC-C52` (ケーブルテレビの C52)、`ISDBC-20` (ケーブルテレビの UHF 20ch)
 - `ISDBC-C52_2` (ケーブルテレビの C52 の2本目の放送)
-- `J83B-H01` 〜 `J83B-H77`、`J83B-159250` (スカパー！プレミアムサービス光。番号か、中心周波数 (kHz) で指定)
+- `J83B-H01` 〜 `J83B-H105`、`J83B-374950` (スカパー！プレミアムサービス光。番号か、中心周波数 (kHz) で指定)
 
 受信ソフトウェアを開発する方向けの ioctl の仕様は、[ISDB-C と J.83 Annex B の選局の仕様](docs/isdbc_tuning.md) にあります。
 
