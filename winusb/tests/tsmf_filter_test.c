@@ -277,6 +277,31 @@ int main(void)
 	CHECK(!filter.passthrough && tsmf_filter_get_state(&filter) == TSMF_FILTER_FOUND && out_size == 0);
 	puts("TSMF carrier stays TSMF when headers are lost: PASS");
 
+	/* CRC が合わないヘッダーでも、ヘッダーの位置に届いたヘッダーの PID のパケットなら、そろった前のフレームは出力する
+	 * 直後のフレームは位置の基準となるヘッダーがないため出力せず、次の正しいヘッダーから選び直す */
+	{
+		u8 broken[188];
+
+		tsmf_filter_init(&filter, 1, false, 0);
+		out_size = 0;
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+		make_header(broken, (1u << 1) | (1u << 3), 0, slots);
+		broken[100] ^= 0xff;
+		feed(broken);
+		CHECK(out_size == 18 * 188);
+		for (i = 0; i < out_size; i += 188)
+			CHECK(out_buf[i + 4] == 1);
+		for (i = 0; i < TSMF_SLOT_NUM; i++) {
+			make_packet(packet, 0x0100, 1);
+			feed(packet);
+		}
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+		CHECK(out_size == 18 * 188);
+		feed_frame(slots, (1u << 1) | (1u << 3), 0);
+		CHECK(out_size == 18 * 188 * 2);
+	}
+	puts("Frame before a header with a CRC error is output: PASS");
+
 	/* 受信を止めて再開したときは、判断を保ったままフレームの途中の状態だけを捨てる */
 	tsmf_filter_init(&filter, 1, false, 816);
 	for (i = 0; i < 816 + TSMF_DETECT_PACKETS + 10; i++) {
