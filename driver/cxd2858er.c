@@ -108,10 +108,11 @@ static int cxd2858er_power_on(struct cxd2858er_tuner *tuner)
 	if (ret)
 		return ret;
 
-	/* Sony の SONY_HELENE_CONFIG_POWERSAVE_TERR_RFIN_MATCHING に従い、待機中も地上波の RF 入力の整合を保つ
+	/* rfin_matching のときは、Sony の SONY_HELENE_CONFIG_POWERSAVE_TERR_RFIN_MATCHING に従い、待機中も地上波の RF 入力の整合を保つ
 	 * PX-MLT5PE は1つの地上波・ケーブルの RF 入力を全チューナーへ分配していて、既定の待機状態では、チューナーが待機と動作を切り替えるときに
-	 * 隣のチューナーで受信中の 256QAM (ISDB-C の UHF 帯や J.83B) に誤りが出る (整合を保つと出なくなった) */
-	ret = cxd2858er_write_reg(tuner, 0x67, 0x02);
+	 * 隣のチューナーで受信中の 256QAM (ISDB-C の UHF 帯や J.83B) に誤りが出る
+	 * 地デジと BS/CS の受信ではこの誤りは出ないため、PLEX の公開ドライバーと同じ既定の待機状態を基本とし、ISDB-C か J.83B を使うときだけ整合を保つ */
+	ret = cxd2858er_write_reg(tuner, 0x67, (tuner->config.ter.rfin_matching) ? 0x02 : 0x00);
 	if (ret)
 		return ret;
 
@@ -668,8 +669,8 @@ static int cxd2858er_stop_t(struct cxd2858er_tuner *tuner)
 	if (ret)
 		return ret;
 
-	/* 電源投入時と同じく、待機中も RF 入力の整合を保つ (bit0 の RF_EXT は保持する) */
-	ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x02, 0xfe);
+	/* 電源投入時と同じく、rfin_matching のときは待機中も RF 入力の整合を保つ (bit0 の RF_EXT は保持する) */
+	ret = cxd2858er_write_reg_mask(tuner, 0x67, (tuner->config.ter.rfin_matching) ? 0x02 : 0x00, 0xfe);
 	if (ret)
 		return ret;
 
@@ -730,6 +731,13 @@ static int cxd2858er_stop_s(struct cxd2858er_tuner *tuner)
 	ret = cxd2858er_write_reg(tuner, 0x04, 0xc0);
 	if (ret)
 		return ret;
+
+	/* 衛星の受信中に rfin_matching になったチューナーも、待機へ戻るときに地上波の RF 入力の整合を保つ状態にそろえる */
+	if (tuner->config.ter.rfin_matching) {
+		ret = cxd2858er_write_reg_mask(tuner, 0x67, 0x02, 0x02);
+		if (ret)
+			return ret;
+	}
 
 	tuner->system = CXD2858ER_UNSPECIFIED_SYSTEM;
 	return 0;

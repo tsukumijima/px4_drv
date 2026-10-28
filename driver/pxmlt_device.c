@@ -54,9 +54,9 @@ static int pxmlt_backend_set_power(struct pxmlt_device *pxmlt, bool state)
 
 		msleep(20);
 
-		/* 電源を入れた直後のチューナーは、どれも初期化されていない */
+		/* 電源を入れた直後のチューナーは、PLEX の公開ドライバーと同じ既定の待機状態から始める */
 		for (i = 0; i < pxmlt->chrdevm_num; i++)
-			pxmlt->chrdevm[i].tuner_initialized = false;
+			pxmlt->chrdevm[i].cxd2858er.config.ter.rfin_matching = false;
 	} else {
 		it930x_write_gpio(it930x, 2, false);
 		it930x_write_gpio(it930x, 7, true);
@@ -259,8 +259,6 @@ static int pxmlt_chrdev_open(struct ptx_chrdev *chrdev)
 		goto fail_tuner_init;
 	}
 
-	chrdevm->tuner_initialized = true;
-
 	ret = cxd2856er_write_slvt_reg(&chrdevm->cxd2856er, 0x00, 0x00);
 	if (ret)
 		goto fail_backend;
@@ -445,36 +443,44 @@ static int pxmlt_chrdev_tune(struct ptx_chrdev *chrdev,
 
 	case PTX_ISDB_C_SYSTEM:
 	case PTX_J83B_SYSTEM:
-		/* チューナーは、初期化されていない状態から待機へ切り替わるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
-		 * 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C を選局するときにだけ、まだ初期化していないチューナーを
-		 * 待機中も整合を保つ状態 (cxd2858er_init()) にしておく (地デジと BS/CS だけの利用では、この初期化の時間はかからない) */
-		mutex_lock(&pxmlt->lock);
+		/* チューナーが待機と動作を切り替えるときに RF 入力の整合が変わり、隣のチューナーで受信中の 256QAM に誤りが出る
+		 * 地デジと BS/CS の受信ではこの誤りは出ないため、電源投入から初めて ISDB-C か J.83B を選局するときにだけ、全チューナーを待機中も整合を保つ設定 (rfin_matching) にする
+		 * 閉じているチューナーは、256QAM の受信が始まる前にこの設定で初期化し直して待機させる
+		 * 開いているチューナーの I2C は、その受信機の復調器のバンクの選択と同じ経路を通るため、ここからは書き込まず、次に待機へ戻るときにこの設定を書き込ませる
+		 * 初期化は1台ずつ、開く処理と同じ時間だけデバイスのロックを持って行い、ほかの受信機の操作とカードの通信を長く待たせない */
 		for (i = 0; i < pxmlt->chrdevm_num; i++) {
 			struct pxmlt_chrdev *other = &pxmlt->chrdevm[i];
 
-			if (other->tuner_initialized)
-				continue;
+			mutex_lock(&pxmlt->lock);
 
-			ret = cxd2856er_init(&other->cxd2856er);
-			if (!ret) {
-				mutex_lock(other->tuner_lock);
-				ret = cxd2858er_init(&other->cxd2858er);
-				mutex_unlock(other->tuner_lock);
-			}
-			cxd2856er_term(&other->cxd2856er);
-
-			if (ret) {
-				/* 初期化できなかったチューナーは、次に ISDB-C を選局するときに初期化し直す */
-				dev_err(pxmlt->dev,
-					"pxmlt_chrdev_tune %u:%u: tuner %d initialization failed. (ret: %d)\n",
-					chrdev_group->id, chrdev->id, i, ret);
-				ret = 0;
+			if (other->cxd2858er.config.ter.rfin_matching) {
+				mutex_unlock(&pxmlt->lock);
 				continue;
 			}
 
-			other->tuner_initialized = true;
+			other->cxd2858er.config.ter.rfin_matching = true;
+
+			if (!atomic_read(&other->chrdev->open)) {
+				ret = cxd2856er_init(&other->cxd2856er);
+				if (!ret) {
+					mutex_lock(other->tuner_lock);
+					ret = cxd2858er_init(&other->cxd2858er);
+					mutex_unlock(other->tuner_lock);
+				}
+				cxd2856er_term(&other->cxd2856er);
+
+				if (ret) {
+					/* 初期化できなかったチューナーは、次に ISDB-C か J.83B を選局するときに初期化し直す */
+					dev_err(pxmlt->dev,
+						"pxmlt_chrdev_tune %u:%u: tuner %d initialization failed. (ret: %d)\n",
+						chrdev_group->id, chrdev->id, i, ret);
+					other->cxd2858er.config.ter.rfin_matching = false;
+					ret = 0;
+				}
+			}
+
+			mutex_unlock(&pxmlt->lock);
 		}
-		mutex_unlock(&pxmlt->lock);
 
 		/* TSMF はパケットの位置で TS を選び、ヘッダーの有無も受信した TS から判断するため、ISDB-C では null パケットも受け取る
 		 * J.83 Annex B は TSMF を使わないため、地デジと同じくブリッジで除く */
@@ -1057,6 +1063,7 @@ static int pxmlt_device_load_config(struct pxmlt_device *pxmlt,
 		chrdevm->cxd2858er.i2c_addr = 0x60;
 		chrdevm->cxd2858er.config.xtal = 16000;
 		chrdevm->cxd2858er.config.ter.lna = true;
+		chrdevm->cxd2858er.config.ter.rfin_matching = false;
 		chrdevm->cxd2858er.config.sat.lna = true;
 	}
 

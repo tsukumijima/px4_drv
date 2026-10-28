@@ -21,6 +21,8 @@ struct cxd2858er_config {
 	u32 xtal;
 	struct {
 		bool lna;
+		/* 待機中も地上波の RF 入力の整合を保つか (Sony の SONY_HELENE_CONFIG_POWERSAVE_TERR_RFIN_MATCHING) */
+		bool rfin_matching;
 	} ter;
 	struct {
 		bool lna;

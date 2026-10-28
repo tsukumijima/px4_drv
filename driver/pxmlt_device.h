@@ -42,8 +42,6 @@ struct pxmlt_chrdev {
 	struct pxmlt_device *parent;
 	bool lnb_power;
 	bool null_packet_filter_disabled;
-	/* 基板の電源を入れてから、チューナーを初期化したか */
-	bool tuner_initialized;
 	struct mutex *tuner_lock;
 	struct cxd2856er_demod cxd2856er;
 	struct cxd2858er_tuner cxd2858er;
