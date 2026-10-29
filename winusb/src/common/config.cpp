@@ -27,8 +27,12 @@ bool Config::Load(const std::wstring &path, const std::wstring &section) noexcep
 		std::size_t value_len;
 
 		split = std::wcschr(p, L'=');
-		if (split == nullptr)
+
+		// GetPrivateProfileSectionW() は ; で始まる行だけを除くため、# のコメントのように = のない行は読み飛ばして次の行へ進む
+		if (split == nullptr) {
+			p += std::wcslen(p) + 1;
 			continue;
+		}
 
 		*split = L'\0';
 		key = p;
