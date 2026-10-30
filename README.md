@@ -1,6 +1,6 @@
-# px4_drv - Unofficial Linux / Windows (WinUSB) driver for PLEX PX4/PX5/PX-MLT series / e-Better DTV series ISDB-T/S receivers
+# px4_drv - Unofficial Linux / Windows (WinUSB) driver for PLEX PX4/PX5/PX-MLT series / e-Better DTV series ISDB-T/S/C receivers
 
-PLEX や e-Better から発売された各種 ISDB-T/S チューナー向けの chardev 版非公式 Linux ドライバ / Windows (WinUSB) ドライバです。  
+PLEX や e-Better から発売された各種 ISDB-T/S/C チューナー向けの chardev 版非公式 Linux ドライバ / Windows (WinUSB) ドライバです。  
 PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公式ドライバとは**別物**です。
 
 ## このフォークについて
@@ -737,18 +737,19 @@ PX-Q3U4/Q3PE4 は、PX-W3U4/W3PE4 相当のデバイスが USB ハブを介し�
 	- Terrestrial Tuner: RafaelMicro R850 (x4)
 	- Satellite Tuner: RafaelMicro RT710 (x4)
 
+Demodulator として CXD2856ER が搭載されたデバイスは、ISDB-T/S だけでなく、ISDB-C / J.83 Annex B の受信にも対応しています。  
 PX-MLT8PE は、同一基板上に PX-MLT5PE 相当のデバイスと、3チャンネル分のチューナーを持つデバイスが実装されている構造となっています。
 
 - PX-MLT5PE/MLT8PE5 / DTV02A-5TS-P
 
 	- USB Bridge: ITE IT9305E
-	- ISDB-T/S Demodulator: Sony CXD2856ER (x5)
+	- ISDB-T/S/C Demodulator: Sony CXD2856ER (x5)
 	- Terrestrial/Satellite Tuner: Sony CXD2858ER (x5)
 
 - PX-MLT8PE3
 
 	- USB Bridge: ITE IT9305E
-	- ISDB-T/S Demodulator: Sony CXD2856ER (x3)
+	- ISDB-T/S/C Demodulator: Sony CXD2856ER (x3)
 	- Terrestrial/Satellite Tuner: Sony CXD2858ER (x3)
 
 DTV02-1T1S-U/DTV02A-1T1S-U は、ISDB-T 側の TS シリアル出力を ISDB-S 側と共有しています。そのため、同時に受信できるチャンネル数は1チャンネルのみです。
@@ -775,7 +776,7 @@ DTV02A-4TS-P は、PX-MLT5PE から1チャンネル分のチューナーを削�
 - DTV02A-4TS-P (Digibest ISDB6014)
 
 	- USB Bridge: ITE IT9305E
-	- ISDB-T/S Demodulator: Sony CXD2856ER (x4)
+	- ISDB-T/S/C Demodulator: Sony CXD2856ER (x4)
 	- Terrestrial/Satellite Tuner: Sony CXD2858ER (x4)
 
 ### TS Aggregation の設定
