@@ -36,6 +36,7 @@ sed -i -e "s/^#define\s\s*VER_PRODUCT_STR\s\s*.*/#define VER_PRODUCT_STR	\"$vers
 # Update version in README.md
 sed -i -e "s/px4-drv-dkms_[0-9]\+\.[0-9]\+\.[0-9]\+_all\.deb/px4-drv-dkms_${version}_all.deb/g" README.md
 sed -i -e "s/px4-drv-pcsc_[0-9]\+\.[0-9]\+\.[0-9]\+_\(amd64\|arm64\)\.deb/px4-drv-pcsc_${version}_\1.deb/g" README.md
-sed -i -e "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v${version}/g" README.md
+# Only the release download URLs carry the "v" prefix; the changelog keeps the version in which each change first shipped
+sed -i -e "s/releases\/download\/v[0-9]\+\.[0-9]\+\.[0-9]\+/releases\/download\/v${version}/g" README.md
 sed -i -e "s/px4_drv-[0-9]\+\.[0-9]\+\.[0-9]\+/px4_drv-${version}/g" README.md
 sed -i -e "s/px4_drv\/[0-9]\+\.[0-9]\+\.[0-9]\+/px4_drv\/${version}/g" README.md
