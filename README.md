@@ -266,17 +266,17 @@ px4_drv は、Linux 4.15 (Ubuntu 18.04 の初期カーネル) 以降のカーネ
 Debian パッケージを使用してインストールすると依存パッケージも自動インストールされるほか、DKMS のソースコード管理も透過的に行われます。  
 Ubuntu / Debian 環境では Debian パッケージを使用してインストールすることを強く推奨します。
 
-	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-dkms_0.6.1_all.deb
-	$ sudo apt install -y ./px4-drv-dkms_0.6.1_all.deb
+	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.7.0/px4-drv-dkms_0.7.0_all.deb
+	$ sudo apt install -y ./px4-drv-dkms_0.7.0_all.deb
 
 上記コマンドで、px4_drv の Debian パッケージをインストールできます。
 
 > [!TIP]
 手動で Debian パッケージを生成することもできます。  
-> `./build_deb.sh` を実行すると、`./build_deb.sh` の一つ上層のディレクトリに `px4-drv-dkms_0.6.1_all.deb` という名前の Debian パッケージが生成されます。  
+> `./build_deb.sh` を実行すると、`./build_deb.sh` の一つ上層のディレクトリに `px4-drv-dkms_0.7.0_all.deb` という名前の Debian パッケージが生成されます。  
 > ```
 > $ ./build_deb.sh
-> $ sudo apt install -y ../px4-drv-dkms_0.6.1_all.deb
+> $ sudo apt install -y ../px4-drv-dkms_0.7.0_all.deb
 > ```
 > 上記コマンドで、生成した px4_drv の Debian パッケージをインストールできます。
 
@@ -284,9 +284,9 @@ Ubuntu / Debian 環境では Debian パッケージを使用してインスト�
 
 gcc, make, カーネルソース/ヘッダ, dkms がインストールされている必要があります。
 
-	$ sudo cp -a ./ /usr/src/px4_drv-0.6.1
-	$ sudo dkms add px4_drv/0.6.1
-	$ sudo dkms install px4_drv/0.6.1
+	$ sudo cp -a ./ /usr/src/px4_drv-0.7.0
+	$ sudo dkms add px4_drv/0.7.0
+	$ sudo dkms install px4_drv/0.7.0
 
 #### DKMS を使用せずにインストールする
 
@@ -413,8 +413,8 @@ gcc, make, カーネルソース/ヘッダ, dkms がインストールされて�
 Releases から、CPU アーキテクチャに合った Debian パッケージ (amd64 か arm64) をダウンロードし、pcscd と一緒にインストールします。  
 Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビューションで動作します。
 
-	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-pcsc_0.6.1_amd64.deb
-	$ sudo apt install -y ./px4-drv-pcsc_0.6.1_amd64.deb pcscd
+	$ wget https://github.com/tsukumijima/px4_drv/releases/download/v0.7.0/px4-drv-pcsc_0.7.0_amd64.deb
+	$ sudo apt install -y ./px4-drv-pcsc_0.7.0_amd64.deb pcscd
 	$ sudo udevadm trigger --subsystem-match=px4card
 	$ sudo udevadm settle
 	$ sudo systemctl restart pcscd
@@ -520,8 +520,8 @@ Mirakurun の公式イメージには pcscd 用ドライバが入っていない
 ```dockerfile
 # arm64 環境では "amd64" を "arm64" に変更してください
 FROM chinachu/mirakurun:latest
-ADD https://github.com/tsukumijima/px4_drv/releases/download/v0.6.1/px4-drv-pcsc_0.6.1_amd64.deb /tmp/
-RUN dpkg -i /tmp/px4-drv-pcsc_0.6.1_amd64.deb && rm /tmp/px4-drv-pcsc_0.6.1_amd64.deb
+ADD https://github.com/tsukumijima/px4_drv/releases/download/v0.7.0/px4-drv-pcsc_0.7.0_amd64.deb /tmp/
+RUN dpkg -i /tmp/px4-drv-pcsc_0.7.0_amd64.deb && rm /tmp/px4-drv-pcsc_0.7.0_amd64.deb
 ```
 
 完了したら、ホストの pcscd を停止します。
@@ -566,8 +566,8 @@ Mirakurun の場合は、環境変数 `DISABLE_PCSCD=1` を設定した上で、
 
 #### DKMS を使用してインストールした場合
 
-	$ sudo dkms remove px4_drv/0.6.1 --all
-	$ sudo rm -rf /usr/src/px4_drv-0.6.1
+	$ sudo dkms remove px4_drv/0.7.0 --all
+	$ sudo rm -rf /usr/src/px4_drv-0.7.0
 
 #### DKMS を使用せずにインストールした場合
 
