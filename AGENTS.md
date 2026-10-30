@@ -240,6 +240,13 @@ Set-Location C:\Develop\px4_drv\winusb
 版番号は [`update_version.sh`](update_version.sh) と共有版情報の生成先を確認し、各リソースヘッダーを手作業だけで変更しないでください。  
 WinSCard_PX4 を含む Windows バイナリのプロパティには、製品名と版番号が識別できるリソースを維持します。
 
+Linux 版の ioctl は、Linux の [Documentation/driver-api/ioctl.rst](https://docs.kernel.org/driver-api/ioctl.html) の規則に従い、構造体を固定幅の型だけで定義してアドレスを `__u64` で渡します。  
+この形なら、`compat_ioctl` にポインタを変換するだけの処理を設定して、64 ビットのカーネル上の 32 ビットのプロセスにも対応できます。
+
+内蔵カードリーダーの ioctl はこの形で `compat_ioctl` を実装しています。  
+受信機の PTX と PTXT の ioctl は、`PTX_GET_CNR` などの初期の定義が `_IOR` の型の位置にポインタを指定していて、32 ビットと 64 ビットのプロセスでコマンド番号が異なるため、`compat_ioctl` を実装していません。  
+既存の定義は新しい ioctl の手本にならないため、[`include/ptx_ioctl.h`](include/ptx_ioctl.h) へ追加する定義も上記の規則で書きます。
+
 ### Windows ドライバーカタログ
 
 Windows のカタログファイルは、INF の改行コードを含むバイト列を署名対象にします。  
