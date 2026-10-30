@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "*"
+  # タグを打つ前に、Release の作成と添付以外の全ステップを試せるようにする
+  workflow_dispatch:
 
 jobs:
   build_and_release:
@@ -44,6 +46,7 @@ jobs:
         shell: bash
 
       - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
@@ -91,11 +94,15 @@ jobs:
           dpkg -i ../px4-drv-pcsc_*_${{ matrix.arch }}.deb
           pcsc/build/ifdhandler_test /usr/lib/pcsc/drivers/ifd-px4.bundle/Contents/Linux/libifd-px4.so
 
+      # upload-artifact は作業ディレクトリの外 (../) を指すパスを受け付けないため、deb を作業ディレクトリ内へ移す
+      - name: Move PC/SC package into workspace
+        run: mkdir -p pcsc-debs && mv ../px4-drv-pcsc_*_${{ matrix.arch }}.deb pcsc-debs/
+
       - name: Upload PC/SC package
         uses: actions/upload-artifact@v7
         with:
           name: pcsc-${{ matrix.arch }}
-          path: ../px4-drv-pcsc_*_${{ matrix.arch }}.deb
+          path: pcsc-debs/px4-drv-pcsc_*_${{ matrix.arch }}.deb
           if-no-files-found: error
 
   release_pcsc:
@@ -112,8 +119,12 @@ jobs:
           merge-multiple: true
           path: pcsc-debs
 
+      - name: Check PC/SC packages
+        run: ls -l pcsc-debs/px4-drv-pcsc_*_amd64.deb pcsc-debs/px4-drv-pcsc_*_arm64.deb
+
       # 既存ジョブの Release 作成を待ち、両アーキテクチャの添付を1つのジョブに集めて更新の競合を避ける
       - name: Release PC/SC packages
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
           files: pcsc-debs/*.deb
