@@ -61,7 +61,7 @@ struct ptxt_additional_param {
 	__u32 data;
 };
 
-/* 32 ビットと 64 ビットのプロセスで配置が変わらないよう、追加パラメーターの配列のアドレスは __u64 で渡す */
+/* カーネルの ioctl の構造体の慣例に従い、追加パラメーターの配列のアドレスはポインタの大きさによらない __u64 で渡す */
 struct ptxt_params {
 	__u32 system;				/* enum ptx_system_type */
 	__u32 freq;				/* 中心周波数 (kHz) */
