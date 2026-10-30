@@ -1,5 +1,11 @@
 // ptx_ioctl.h
 
+/*
+ * 64 ビットのカーネルでは、PTX と PTXT の ioctl は 64 ビットのプロセスから呼び出す (compat_ioctl は実装していない)
+ * PTX_GET_CNR・PTXT_GET_INFO・PTXT_READ_STATS は _IOR の型の位置にポインタを指定しているため、32 ビットと 64 ビットのプロセスでコマンド番号が異なり、compat_ptr_ioctl() を設定するだけでは対応できない
+ * 新しい ioctl は Linux の Documentation/driver-api/ioctl.rst の規則に従い、固定幅の型だけで構造体を定義し、アドレスは __u64 で渡す
+ */
+
 #ifndef __PTX_IOCTL_H__
 #define __PTX_IOCTL_H__
 
