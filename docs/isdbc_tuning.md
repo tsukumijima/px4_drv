@@ -109,7 +109,7 @@ TSMF の TS1 以降と J.83 Annex B は、拡張 ioctl を次の順に呼び出�
 2. `PTXT_TUNE` で選局する。ロックしない場合は `EAGAIN` 、指定した番号の TS がない場合は `ENODATA` で失敗する
 3. `PTX_START_STREAMING` の後、`read()` で TS を読み出す
 
-`struct ptxt_params` は、32 ビットと 64 ビットのプロセスで配置が変わらないよう、追加パラメーターの配列 (`struct ptxt_additional_param`) のアドレスを `__u64` の `prop` で渡し、`reserved` は `0` にします。
+`struct ptxt_params` は、カーネルの ioctl の構造体の慣例に従い、追加パラメーターの配列 (`struct ptxt_additional_param`) のアドレスをポインタの大きさによらない `__u64` の `prop` で渡し、`reserved` は `0` にします。
 
 | 追加パラメーター | 値 |
 |---|---|
