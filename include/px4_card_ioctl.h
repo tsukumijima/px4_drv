@@ -32,7 +32,7 @@ struct px4_card_frame {
 #define PX4_CARD_POWER_ON	_IO(0x8d, 0x40)
 /* 基板電源の参照を解放する (失敗しても解放済みとして扱い、デバイスファイルを閉じたときも同じ処理を行う) */
 #define PX4_CARD_POWER_OFF	_IO(0x8d, 0x41)
-/* カードがあれば 1 、なければ 0 を返す (電源を入れていなくても使える) */
+/* カードがあれば 1 、なければ 0 を返す (PX-W3U4 は基板電源停止中の値が無効) */
 #define PX4_CARD_DETECT		_IOR(0x8d, 0x42, __u32)
 /* カードをリセットし、UART を ATR の受信速度 (9600bps) へ戻す */
 #define PX4_CARD_RESET		_IO(0x8d, 0x43)
