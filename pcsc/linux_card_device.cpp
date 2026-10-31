@@ -23,17 +23,28 @@ LinuxCardDevice::~LinuxCardDevice()
 	Disconnect();
 }
 
-int LinuxCardDevice::Connect(const std::string &path)
+int LinuxCardDevice::Connect(const std::string &path, const char **failed_operation)
 {
+	if (failed_operation)
+		*failed_operation = "open";
 	if (fd_ >= 0)
 		return -EALREADY;
 	fd_ = open(path.c_str(), O_RDWR | O_CLOEXEC | O_NOCTTY);
-	return fd_ < 0 ? -errno : 0;
+	if (fd_ < 0)
+		return -errno;
+	if (failed_operation)
+		*failed_operation = "PX4_CARD_POWER_ON";
+	/* PX-W3U4 は電源停止中の検出値が無効なので、リーダーの監視が終わるまで基板電源の参照を保持する */
+	const int ret = OpenCard();
+	if (ret)
+		Disconnect();
+	return ret;
 }
 
 void LinuxCardDevice::Disconnect() noexcept
 {
 	if (fd_ >= 0) {
+		/* カーネルの release で基板電源の参照も解放する (チューナーの参照が残っていれば給電は続く) */
 		/* Linux の close() は EINTR でも記述子を解放済みなので、再試行すると別の記述子を閉じてしまう */
 		close(fd_);
 		fd_ = -1;
@@ -62,14 +73,9 @@ int LinuxCardDevice::OpenCard()
 	return Request(PX4_CARD_POWER_ON, nullptr);
 }
 
-int LinuxCardDevice::PowerOff()
-{
-	return Request(PX4_CARD_POWER_OFF, nullptr);
-}
-
 void LinuxCardDevice::CloseCard()
 {
-	PowerOff();
+	/* カードのセッションを破棄した後も挿抜の監視には給電が必要で、電源の参照は Disconnect() で解放する */
 }
 
 int LinuxCardDevice::DetectCard(bool &detected)

@@ -97,12 +97,14 @@ extern "C" RESPONSECODE IFDHCreateChannelByName(DWORD Lun, LPSTR DeviceName)
 	try {
 		auto reader = std::make_shared<Reader>();
 		std::string path;
+		const char *failed_operation = "ResolveCardDevice";
 		int ret;
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
 		do {
+			failed_operation = "ResolveCardDevice";
 			ret = px4::ResolveCardDevice(DeviceName, path);
 			if (!ret)
-				ret = reader->device->Connect(path);
+				ret = reader->device->Connect(path, &failed_operation);
 			if (ret != -ENODEV && ret != -ENOENT && ret != -EACCES)
 				break;
 			if (DeviceName[0] == '/')
@@ -116,8 +118,8 @@ extern "C" RESPONSECODE IFDHCreateChannelByName(DWORD Lun, LPSTR DeviceName)
 		if (ret) {
 			/* 再試行の途中の失敗は記録せず、権限の不足のような原因を最後の1回だけ pcscd のログに残す */
 			if (!path.empty())
-				Log4(PCSC_LOG_ERROR, "open(%s) failed: %s (errno=%d)",
-					path.c_str(), std::strerror(-ret), -ret);
+				Log5(PCSC_LOG_ERROR, "%s(%s) failed: %s (errno=%d)",
+					failed_operation, path.c_str(), std::strerror(-ret), -ret);
 			return MapError(ret);
 		}
 		std::lock_guard<std::mutex> lock(readers_lock);
@@ -217,10 +219,9 @@ extern "C" RESPONSECODE IFDHPowerICC(DWORD Lun, DWORD Action, PUCHAR Atr, PDWORD
 	*AtrLength = 0;
 	return WithReader(Lun, [&](Reader &reader) -> RESPONSECODE {
 		if (Action == IFD_POWER_DOWN) {
-			/* SmartCard::Close() は失敗を返さないため、電源の停止を先に実行して結果を pcscd へ返す */
-			int ret = reader.device->PowerOff();
+			/* 挿抜監視の電源参照は維持し、次の POWER_UP で ATR と T=1 を再初期化する */
 			reader.Invalidate();
-			return MapError(ret);
+			return IFD_SUCCESS;
 		}
 		if (Action != IFD_POWER_UP && Action != IFD_RESET)
 			return IFD_NOT_SUPPORTED;

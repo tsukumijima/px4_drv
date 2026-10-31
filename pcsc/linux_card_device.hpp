@@ -10,11 +10,10 @@ namespace px4 {
 class LinuxCardDevice final : public CardDevice {
 public:
 	~LinuxCardDevice() override;
-	int Connect(const std::string &path);
+	int Connect(const std::string &path, const char **failed_operation = nullptr);
 	void Disconnect() noexcept;
 	int OpenCard() override;
 	void CloseCard() override;
-	int PowerOff();
 	int DetectCard(bool &detected) override;
 	int ResetCard() override;
 	int SetCardBaudrate(std::uint32_t baudrate) override;

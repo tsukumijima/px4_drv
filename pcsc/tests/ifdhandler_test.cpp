@@ -32,6 +32,7 @@ struct Device {
 	bool old_module = false;
 	int error = 0;
 	int detect_error = 0;
+	int power_error = 0;
 	unsigned int resets = 0;
 	unsigned int writes = 0;
 	unsigned int sequence = 0;
@@ -133,6 +134,8 @@ extern "C" int __wrap_ioctl(int fd, unsigned long command, ...)
 	auto &frame = *static_cast<px4_card_frame *>(argument);
 	switch (command) {
 	case PX4_CARD_POWER_ON:
+		if (device->power_error)
+			return Failure(device->power_error);
 		device->powered = true;
 		return 0;
 	case PX4_CARD_POWER_OFF:
@@ -144,7 +147,8 @@ extern "C" int __wrap_ioctl(int fd, unsigned long command, ...)
 			device->detect_error = 0;
 			return Failure(error);
 		}
-		value = device->present;
+		/* PX-W3U4 は基板電源が切れると、カードを抜いていても挿入済みの値を返す */
+		value = !device->powered || device->present;
 		return 0;
 	}
 	if (!device->powered)
@@ -262,10 +266,24 @@ int main(int argc, char *argv[])
 		dlclose(library);
 	}
 	char path0[] = "/dev/px4card-test0", path1[] = "/dev/px4card-test1";
+	devices[0].present = false;
+	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS);
+	assert(IFDHICCPresence(0) == IFD_ICC_NOT_PRESENT);
+	assert(IFDHICCPresence(0) == IFD_ICC_NOT_PRESENT);
+	assert(devices[0].powered && devices[0].resets == 0);
+	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].powered);
+	devices[0] = Device{};
+	devices[0].power_error = ETIMEDOUT;
+	assert(IFDHCreateChannelByName(0, path0) == IFD_RESPONSE_TIMEOUT);
+	assert(!devices[0].opened && !devices[0].powered);
+	assert(last_log.find("PX4_CARD_POWER_ON") != std::string::npos &&
+		last_log.find("errno=" + std::to_string(ETIMEDOUT)) != std::string::npos);
+	last_log.clear();
+	devices[0].power_error = 0;
 	assert(IFDHCreateChannelByName(1, path0) == IFD_NO_SUCH_DEVICE);
 	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS);
 	assert(last_log.empty());
-	assert(devices[0].opened && !devices[0].powered && devices[0].resets == 0);
+	assert(devices[0].opened && devices[0].powered && devices[0].resets == 0);
 	assert(IFDHCreateChannelByName(0x10000, path0) == IFD_COMMUNICATION_ERROR);
 	assert(last_log.find(path0) != std::string::npos &&
 		last_log.find("errno=" + std::to_string(EBUSY)) != std::string::npos);
@@ -285,7 +303,7 @@ int main(int argc, char *argv[])
 	length = sizeof(buffer);
 	assert(IFDHPowerICC(0, IFD_POWER_UP, buffer, &length) == IFD_SUCCESS);
 	assert(length == sizeof(atr) && !std::memcmp(buffer, atr, length));
-	assert(devices[0].powered && devices[0].resets == 1 && !devices[1].powered);
+	assert(devices[0].powered && devices[0].resets == 1 && devices[1].powered && devices[1].resets == 0);
 	assert(IFDHSetProtocolParameters(0, SCARD_PROTOCOL_T0, 0, 0, 0, 0) == IFD_PROTOCOL_NOT_SUPPORTED);
 	assert(IFDHSetProtocolParameters(0, SCARD_PROTOCOL_T1, 1, 0x11, 0, 0) == IFD_ERROR_PTS_FAILURE);
 	assert(IFDHSetProtocolParameters(0, SCARD_PROTOCOL_T1, 0, 0, 0, 0) == IFD_SUCCESS);
@@ -317,12 +335,17 @@ int main(int argc, char *argv[])
 	length = sizeof(buffer);
 	assert(IFDHSetProtocolParameters(0, SCARD_PROTOCOL_T1, 0, 0, 0, 0) == IFD_SUCCESS);
 	assert(IFDHTransmitToICC(0, pci, apdu, sizeof(apdu), buffer, &length, &received) == IFD_ICC_NOT_PRESENT);
-	assert(length == 0 && !devices[0].powered); // カードの抜去ではカードを閉じる
+	assert(length == 0 && devices[0].powered); // 抜去後もリーダーへの給電を維持して再挿入を監視する
+	assert(IFDHICCPresence(0) == IFD_ICC_NOT_PRESENT);
+	assert(IFDHICCPresence(0) == IFD_ICC_NOT_PRESENT);
+	length = sizeof(buffer);
+	assert(IFDHGetCapabilities(0, TAG_IFD_ATR, &length, buffer) == IFD_SUCCESS && length == 0);
 	devices[0].present = true;
 	length = sizeof(buffer);
 	assert(IFDHPowerICC(0, IFD_POWER_DOWN, buffer, &length) == IFD_SUCCESS && length == 0);
 	const auto resets = devices[0].resets;
-	assert(IFDHICCPresence(0) == IFD_ICC_PRESENT && devices[0].resets == resets && !devices[0].powered);
+	assert(IFDHICCPresence(0) == IFD_ICC_PRESENT && devices[0].resets == resets && devices[0].powered);
+	assert(IFDHSetProtocolParameters(0, SCARD_PROTOCOL_T1, 0, 0, 0, 0) == IFD_COMMUNICATION_ERROR);
 	devices[0].present = false;
 	assert(IFDHICCPresence(0) == IFD_ICC_NOT_PRESENT);
 	length = sizeof(buffer);
@@ -330,19 +353,21 @@ int main(int argc, char *argv[])
 	devices[0].present = true;
 	length = sizeof(buffer);
 	assert(IFDHPowerICC(0, IFD_POWER_UP, buffer, &length) == IFD_SUCCESS);
+	assert(devices[0].resets == resets + 1 && length == sizeof(atr));
+	assert(IFDHSetProtocolParameters(0, SCARD_PROTOCOL_T1, 0, 0, 0, 0) == IFD_SUCCESS);
+	length = sizeof(buffer);
+	assert(IFDHTransmitToICC(0, pci, apdu, sizeof(apdu), buffer, &length, &received) == IFD_SUCCESS && length == 2);
 	devices[0].available = false;
 	assert(IFDHICCPresence(0) == IFD_NO_SUCH_DEVICE);
 	assert(IFDHICCPresence(0x10000) == IFD_ICC_PRESENT);
 	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].opened);
 	assert(IFDHCloseChannel(0) == IFD_NO_SUCH_DEVICE);
-	assert(IFDHCloseChannel(0x10000) == IFD_SUCCESS && !devices[1].opened);
+	assert(IFDHCloseChannel(0x10000) == IFD_SUCCESS && !devices[1].opened && !devices[1].powered);
 	devices[0].available = true;
 	devices[0].old_module = true;
-	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS);
-	length = sizeof(buffer);
-	assert(IFDHPowerICC(0, IFD_POWER_UP, buffer, &length) != IFD_SUCCESS && length == 0);
-	assert(last_log.find("not supported by the px4_drv kernel module") != std::string::npos);
-	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].opened);
+	assert(IFDHCreateChannelByName(0, path0) == IFD_COMMUNICATION_ERROR && !devices[0].opened);
+	assert(last_log.find("PX4_CARD_POWER_ON") != std::string::npos &&
+		last_log.find("errno=" + std::to_string(ENOTTY)) != std::string::npos);
 	std::puts("ifdhandler_test: passed");
 }
 #endif
