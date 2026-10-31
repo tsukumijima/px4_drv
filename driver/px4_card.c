@@ -134,8 +134,8 @@ static int px4_card_request(struct px4_card *card, unsigned int command,
 
 	case PX4_CARD_DETECT:
 		/*
-		 * pcscd は電源を入れずにカードの有無を問い合わせ続けるため、検出だけで電源の参照を取ると基板の電源が切れなくなる
-		 * GPIO H6 の入力設定は通常 it930x_bcas_init() で行うが、電源を入れる前の検出に備えてここでも設定する (2回目以降はキャッシュで転送を省く)
+		 * PX-W3U4 は基板電源が切れると、カードがなくても GPIO H6 が挿入済みの値になるため、呼び出し側で監視中の電源参照を保持する
+		 * GPIO H6 は入力モードで読み、2回目以降の設定はキャッシュで USB 転送を省く
 		 */
 		ret = it930x_set_gpio_mode(it930x, 6, IT930X_GPIO_IN, true);
 		if (!ret)
