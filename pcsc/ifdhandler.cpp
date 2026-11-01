@@ -207,6 +207,17 @@ extern "C" RESPONSECODE IFDHICCPresence(DWORD Lun)
 	return WithReader(Lun, [](Reader &reader) -> RESPONSECODE {
 		bool present = false;
 		int ret = CheckPresence(reader, present);
+		/*
+		 * pcscd は検出のエラーでリーダーの状態を不明とし、次に検出できたときにカードを再初期化する
+		 * 既存の接続にはリセットを通知せずにプロトコルを未設定へ戻すため、その接続の送信は SCARD_E_PROTO_MISMATCH で失敗し続ける
+		 * USB 切断以外の失敗は1回だけ検出し直し、続けて失敗したときはエラーを返して監視側に異常を通知する
+		 */
+		if (ret && MapError(ret) != IFD_NO_SUCH_DEVICE) {
+			/* 検出し直して成功したときも、接触不良や USB の不調を追えるよう失敗の時刻を pcscd のログに残す */
+			Log3(PCSC_LOG_ERROR, "PX4_CARD_DETECT failed, retrying once: %s (errno=%d)",
+				std::strerror(-ret), -ret);
+			ret = CheckPresence(reader, present);
+		}
 		return ret ? MapError(ret) : present ? IFD_ICC_PRESENT : IFD_ICC_NOT_PRESENT;
 	});
 }

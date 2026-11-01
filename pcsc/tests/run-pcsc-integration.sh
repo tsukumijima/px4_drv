@@ -30,7 +30,9 @@ finish() {
     rm -f /dev/px4card-test0
 }
 trap finish EXIT HUP INT TERM
-mkdir -p "$stage/readers" /run/pcscd
+mkdir -p "$stage/readers" "$stage/control" /run/pcscd
+# pcscd が読み込む模擬の IFD ハンドラーと試験のクライアントは、このディレクトリのファイルで障害の注入をやり取りする
+export PX4_IFD_TEST_CONTROL="$stage/control"
 cat > "$stage/readers/px4.conf" <<EOF
 FRIENDLYNAME "PX4 isolated test"
 DEVICENAME /dev/px4card-test0
