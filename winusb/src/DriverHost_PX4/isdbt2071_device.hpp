@@ -152,7 +152,6 @@ private:
 	std::atomic_bool init_;
 	unsigned int streaming_count_;
 	bool card_open_;
-	bool receiver_open_;
 	std::unique_ptr<Isdbt2071Receiver> receiver_;
 	it930x_bridge it930x_;
 	StreamContext stream_ctx_;

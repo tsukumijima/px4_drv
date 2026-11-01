@@ -19,8 +19,7 @@ Isdb2056Device::Isdb2056Device(const std::wstring &path, const px4::DeviceDefini
 	available_(true),
 	init_(false),
 	streaming_count_(0),
-	card_open_(false),
-	receiver_open_(false)
+	card_open_(false)
 {
 	if (usb_dev_.descriptor.idVendor != 0x0511)
 		throw DeviceError("px4::Isdb2056Device::Isdb2056Device: unsupported device. (unknown vendor id)");
@@ -274,19 +273,13 @@ int Isdb2056Device::OpenCard()
 	if (card_open_)
 		return -EBUSY;
 
-	/* 受信中の電源再投入は TS を途切れさせるため、未使用時だけ投入する */
-	if (!receiver_open_) {
-		int ret = SetBackendPower(true);
-		if (ret)
-			return ret;
-	}
-
+	/*
+	 * カードの検出と通信は基板電源 (GPIO2・GPIO3) を切ったままで動作するため、カードのために受信回路へ給電しない
+	 * PX-M1UR は受信回路を初期化しないまま給電すると、USB ハブとアンテナを共有する別のチューナーの受信品質を下げる
+	 */
 	int ret = it930x_bcas_init(&it930x_);
-	if (ret) {
-		if (!receiver_open_)
-			SetBackendPower(false);
+	if (ret)
 		return ret;
-	}
 
 	card_open_ = true;
 	return 0;
@@ -300,8 +293,6 @@ void Isdb2056Device::CloseCard()
 		return;
 
 	card_open_ = false;
-	if (!receiver_open_)
-		SetBackendPower(false);
 }
 
 int Isdb2056Device::DetectCard(bool &detected)
@@ -740,8 +731,7 @@ int Isdb2056Device::Isdb2056Receiver::Open()
 	if (open_)
 		return (!init_) ? -EINVAL : -EALREADY;
 
-	if (!parent_.card_open_)
-		ret = parent_.SetBackendPower(true);
+	ret = parent_.SetBackendPower(true);
 	if (ret) {
 		dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): parent_.SetBackendPower(true) failed. (ret: %d)\n", index_, ret);
 		return ret;
@@ -750,8 +740,7 @@ int Isdb2056Device::Isdb2056Receiver::Open()
 	ret = parent_.receiver_->Init(true);
 	if (ret) {
 		dev_err(&parent_.dev_, "px4::Isdb2056Device::Isdb2056Receiver::Open(%u): parent_.reciver_->Init(true) failed. (ret: %d)\n", index_, ret);
-		if (!parent_.card_open_)
-			parent_.SetBackendPower(false);
+		parent_.SetBackendPower(false);
 		return ret;
 	}
 
@@ -809,15 +798,13 @@ int Isdb2056Device::Isdb2056Receiver::Open()
 		goto fail;
 	}
 
-	parent_.receiver_open_ = true;
 	open_ = true;
 	return ret;
 
 fail:
 	/* カード接続を維持したまま、途中まで初期化した受信回路だけを戻す */
 	parent_.receiver_->Term();
-	if (!parent_.card_open_)
-		parent_.SetBackendPower(false);
+	parent_.SetBackendPower(false);
 	return ret;
 }
 
@@ -835,9 +822,7 @@ void Isdb2056Device::Isdb2056Receiver::Close()
 	std::lock_guard<std::recursive_mutex> dev_lock(parent_.lock_);
 
 	parent_.receiver_->Term();
-	parent_.receiver_open_ = false;
-	if (!parent_.card_open_)
-		parent_.SetBackendPower(false);
+	parent_.SetBackendPower(false);
 
 	open_ = false;
 
