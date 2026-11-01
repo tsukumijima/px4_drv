@@ -6,6 +6,7 @@ extern "C" {
 
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,7 @@ extern "C" {
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -35,7 +37,10 @@ struct Device {
 	int detect_error = ETIMEDOUT;
 	unsigned int detect_failures = 0;
 	unsigned int detects = 0;
-	int power_error = 0;
+	int power_error = ETIMEDOUT;
+	unsigned int power_failures = 0;
+	/* 制御転送のタイムアウトのように、失敗を返すまでにかかる時間 */
+	std::chrono::milliseconds power_failure_delay{0};
 	unsigned int resets = 0;
 	unsigned int writes = 0;
 	unsigned int sequence = 0;
@@ -45,6 +50,7 @@ std::array<Device, 2> devices;
 constexpr int FIRST_FD = 50000;
 unsigned char atr[] = {0x3b, 0x80, 0x01, 0x81};
 std::string last_log;
+std::string all_logs;
 
 int Failure(int error)
 {
@@ -80,6 +86,8 @@ extern "C" void log_msg(const int priority, const char *format, ...)
 	std::vsnprintf(message, sizeof(message), format, args);
 	va_end(args);
 	last_log = message;
+	all_logs += message;
+	all_logs += '\n';
 	errno = EIO;
 }
 
@@ -168,8 +176,11 @@ extern "C" int __wrap_ioctl(int fd, unsigned long command, ...)
 	auto &frame = *static_cast<px4_card_frame *>(argument);
 	switch (command) {
 	case PX4_CARD_POWER_ON:
-		if (device->power_error)
+		if (device->power_failures) {
+			device->power_failures--;
+			std::this_thread::sleep_for(device->power_failure_delay);
 			return Failure(device->power_error);
+		}
 		device->powered = true;
 		return 0;
 	case PX4_CARD_POWER_OFF:
@@ -306,13 +317,23 @@ int main(int argc, char *argv[])
 	assert(devices[0].powered && devices[0].resets == 0);
 	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].powered);
 	devices[0] = Device{};
-	devices[0].power_error = ETIMEDOUT;
-	assert(IFDHCreateChannelByName(0, path0) == IFD_RESPONSE_TIMEOUT);
+	devices[0].power_failures = 1;
+	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS); // 電源投入の一時的な失敗は再試行して登録する
+	assert(devices[0].opened && devices[0].powered && last_log.empty());
+	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].opened);
+	devices[0].power_failures = 1;
+	devices[0].power_failure_delay = std::chrono::milliseconds(3100);
+	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS); // タイムアウト1回で期限を使い切っても、電源投入をやり直す
+	assert(devices[0].opened && devices[0].powered);
+	assert(IFDHCloseChannel(0) == IFD_SUCCESS && !devices[0].opened);
+	devices[0].power_failure_delay = std::chrono::milliseconds(0);
+	devices[0].power_failures = 1000000;
+	assert(IFDHCreateChannelByName(0, path0) == IFD_RESPONSE_TIMEOUT); // 期限まで失敗し続けたら登録を失敗させる
 	assert(!devices[0].opened && !devices[0].powered);
 	assert(last_log.find("PX4_CARD_POWER_ON") != std::string::npos &&
 		last_log.find("errno=" + std::to_string(ETIMEDOUT)) != std::string::npos);
 	last_log.clear();
-	devices[0].power_error = 0;
+	devices[0].power_failures = 0;
 	assert(IFDHCreateChannelByName(1, path0) == IFD_NO_SUCH_DEVICE);
 	assert(IFDHCreateChannelByName(0, path0) == IFD_SUCCESS);
 	assert(last_log.empty());
@@ -415,7 +436,9 @@ int main(int argc, char *argv[])
 	assert(IFDHCloseChannel(0x10000) == IFD_SUCCESS && !devices[1].opened && !devices[1].powered);
 	devices[0].available = true;
 	devices[0].old_module = true;
+	all_logs.clear();
 	assert(IFDHCreateChannelByName(0, path0) == IFD_COMMUNICATION_ERROR && !devices[0].opened);
+	assert(all_logs.find("not supported by the px4_drv kernel module") != std::string::npos);
 	assert(last_log.find("PX4_CARD_POWER_ON") != std::string::npos &&
 		last_log.find("errno=" + std::to_string(ENOTTY)) != std::string::npos);
 	std::puts("ifdhandler_test: passed");
