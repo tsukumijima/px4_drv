@@ -264,15 +264,12 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 
 	mutex_lock(&isdb2056->lock);
 
-	/* カードが基板の電源を使っている場合は入れ直さず、受信回路の初期化だけを行う */
-	if (!isdb2056->card_powered) {
-		ret = isdb2056_backend_set_power(isdb2056, true);
-		if (ret) {
-			dev_err(isdb2056->dev,
-				"isdb2056_chrdev_open %u: isdb2056_backend_set_power(true) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			goto fail_backend_power;
-		}
+	ret = isdb2056_backend_set_power(isdb2056, true);
+	if (ret) {
+		dev_err(isdb2056->dev,
+			"isdb2056_chrdev_open %u: isdb2056_backend_set_power(true) failed. (ret: %d)\n",
+			chrdev_group->id, ret);
+		goto fail_backend_power;
 	}
 
 	ret = isdb2056_backend_init(isdb2056);
@@ -353,7 +350,6 @@ static int isdb2056_chrdev_open(struct ptx_chrdev *chrdev)
 		goto fail_backend;
 	}
 
-	isdb2056->tuner_open = true;
 	kref_get(&isdb2056->kref);
 
 	mutex_unlock(&isdb2056->lock);
@@ -363,8 +359,7 @@ fail_backend:
 	isdb2056_backend_term(isdb2056);
 
 fail_backend_init:
-	if (!isdb2056->card_powered)
-		isdb2056_backend_set_power(isdb2056, false);
+	isdb2056_backend_set_power(isdb2056, false);
 
 fail_backend_power:
 	mutex_unlock(&isdb2056->lock);
@@ -386,9 +381,7 @@ static int isdb2056_chrdev_release(struct ptx_chrdev *chrdev)
 	mutex_lock(&isdb2056->lock);
 
 	isdb2056_backend_term(isdb2056);
-	isdb2056->tuner_open = false;
-	if (!isdb2056->card_powered)
-		isdb2056_backend_set_power(isdb2056, false);
+	isdb2056_backend_set_power(isdb2056, false);
 
 	mutex_unlock(&isdb2056->lock);
 
@@ -1024,22 +1017,6 @@ static int isdb2056_device_load_config(struct isdb2056_device *isdb2056,
 	return 0;
 }
 
-static int isdb2056_device_set_card_power(void *context, bool on)
-{
-	struct isdb2056_device *isdb2056 = context;
-	int ret = 0;
-
-	/* 受信中のチューナーがあれば、基板の電源はチューナー側で入ったままになっている */
-	if (!isdb2056->tuner_open)
-		ret = isdb2056_backend_set_power(isdb2056, on);
-
-	/* 停止は成否にかかわらず停止済みとして記録し、投入は成功したときだけ記録する */
-	if (!on || !ret)
-		isdb2056->card_powered = on;
-
-	return ret;
-}
-
 int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 			 enum isdb2056_model isdb2056_model,
 			 struct ptx_chrdev_context *chrdev_ctx,
@@ -1062,8 +1039,6 @@ int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 
 	kref_init(&isdb2056->kref);
 	mutex_init(&isdb2056->lock);
-	isdb2056->tuner_open = false;
-	isdb2056->card_powered = false;
 	isdb2056->card = NULL;
 	isdb2056->dev = dev;
 	isdb2056->isdb2056_model = isdb2056_model;
@@ -1175,8 +1150,10 @@ int isdb2056_device_init(struct isdb2056_device *isdb2056, struct device *dev,
 			.it930x = it930x,
 			.lock = &isdb2056->lock,
 			.available = &isdb2056->available,
-			.set_power = isdb2056_device_set_card_power,
-			.context = isdb2056,
+			/*
+			 * カードの検出と通信は基板電源 (GPIO2・GPIO3) を切ったままで動作するため、カードのために受信回路へ給電しない
+			 * PX-M1UR は受信回路を初期化しないまま給電すると、USB ハブとアンテナを共有する別のチューナーの受信品質を下げる
+			 */
 		};
 
 		/* カードリーダーを登録できなくても、チューナーは使えるようにする */

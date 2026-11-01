@@ -230,15 +230,12 @@ static int isdbt2071_chrdev_open(struct ptx_chrdev *chrdev)
 
 	mutex_lock(&isdbt2071->lock);
 
-	/* カードが基板の電源を使っている場合は入れ直さず、受信回路の初期化だけを行う */
-	if (!isdbt2071->card_powered) {
-		ret = isdbt2071_backend_set_power(isdbt2071, true);
-		if (ret) {
-			dev_err(isdbt2071->dev,
-				"isdbt2071_chrdev_open %u: isdbt2071_backend_set_power(true) failed. (ret: %d)\n",
-				chrdev_group->id, ret);
-			goto fail_backend_power;
-		}
+	ret = isdbt2071_backend_set_power(isdbt2071, true);
+	if (ret) {
+		dev_err(isdbt2071->dev,
+			"isdbt2071_chrdev_open %u: isdbt2071_backend_set_power(true) failed. (ret: %d)\n",
+			chrdev_group->id, ret);
+		goto fail_backend_power;
 	}
 
 	ret = isdbt2071_backend_init(isdbt2071);
@@ -298,7 +295,6 @@ static int isdbt2071_chrdev_open(struct ptx_chrdev *chrdev)
 		goto fail_backend;
 	}
 
-	isdbt2071->tuner_open = true;
 	kref_get(&isdbt2071->kref);
 
 	mutex_unlock(&isdbt2071->lock);
@@ -308,8 +304,7 @@ fail_backend:
 	isdbt2071_backend_term(isdbt2071);
 
 fail_backend_init:
-	if (!isdbt2071->card_powered)
-		isdbt2071_backend_set_power(isdbt2071, false);
+	isdbt2071_backend_set_power(isdbt2071, false);
 
 fail_backend_power:
 	mutex_unlock(&isdbt2071->lock);
@@ -331,9 +326,7 @@ static int isdbt2071_chrdev_release(struct ptx_chrdev *chrdev)
 	mutex_lock(&isdbt2071->lock);
 
 	isdbt2071_backend_term(isdbt2071);
-	isdbt2071->tuner_open = false;
-	if (!isdbt2071->card_powered)
-		isdbt2071_backend_set_power(isdbt2071, false);
+	isdbt2071_backend_set_power(isdbt2071, false);
 
 	mutex_unlock(&isdbt2071->lock);
 
@@ -664,22 +657,6 @@ static int isdbt2071_device_load_config(struct isdbt2071_device *isdbt2071,
 	return 0;
 }
 
-static int isdbt2071_device_set_card_power(void *context, bool on)
-{
-	struct isdbt2071_device *isdbt2071 = context;
-	int ret = 0;
-
-	/* 受信中のチューナーがあれば、基板の電源はチューナー側で入ったままになっている */
-	if (!isdbt2071->tuner_open)
-		ret = isdbt2071_backend_set_power(isdbt2071, on);
-
-	/* 停止は成否にかかわらず停止済みとして記録し、投入は成功したときだけ記録する */
-	if (!on || !ret)
-		isdbt2071->card_powered = on;
-
-	return ret;
-}
-
 int isdbt2071_device_init(struct isdbt2071_device *isdbt2071, struct device *dev,
 			struct ptx_chrdev_context *chrdev_ctx,
 			struct completion *quit_completion)
@@ -701,8 +678,6 @@ int isdbt2071_device_init(struct isdbt2071_device *isdbt2071, struct device *dev
 
 	kref_init(&isdbt2071->kref);
 	mutex_init(&isdbt2071->lock);
-	isdbt2071->tuner_open = false;
-	isdbt2071->card_powered = false;
 	isdbt2071->card = NULL;
 	isdbt2071->dev = dev;
 	isdbt2071->quit_completion = quit_completion;
@@ -801,8 +776,10 @@ int isdbt2071_device_init(struct isdbt2071_device *isdbt2071, struct device *dev
 			.it930x = it930x,
 			.lock = &isdbt2071->lock,
 			.available = &isdbt2071->available,
-			.set_power = isdbt2071_device_set_card_power,
-			.context = isdbt2071,
+			/*
+			 * ISDB2056 系と同じ IT930x の UART と GPIO H6 でカードを扱い、基板電源 (GPIO2・GPIO3) も同じ手順で制御するため、
+			 * ISDB2056 系と同じくカードのために受信回路へ給電しない
+			 */
 		};
 
 		/* カードリーダーを登録できなくても、チューナーは使えるようにする */

@@ -92,16 +92,19 @@ static int px4_card_set_power(struct px4_card *card, bool on)
 	if (!on) {
 		/* 電源の停止は成否にかかわらず停止済みとして扱い、チューナー側の参照と食い違わせない */
 		card->powered = false;
-		return backend->set_power(backend->context, false);
+		return backend->set_power ? backend->set_power(backend->context, false) : 0;
 	}
 
-	ret = backend->set_power(backend->context, true);
-	if (ret)
-		return ret;
+	if (backend->set_power) {
+		ret = backend->set_power(backend->context, true);
+		if (ret)
+			return ret;
+	}
 
 	ret = it930x_bcas_init(backend->it930x);
 	if (ret) {
-		backend->set_power(backend->context, false);
+		if (backend->set_power)
+			backend->set_power(backend->context, false);
 		return ret;
 	}
 

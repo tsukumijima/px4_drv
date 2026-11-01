@@ -75,7 +75,7 @@ int LinuxCardDevice::OpenCard()
 
 void LinuxCardDevice::CloseCard()
 {
-	/* カードのセッションを破棄した後も挿抜の監視には給電が必要で、電源の参照は Disconnect() で解放する */
+	/* 挿抜の監視に給電が必要な機種があるため、カードのセッションを破棄した後も電源の参照は Disconnect() まで保持する */
 }
 
 int LinuxCardDevice::DetectCard(bool &detected)
