@@ -17,6 +17,7 @@
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <linux/fs.h>
+#include <linux/poll.h>
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
@@ -153,7 +154,7 @@ static ssize_t ptx_chrdev_read(struct file *file,
 	while (likely(remain)) {
 		size_t len;
 
-		/* O_NONBLOCK must not wait for additional TS packets. */
+		/* O_NONBLOCK では追加の TS パケットを待たず、読み出せた分だけ返す */
 		if (file->f_flags & O_NONBLOCK) {
 			if (!ringbuffer_is_readable(chrdev->ringbuf)) {
 				if (unlikely(!atomic_read(&group->available))) {
@@ -177,8 +178,22 @@ static ssize_t ptx_chrdev_read(struct file *file,
 
 		len = remain;
 		ret = ringbuffer_read_user(chrdev->ringbuf, p, &len);
-		if (unlikely(ret || !len))
+		if (unlikely(ret))
 			break;
+
+		if (unlikely(!len)) {
+			/* 可読確認後に別の読出し・リセットでデータが消えても、受信中は EOF にしない */
+			if (unlikely(!atomic_read_acquire(&group->available))) {
+				if (remain == count)
+					ret = -EIO;
+			} else if (ringbuffer_is_running(chrdev->ringbuf)) {
+				if (!(file->f_flags & O_NONBLOCK))
+					continue;
+				if (remain == count)
+					ret = -EAGAIN;
+			}
+			break;
+		}
 
 		p += len;
 		remain -= len;
@@ -190,6 +205,29 @@ static ssize_t ptx_chrdev_read(struct file *file,
 	}
 
 	return likely(!ret) ? (count - remain) : ret;
+}
+
+/* 通常の read() の閾値起床と分け、poll には読み取り可能な TS を即時通知する */
+static __poll_t ptx_chrdev_poll(struct file *file, poll_table *wait)
+{
+	struct ptx_chrdev *chrdev = file->private_data;
+	struct ptx_chrdev_group *group = chrdev->parent;
+	__poll_t mask = 0;
+
+	poll_wait(file, &chrdev->ringbuf_poll_wait, wait);
+
+	if (unlikely(!atomic_read_acquire(&group->available)))
+		return EPOLLERR | EPOLLHUP;
+
+	/* 最初の利用が poll() でも受信データの書き込みを開始できるようにする */
+	ringbuffer_ready_read(chrdev->ringbuf);
+
+	if (ringbuffer_is_readable(chrdev->ringbuf))
+		mask |= EPOLLIN | EPOLLRDNORM;
+	if (!ringbuffer_is_running(chrdev->ringbuf))
+		mask |= EPOLLHUP;
+
+	return mask;
 }
 
 static int ptx_chrdev_release(struct inode *inode, struct file *file)
@@ -209,6 +247,7 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 
 		ringbuffer_stop(chrdev->ringbuf);
 		wake_up(&chrdev->ringbuf_wait);
+		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, EPOLLHUP);
 		chrdev->streaming = false;
 	}
 
@@ -637,6 +676,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		if (!ret) {
 			ringbuffer_stop(chrdev->ringbuf);
 			wake_up(&chrdev->ringbuf_wait);
+			wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, EPOLLHUP);
 			chrdev->streaming = false;
 		}
 
@@ -776,6 +816,7 @@ static struct file_operations ptx_chrdev_fops = {
 	.owner = THIS_MODULE,
 	.open = ptx_chrdev_open,
 	.read = ptx_chrdev_read,
+	.poll = ptx_chrdev_poll,
 	.release = ptx_chrdev_release,
 	.unlocked_ioctl = ptx_chrdev_unlocked_ioctl
 };
@@ -1083,6 +1124,7 @@ int ptx_chrdev_context_add_group(struct ptx_chrdev_context *chrdev_ctx,
 		chrdev->options = chrdev_config->options;
 		chrdev->streaming = false;
 		init_waitqueue_head(&chrdev->ringbuf_wait);
+		init_waitqueue_head(&chrdev->ringbuf_poll_wait);
 		chrdev->ringbuf_threshold_size = chrdev_config->ringbuf_threshold_size;
 		chrdev->ringbuf_write_size = 0;
 		chrdev->priv = chrdev_config->priv;
@@ -1286,6 +1328,8 @@ void ptx_chrdev_group_destroy(struct ptx_chrdev_group *chrdev_group)
 
 	for (i = 0; i < chrdev_group->chrdev_num; i++) {
 		wake_up(&chrdev_group->chrdev[i].ringbuf_wait);
+		wake_up_interruptible_poll(&chrdev_group->chrdev[i].ringbuf_poll_wait,
+					   EPOLLERR | EPOLLHUP);
 		device_destroy(ctx->class,
 			       MKDEV(MAJOR(ctx->dev_base),
 				     chrdev_group->minor_base + i));
@@ -1308,6 +1352,7 @@ static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t
 	const u8 *out;
 	size_t size;
 	unsigned long flags;
+	bool poll_readable = false;
 	int ret = 0;
 
 	spin_lock_irqsave(&stream->lock, flags);
@@ -1319,6 +1364,8 @@ static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t
 		ret = ringbuffer_write_atomic(chrdev->ringbuf, out, &size);
 		if (unlikely(ret && ret != -EOVERFLOW))
 			break;
+		if (size)
+			poll_readable = true;
 		chrdev->ringbuf_write_size += size;
 		if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
 			wake_up(&chrdev->ringbuf_wait);
@@ -1335,6 +1382,11 @@ static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t
 	}
 	spin_unlock_irqrestore(&stream->lock, flags);
 
+	/* TSMF 分離後の TS も、閾値・時間による read() 起床とは独立して通知する */
+	if (poll_readable)
+		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait,
+					   EPOLLIN | EPOLLRDNORM);
+
 	return ret;
 }
 
@@ -1350,6 +1402,11 @@ int ptx_chrdev_put_stream(struct ptx_chrdev *chrdev, void *buf, size_t len)
 		return ret;
 
 	chrdev->ringbuf_write_size += len;
+
+	/* poll 待機者は閾値に達する前の受信データも通知対象とする */
+	if (len)
+		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait,
+					   EPOLLIN | EPOLLRDNORM);
 
 	if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
 		wake_up(&chrdev->ringbuf_wait);
