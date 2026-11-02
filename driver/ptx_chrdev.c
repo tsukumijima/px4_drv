@@ -153,7 +153,19 @@ static ssize_t ptx_chrdev_read(struct file *file,
 	while (likely(remain)) {
 		size_t len;
 
-		if (wait_event_interruptible(chrdev->ringbuf_wait,
+		/* O_NONBLOCK must not wait for additional TS packets. */
+		if (file->f_flags & O_NONBLOCK) {
+			if (!ringbuffer_is_readable(chrdev->ringbuf)) {
+				if (unlikely(!atomic_read(&group->available))) {
+					if (remain == count)
+						ret = -EIO;
+				} else if (ringbuffer_is_running(chrdev->ringbuf)) {
+					if (remain == count)
+						ret = -EAGAIN;
+				}
+				break;
+			}
+		} else if (wait_event_interruptible(chrdev->ringbuf_wait,
 					     likely(ringbuffer_is_readable(chrdev->ringbuf)) ||
 					     unlikely(!ringbuffer_is_running(chrdev->ringbuf)) ||
 					     unlikely(!atomic_read(&group->available)))) {
