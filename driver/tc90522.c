@@ -569,5 +569,5 @@ int tc90522_is_signal_locked_t(struct tc90522_demod *demod, bool *lock)
 exit:
 	mutex_unlock(&demod->priv.lock);
 
-	return 0;
+	return ret;
 }
