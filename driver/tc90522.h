@@ -18,6 +18,8 @@
 
 #include "i2c_comm.h"
 
+#define TC90522_ISDB_S_RELATIVE_STREAM_COUNT 8
+
 struct tc90522_priv {
 	struct mutex lock;
 };

@@ -608,7 +608,7 @@ static int pxmlt_chrdev_set_stream_id(struct ptx_chrdev *chrdev, u16 stream_id)
 		"pxmlt_chrdev_set_stream_id %u:%u\n",
 		chrdev_group->id, chrdev->id);
 
-	if (stream_id < 12) {
+	if (stream_id < 8) {
 		ret = cxd2856er_set_slot_isdbs(&chrdevm->cxd2856er, stream_id);
 		if (ret)
 			dev_err(pxmlt->dev,
