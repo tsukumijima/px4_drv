@@ -673,6 +673,37 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		break;
 	}
 
+	case PTX_GET_TMCC_PARTIAL_RECEPTION:
+	{
+		bool partial_reception = false;
+		__u32 status;
+
+		if (chrdev->current_system == PTX_UNSPECIFIED_SYSTEM) {
+			ret = -EAGAIN;
+			break;
+		}
+
+		if (chrdev->current_system != PTX_ISDB_T_SYSTEM) {
+			ret = -EOPNOTSUPP;
+			break;
+		}
+
+		if (chrdev->ops && chrdev->ops->read_tmcc_partial_reception)
+			ret = chrdev->ops->read_tmcc_partial_reception(chrdev,
+									 &partial_reception);
+		else
+			ret = -ENOSYS;
+
+		if (ret)
+			break;
+
+		status = partial_reception ? 1 : 0;
+		if (copy_to_user((void *)arg, &status, sizeof(status)))
+			ret = -EFAULT;
+
+		break;
+	}
+
 	case PTX_ENABLE_LNB_POWER:
 		if (chrdev->ops && chrdev->ops->set_lnb_voltage) {
 			int voltage;

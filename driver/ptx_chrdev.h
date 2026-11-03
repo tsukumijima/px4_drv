@@ -40,6 +40,8 @@ struct ptx_chrdev_operations {
 	int (*release)(struct ptx_chrdev *chrdev);
 	int (*tune)(struct ptx_chrdev *chrdev, struct ptx_tune_params *params);
 	int (*check_lock)(struct ptx_chrdev *chrdev, bool *locked);
+	int (*read_tmcc_partial_reception)(struct ptx_chrdev *chrdev,
+					   bool *partial_reception);
 	int (*set_stream_id)(struct ptx_chrdev *chrdev, u16 stream_id);
 	int (*set_lnb_voltage)(struct ptx_chrdev *chrdev, int voltage);
 	int (*set_capture)(struct ptx_chrdev *chrdev, bool status);
