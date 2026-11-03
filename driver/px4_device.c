@@ -779,40 +779,21 @@ static int px4_chrdev_check_lock_s(struct ptx_chrdev *chrdev, bool *locked)
 	return tc90522_is_signal_locked_s(&chrdev4->tc90522, locked);
 }
 
-/*
- * DVBメインラインのTC90522 ISDB-Sロック判定と同じレジスタ条件を確認する。
- * 選局に使う既存のcheck_lockの挙動は変更しない。
- */
-static int px4_chrdev_check_tmcc_lock_s(struct tc90522_demod *demod)
-{
-	int ret;
-	u8 reg;
-
-	ret = tc90522_read_reg(demod, 0xc3, &reg);
-	if (ret)
-		return ret;
-	if (reg & 0xf0)
-		return -EAGAIN;
-
-	ret = tc90522_read_reg(demod, 0xc5, &reg);
-	if (ret)
-		return ret;
-
-	return (reg & 0x03) ? 0 : -EAGAIN;
-}
-
 static int px4_chrdev_read_tmcc_tsid_list_s(struct ptx_chrdev *chrdev,
 					    struct ptx_tmcc_tsid_list *list)
 {
 	struct px4_chrdev *chrdev4 = chrdev->priv;
 	unsigned int i;
 	int ret;
+	bool locked = false;
 
 	memset(list, 0, sizeof(*list));
-	/* ロック喪失時のレジスタ残値を有効なTSIDとして返さない。 */
-	ret = px4_chrdev_check_tmcc_lock_s(&chrdev4->tc90522);
+	/* 選局と同じロック判定を使い、未ロック時のTSIDを公開しない。 */
+	ret = tc90522_is_signal_locked_s(&chrdev4->tc90522, &locked);
 	if (ret)
 		return ret;
+	if (!locked)
+		return -EAGAIN;
 
 	/* TC90522 has eight valid TSID slots; keep the 12-entry UAPI payload. */
 	for (i = 0; i < 8; i++) {
@@ -829,8 +810,12 @@ static int px4_chrdev_read_tmcc_tsid_list_s(struct ptx_chrdev *chrdev,
 	if (!list->num)
 		return -EAGAIN;
 
-	/* 一覧の読出し中にロックを失っていないか確認する。 */
-	return px4_chrdev_check_tmcc_lock_s(&chrdev4->tc90522);
+	/* 一覧取得後も選局と同じ条件でロック状態を再確認する。 */
+	ret = tc90522_is_signal_locked_s(&chrdev4->tc90522, &locked);
+	if (ret)
+		return ret;
+
+	return locked ? 0 : -EAGAIN;
 }
 
 static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
