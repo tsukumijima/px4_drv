@@ -828,6 +828,10 @@ static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 		msleep(10);
 	}
 
+	/* TSID の読み出し失敗は、不一致による再試行要求に置き換えない */
+	if (ret)
+		return ret;
+
 	if (tsid2 != tsid)
 		ret = -EAGAIN;
 
