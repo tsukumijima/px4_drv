@@ -779,6 +779,29 @@ static int px4_chrdev_check_lock_s(struct ptx_chrdev *chrdev, bool *locked)
 	return tc90522_is_signal_locked_s(&chrdev4->tc90522, locked);
 }
 
+static int px4_chrdev_read_tmcc_tsid_list_s(struct ptx_chrdev *chrdev,
+					    struct ptx_tmcc_tsid_list *list)
+{
+	struct px4_chrdev *chrdev4 = chrdev->priv;
+	unsigned int i;
+	int ret;
+
+	memset(list, 0, sizeof(*list));
+	/* TC90522 has eight valid TSID slots; keep the 12-entry UAPI payload. */
+	for (i = 0; i < 8; i++) {
+		u16 tsid = 0;
+
+		ret = tc90522_tmcc_get_tsid_s(&chrdev4->tc90522, i, &tsid);
+		if (ret)
+			return ret;
+		if (!tsid)
+			continue;
+		list->tsid[list->num++] = tsid;
+	}
+
+	return list->num ? 0 : -EAGAIN;
+}
+
 static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 {
 	int ret = 0, i;
@@ -1057,6 +1080,7 @@ static struct ptx_chrdev_operations px4_chrdev_t_ops = {
 	.tune = px4_chrdev_tune_t,
 	.check_lock = px4_chrdev_check_lock_t,
 	.read_tmcc_partial_reception = px4_chrdev_read_tmcc_partial_reception_t,
+	.read_tmcc_tsid_list = NULL,
 	.set_stream_id = NULL,
 	.set_lnb_voltage = NULL,
 	.set_capture = px4_chrdev_set_capture,
@@ -1073,6 +1097,7 @@ static struct ptx_chrdev_operations px4_chrdev_s_ops = {
 	.tune = px4_chrdev_tune_s,
 	.check_lock = px4_chrdev_check_lock_s,
 	.read_tmcc_partial_reception = NULL,
+	.read_tmcc_tsid_list = px4_chrdev_read_tmcc_tsid_list_s,
 	.set_stream_id = px4_chrdev_set_stream_id_s,
 	.set_lnb_voltage = px4_chrdev_set_lnb_voltage_s,
 	.set_capture = px4_chrdev_set_capture,

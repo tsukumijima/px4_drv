@@ -35,6 +35,14 @@ struct ptx_freq {
 	int slot;
 };
 
+/* UAPI layout: 12 entries reserved; TC90522 exposes eight valid TMCC slots. */
+#define PTX_TMCC_TSID_MAX	12
+
+struct ptx_tmcc_tsid_list {
+	__u32 num;
+	__u16 tsid[PTX_TMCC_TSID_MAX];
+};
+
 #define PTX_SET_CHANNEL		_IOW(0x8d, 0x01, struct ptx_freq)
 #define PTX_START_STREAMING	_IO(0x8d, 0x02)
 #define PTX_STOP_STREAMING	_IO(0x8d, 0x03)
@@ -44,6 +52,7 @@ struct ptx_freq {
 #define PTX_SET_SYSTEM_MODE	_IOW(0x8d, 0x0b, int)
 #define PTX_GET_LOCK_STATUS	_IOR(0x8d, 0x0c, __u32)
 #define PTX_GET_TMCC_PARTIAL_RECEPTION	_IOR(0x8d, 0x0d, __u32)
+#define PTX_GET_TMCC_TSID_LIST	_IOR(0x8d, 0x0e, struct ptx_tmcc_tsid_list)
 
 // extended ioctls
 
