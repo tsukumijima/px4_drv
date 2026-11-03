@@ -672,8 +672,6 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		if (!ret) {
 			ringbuffer_reset(chrdev->ringbuf);
 			ringbuffer_start(chrdev->ringbuf);
-			/* epoll の再通知がなくても開始直後から TS を書き込めるようにする */
-			ringbuffer_ready_read(chrdev->ringbuf);
 			chrdev->streaming = true;
 		}
 
