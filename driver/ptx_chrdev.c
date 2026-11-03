@@ -474,7 +474,8 @@ static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type syste
 				msleep(10);
 			}
 
-			if (ret != -ECANCELED && !locked)
+			/* 再試行後に残った通信エラーを、未ロック状態のエラーに置き換えない */
+			if (!ret && !locked)
 				ret = -EAGAIN;
 
 			if (ret)
