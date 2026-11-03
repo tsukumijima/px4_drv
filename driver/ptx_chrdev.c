@@ -672,6 +672,8 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		if (!ret) {
 			ringbuffer_reset(chrdev->ringbuf);
 			ringbuffer_start(chrdev->ringbuf);
+			/* 再開時の状態変化を既存 poll 待機者へ伝え、再評価を促す */
+			wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, 0);
 			chrdev->streaming = true;
 		}
 
