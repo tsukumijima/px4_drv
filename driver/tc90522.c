@@ -542,6 +542,41 @@ int tc90522_get_cndat_t(struct tc90522_demod *demod, u32 *cndat)
 	return ret;
 }
 
+int tc90522_get_tmcc_partial_reception_t(struct tc90522_demod *demod,
+					 bool *partial_reception)
+{
+	int ret;
+	u8 b;
+
+	*partial_reception = false;
+
+	mutex_lock(&demod->priv.lock);
+
+	ret = tc90522_read_reg_nolock(demod, 0x80, &b);
+	if (ret)
+		goto exit;
+	if (b & 0x28) {
+		ret = -EAGAIN;
+		goto exit;
+	}
+
+	ret = tc90522_read_reg_nolock(demod, 0xb0, &b);
+	if (ret)
+		goto exit;
+	if ((b & 0x0f) < 8) {
+		ret = -EAGAIN;
+		goto exit;
+	}
+
+	ret = tc90522_read_reg_nolock(demod, 0xb2, &b);
+	if (!ret)
+		*partial_reception = !!(b & 0x01);
+
+exit:
+	mutex_unlock(&demod->priv.lock);
+	return ret;
+}
+
 int tc90522_enable_ts_pins_t(struct tc90522_demod *demod, bool e)
 {
 	return tc90522_write_reg(demod, 0x1d, (e) ? 0x00 : 0xa8);

@@ -763,11 +763,59 @@ static int px4_chrdev_check_lock_t(struct ptx_chrdev *chrdev, bool *locked)
 	return tc90522_is_signal_locked_t(&chrdev4->tc90522, locked);
 }
 
+static int px4_chrdev_read_tmcc_partial_reception_t(
+	struct ptx_chrdev *chrdev, bool *partial_reception)
+{
+	struct px4_chrdev *chrdev4 = chrdev->priv;
+
+	return tc90522_get_tmcc_partial_reception_t(&chrdev4->tc90522,
+						    partial_reception);
+}
+
 static int px4_chrdev_check_lock_s(struct ptx_chrdev *chrdev, bool *locked)
 {
 	struct px4_chrdev *chrdev4 = chrdev->priv;
 
 	return tc90522_is_signal_locked_s(&chrdev4->tc90522, locked);
+}
+
+static int px4_chrdev_read_tmcc_tsid_list_s(struct ptx_chrdev *chrdev,
+					    struct ptx_tmcc_tsid_list *list)
+{
+	struct px4_chrdev *chrdev4 = chrdev->priv;
+	unsigned int i;
+	int ret;
+	bool locked = false;
+
+	memset(list, 0, sizeof(*list));
+	/* 選局と同じロック判定を使い、未ロック時のTSIDを公開しない。 */
+	ret = tc90522_is_signal_locked_s(&chrdev4->tc90522, &locked);
+	if (ret)
+		return ret;
+	if (!locked)
+		return -EAGAIN;
+
+	/* TC90522 has eight valid TSID slots; keep the 12-entry UAPI payload. */
+	for (i = 0; i < 8; i++) {
+		u16 tsid = 0;
+
+		ret = tc90522_tmcc_get_tsid_s(&chrdev4->tc90522, i, &tsid);
+		if (ret)
+			return ret;
+		if (!tsid)
+			continue;
+		list->tsid[list->num++] = tsid;
+	}
+
+	if (!list->num)
+		return -EAGAIN;
+
+	/* 一覧取得後も選局と同じ条件でロック状態を再確認する。 */
+	ret = tc90522_is_signal_locked_s(&chrdev4->tc90522, &locked);
+	if (ret)
+		return ret;
+
+	return locked ? 0 : -EAGAIN;
 }
 
 static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
@@ -1047,6 +1095,8 @@ static struct ptx_chrdev_operations px4_chrdev_t_ops = {
 	.release = px4_chrdev_release,
 	.tune = px4_chrdev_tune_t,
 	.check_lock = px4_chrdev_check_lock_t,
+	.read_tmcc_partial_reception = px4_chrdev_read_tmcc_partial_reception_t,
+	.read_tmcc_tsid_list = NULL,
 	.set_stream_id = NULL,
 	.set_lnb_voltage = NULL,
 	.set_capture = px4_chrdev_set_capture,
@@ -1062,6 +1112,8 @@ static struct ptx_chrdev_operations px4_chrdev_s_ops = {
 	.release = px4_chrdev_release,
 	.tune = px4_chrdev_tune_s,
 	.check_lock = px4_chrdev_check_lock_s,
+	.read_tmcc_partial_reception = NULL,
+	.read_tmcc_tsid_list = px4_chrdev_read_tmcc_tsid_list_s,
 	.set_stream_id = px4_chrdev_set_stream_id_s,
 	.set_lnb_voltage = px4_chrdev_set_lnb_voltage_s,
 	.set_capture = px4_chrdev_set_capture,

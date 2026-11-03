@@ -648,6 +648,90 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		break;
 	}
 
+	case PTX_GET_LOCK_STATUS:
+	{
+		bool locked = false;
+		__u32 status;
+
+		if (chrdev->current_system == PTX_UNSPECIFIED_SYSTEM) {
+			ret = -EAGAIN;
+			break;
+		}
+
+		if (chrdev->ops && chrdev->ops->check_lock)
+			ret = chrdev->ops->check_lock(chrdev, &locked);
+		else
+			ret = -ENOSYS;
+
+		if (ret)
+			break;
+
+		status = locked ? 1 : 0;
+		if (copy_to_user((void *)arg, &status, sizeof(status)))
+			ret = -EFAULT;
+
+		break;
+	}
+
+	case PTX_GET_TMCC_PARTIAL_RECEPTION:
+	{
+		bool partial_reception = false;
+		__u32 status;
+
+		if (chrdev->current_system == PTX_UNSPECIFIED_SYSTEM) {
+			ret = -EAGAIN;
+			break;
+		}
+
+		if (chrdev->current_system != PTX_ISDB_T_SYSTEM) {
+			ret = -EOPNOTSUPP;
+			break;
+		}
+
+		if (chrdev->ops && chrdev->ops->read_tmcc_partial_reception)
+			ret = chrdev->ops->read_tmcc_partial_reception(chrdev,
+									 &partial_reception);
+		else
+			ret = -ENOSYS;
+
+		if (ret)
+			break;
+
+		status = partial_reception ? 1 : 0;
+		if (copy_to_user((void *)arg, &status, sizeof(status)))
+			ret = -EFAULT;
+
+		break;
+	}
+
+	case PTX_GET_TMCC_TSID_LIST:
+	{
+		struct ptx_tmcc_tsid_list list = { 0 };
+
+		if (chrdev->current_system == PTX_UNSPECIFIED_SYSTEM) {
+			ret = -EAGAIN;
+			break;
+		}
+
+		if (chrdev->current_system != PTX_ISDB_S_SYSTEM) {
+			ret = -EOPNOTSUPP;
+			break;
+		}
+
+		if (chrdev->ops && chrdev->ops->read_tmcc_tsid_list)
+			ret = chrdev->ops->read_tmcc_tsid_list(chrdev, &list);
+		else
+			ret = -ENOSYS;
+
+		if (ret)
+			break;
+
+		if (copy_to_user((void *)arg, &list, sizeof(list)))
+			ret = -EFAULT;
+
+		break;
+	}
+
 	case PTX_ENABLE_LNB_POWER:
 		if (chrdev->ops && chrdev->ops->set_lnb_voltage) {
 			int voltage;

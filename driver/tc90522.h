@@ -83,6 +83,8 @@ int tc90522_is_signal_locked_s(struct tc90522_demod *demod, bool *lock);
 int tc90522_sleep_t(struct tc90522_demod *demod, bool sleep);
 int tc90522_set_agc_t(struct tc90522_demod *demod, bool on);
 int tc90522_get_cndat_t(struct tc90522_demod *demod, u32 *cndat);
+int tc90522_get_tmcc_partial_reception_t(struct tc90522_demod *demod,
+					 bool *partial_reception);
 int tc90522_enable_ts_pins_t(struct tc90522_demod *demod, bool e);
 int tc90522_is_signal_locked_t(struct tc90522_demod *demod, bool *lock);
 #ifdef __cplusplus
