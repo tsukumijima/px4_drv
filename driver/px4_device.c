@@ -788,14 +788,14 @@ static int px4_chrdev_read_tmcc_tsid_list_s(struct ptx_chrdev *chrdev,
 	bool locked = false;
 
 	memset(list, 0, sizeof(*list));
-	/* 選局と同じロック判定を使い、未ロック時のTSIDを公開しない。 */
+	/* use the same lock check as selection, and do not publish TSID when not locked */
 	ret = tc90522_is_signal_locked_s(&chrdev4->tc90522, &locked);
 	if (ret)
 		return ret;
 	if (!locked)
 		return -EAGAIN;
 
-	/* TC90522 has eight valid TSID slots; keep the 12-entry UAPI payload. */
+	/* TC90522 has 8 valid TSID slots; keep the 12-entry UAPI payload */
 	for (i = 0; i < 8; i++) {
 		u16 tsid = 0;
 
@@ -810,7 +810,7 @@ static int px4_chrdev_read_tmcc_tsid_list_s(struct ptx_chrdev *chrdev,
 	if (!list->num)
 		return -EAGAIN;
 
-	/* 一覧取得後も選局と同じ条件でロック状態を再確認する。 */
+	/* check the lock status again after getting the list, with the same condition as selection */
 	ret = tc90522_is_signal_locked_s(&chrdev4->tc90522, &locked);
 	if (ret)
 		return ret;

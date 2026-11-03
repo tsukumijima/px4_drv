@@ -1,9 +1,11 @@
 // ptx_ioctl.h
 
 /*
- * 64 ビットのカーネルでは、PTX と PTXT の ioctl は 64 ビットのプロセスから呼び出す (compat_ioctl は実装していない)
- * PTX_GET_CNR・PTXT_GET_INFO・PTXT_READ_STATS は _IOR の型の位置にポインタを指定しているため、32 ビットと 64 ビットのプロセスでコマンド番号が異なり、compat_ptr_ioctl() を設定するだけでは対応できない
- * 新しい ioctl は Linux の Documentation/driver-api/ioctl.rst の規則に従い、固定幅の型だけで構造体を定義し、アドレスは __u64 で渡す
+ * 64bit カーネルでは、PTX と PTXT の ioctl は 64bit プロセスからの呼び出しのみを想定している (compat_ioctl は未実装)
+ * PTX_GET_CNR・PTXT_GET_INFO・PTXT_READ_STATS は _IOR の型の位置にポインタを指定しているため、
+ * 32bit と 64bit のプロセスではコマンド番号が異なり、compat_ptr_ioctl() を設定するだけでは対応できない
+ * 新しい ioctl に関しては、Linux の Documentation/driver-api/ioctl.rst に記載の通り、
+ * 固定幅の型だけで構造体を定義し、アドレスは __u64 で渡す形で設計している
  */
 
 #ifndef __PTX_IOCTL_H__
@@ -25,7 +27,7 @@ enum ptx_system_type {
 
 enum ptx_stream_type {
 	PTX_UNSPECIFIED_STREAM = 0x00000000,
-	PTX_MPEG_TRANSPORT_STREAM = 0x00000010		// MPEG2-TS
+	PTX_MPEG_TRANSPORT_STREAM = 0x00000010	/* MPEG2-TS */
 };
 
 // basic ioctls
@@ -35,7 +37,7 @@ struct ptx_freq {
 	int slot;
 };
 
-/* UAPI layout: 12 entries reserved; TC90522 exposes eight valid TMCC slots. */
+/* UAPI layout: 12 entries reserved; TC90522 exposes 8 valid TMCC slots */
 #define PTX_TMCC_TSID_MAX	12
 
 struct ptx_tmcc_tsid_list {
@@ -43,16 +45,16 @@ struct ptx_tmcc_tsid_list {
 	__u16 tsid[PTX_TMCC_TSID_MAX];
 };
 
-#define PTX_SET_CHANNEL		_IOW(0x8d, 0x01, struct ptx_freq)
-#define PTX_START_STREAMING	_IO(0x8d, 0x02)
-#define PTX_STOP_STREAMING	_IO(0x8d, 0x03)
-#define PTX_GET_CNR		_IOR(0x8d, 0x04, int *)
-#define PTX_ENABLE_LNB_POWER	_IOW(0x8d, 0x05, int)
-#define PTX_DISABLE_LNB_POWER	_IO(0x8d, 0x06)
-#define PTX_SET_SYSTEM_MODE	_IOW(0x8d, 0x0b, int)
-#define PTX_GET_LOCK_STATUS	_IOR(0x8d, 0x0c, __u32)
+#define PTX_SET_CHANNEL					_IOW(0x8d, 0x01, struct ptx_freq)
+#define PTX_START_STREAMING				_IO(0x8d, 0x02)
+#define PTX_STOP_STREAMING				_IO(0x8d, 0x03)
+#define PTX_GET_CNR						_IOR(0x8d, 0x04, int *)
+#define PTX_ENABLE_LNB_POWER			_IOW(0x8d, 0x05, int)
+#define PTX_DISABLE_LNB_POWER			_IO(0x8d, 0x06)
+#define PTX_SET_SYSTEM_MODE				_IOW(0x8d, 0x0b, int)
+#define PTX_GET_LOCK_STATUS				_IOR(0x8d, 0x0c, __u32)
 #define PTX_GET_TMCC_PARTIAL_RECEPTION	_IOR(0x8d, 0x0d, __u32)
-#define PTX_GET_TMCC_TSID_LIST	_IOR(0x8d, 0x0e, struct ptx_tmcc_tsid_list)
+#define PTX_GET_TMCC_TSID_LIST			_IOR(0x8d, 0x0e, struct ptx_tmcc_tsid_list)
 
 // extended ioctls
 
@@ -63,7 +65,7 @@ struct ptxt_cap {
 
 struct ptxt_info {
 	char name[64];
-	struct ptxt_cap cap;			// device capability information
+	struct ptxt_cap cap;	/* device capability information */
 };
 
 enum ptxt_param_code {
@@ -78,9 +80,9 @@ struct ptxt_additional_param {
 	__u32 data;
 };
 
-/* カーネルの ioctl の構造体の慣例に従い、追加パラメーターの配列のアドレスはポインタの大きさによらない __u64 で渡す */
+/* カーネルの ioctl の構造体の慣例に従い、追加パラメーターの配列のアドレスはポインタの大きさに依存しない __u64 で渡す */
 struct ptxt_params {
-	__u32 system;				/* enum ptx_system_type */
+	__u32 system;			/* enum ptx_system_type */
 	__u32 freq;				/* 中心周波数 (kHz) */
 	__u32 num_prop;
 	__u32 reserved;
@@ -103,13 +105,13 @@ struct ptxt_stats {
 	struct ptxt_stat *stat;
 };
 
-#define PTXT_GET_INFO		_IOR(0xe7, 0x00, struct ptxt_info *)
-#define PTXT_GET_PARAMS		_IOR(0xe7, 0x01, struct ptxt_params)
-#define PTXT_SET_PARAMS		_IOW(0xe7, 0x02, struct ptxt_params)
-#define PTXT_CLEAR_PARAMS	_IO(0xe7, 0x03)
-#define PTXT_TUNE		_IO(0xe7, 0x04)
+#define PTXT_GET_INFO			_IOR(0xe7, 0x00, struct ptxt_info *)
+#define PTXT_GET_PARAMS			_IOR(0xe7, 0x01, struct ptxt_params)
+#define PTXT_SET_PARAMS			_IOW(0xe7, 0x02, struct ptxt_params)
+#define PTXT_CLEAR_PARAMS		_IO(0xe7, 0x03)
+#define PTXT_TUNE				_IO(0xe7, 0x04)
 #define PTXT_SET_LNB_VOLTAGE	_IOW(0xe7, 0x05, int)
-#define PTXT_SET_CAPTURE	_IOW(0xe7, 0x06, bool)
-#define PTXT_READ_STATS		_IOR(0xe7, 0x07, struct ptxt_stats *)
+#define PTXT_SET_CAPTURE		_IOW(0xe7, 0x06, bool)
+#define PTXT_READ_STATS			_IOR(0xe7, 0x07, struct ptxt_stats *)
 
 #endif
