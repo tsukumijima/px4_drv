@@ -648,6 +648,31 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		break;
 	}
 
+	case PTX_GET_LOCK_STATUS:
+	{
+		bool locked = false;
+		__u32 status;
+
+		if (chrdev->current_system == PTX_UNSPECIFIED_SYSTEM) {
+			ret = -EAGAIN;
+			break;
+		}
+
+		if (chrdev->ops && chrdev->ops->check_lock)
+			ret = chrdev->ops->check_lock(chrdev, &locked);
+		else
+			ret = -ENOSYS;
+
+		if (ret)
+			break;
+
+		status = locked ? 1 : 0;
+		if (copy_to_user((void *)arg, &status, sizeof(status)))
+			ret = -EFAULT;
+
+		break;
+	}
+
 	case PTX_ENABLE_LNB_POWER:
 		if (chrdev->ops && chrdev->ops->set_lnb_voltage) {
 			int voltage;

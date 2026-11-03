@@ -42,6 +42,7 @@ struct ptx_freq {
 #define PTX_ENABLE_LNB_POWER	_IOW(0x8d, 0x05, int)
 #define PTX_DISABLE_LNB_POWER	_IO(0x8d, 0x06)
 #define PTX_SET_SYSTEM_MODE	_IOW(0x8d, 0x0b, int)
+#define PTX_GET_LOCK_STATUS	_IOR(0x8d, 0x0c, __u32)
 
 // extended ioctls
 
