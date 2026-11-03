@@ -24,6 +24,21 @@
 #include <linux/spinlock.h>
 #include <linux/jiffies.h>
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0)
+/* Linux 4.15 以前の .poll は unsigned int と POLL* を使う */
+typedef unsigned int ptx_poll_mask_t;
+#define PTX_POLLIN POLLIN
+#define PTX_POLLRDNORM POLLRDNORM
+#define PTX_POLLHUP POLLHUP
+#define PTX_POLLERR POLLERR
+#else
+typedef __poll_t ptx_poll_mask_t;
+#define PTX_POLLIN EPOLLIN
+#define PTX_POLLRDNORM EPOLLRDNORM
+#define PTX_POLLHUP EPOLLHUP
+#define PTX_POLLERR EPOLLERR
+#endif
+
 /* USB の受信処理からも使う状態だけを保護し、選局の I/O と待機はロックの外で行う */
 struct ptx_tsmf_stream {
 	spinlock_t lock;
@@ -208,24 +223,24 @@ static ssize_t ptx_chrdev_read(struct file *file,
 }
 
 /* 通常の read() の閾値起床と分け、poll には読み取り可能な TS を即時通知する */
-static __poll_t ptx_chrdev_poll(struct file *file, poll_table *wait)
+static ptx_poll_mask_t ptx_chrdev_poll(struct file *file, poll_table *wait)
 {
 	struct ptx_chrdev *chrdev = file->private_data;
 	struct ptx_chrdev_group *group = chrdev->parent;
-	__poll_t mask = 0;
+	ptx_poll_mask_t mask = 0;
 
 	poll_wait(file, &chrdev->ringbuf_poll_wait, wait);
 
 	if (unlikely(!atomic_read_acquire(&group->available)))
-		return EPOLLERR | EPOLLHUP;
+		return PTX_POLLERR | PTX_POLLHUP;
 
 	/* 最初の利用が poll() でも受信データの書き込みを開始できるようにする */
 	ringbuffer_ready_read(chrdev->ringbuf);
 
 	if (ringbuffer_is_readable(chrdev->ringbuf))
-		mask |= EPOLLIN | EPOLLRDNORM;
+		mask |= PTX_POLLIN | PTX_POLLRDNORM;
 	if (!ringbuffer_is_running(chrdev->ringbuf))
-		mask |= EPOLLHUP;
+		mask |= PTX_POLLHUP;
 
 	return mask;
 }
@@ -247,7 +262,7 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 
 		ringbuffer_stop(chrdev->ringbuf);
 		wake_up(&chrdev->ringbuf_wait);
-		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, EPOLLHUP);
+		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, PTX_POLLHUP);
 		chrdev->streaming = false;
 	}
 
@@ -676,7 +691,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		if (!ret) {
 			ringbuffer_stop(chrdev->ringbuf);
 			wake_up(&chrdev->ringbuf_wait);
-			wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, EPOLLHUP);
+			wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait, PTX_POLLHUP);
 			chrdev->streaming = false;
 		}
 
@@ -1329,7 +1344,7 @@ void ptx_chrdev_group_destroy(struct ptx_chrdev_group *chrdev_group)
 	for (i = 0; i < chrdev_group->chrdev_num; i++) {
 		wake_up(&chrdev_group->chrdev[i].ringbuf_wait);
 		wake_up_interruptible_poll(&chrdev_group->chrdev[i].ringbuf_poll_wait,
-					   EPOLLERR | EPOLLHUP);
+					   PTX_POLLERR | PTX_POLLHUP);
 		device_destroy(ctx->class,
 			       MKDEV(MAJOR(ctx->dev_base),
 				     chrdev_group->minor_base + i));
@@ -1385,7 +1400,7 @@ static int ptx_chrdev_put_stream_tsmf(struct ptx_chrdev *chrdev, u8 *buf, size_t
 	/* TSMF 分離後の TS も、閾値・時間による read() 起床とは独立して通知する */
 	if (poll_readable)
 		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait,
-					   EPOLLIN | EPOLLRDNORM);
+					   PTX_POLLIN | PTX_POLLRDNORM);
 
 	return ret;
 }
@@ -1406,7 +1421,7 @@ int ptx_chrdev_put_stream(struct ptx_chrdev *chrdev, void *buf, size_t len)
 	/* poll 待機者は閾値に達する前の受信データも通知対象とする */
 	if (len)
 		wake_up_interruptible_poll(&chrdev->ringbuf_poll_wait,
-					   EPOLLIN | EPOLLRDNORM);
+					   PTX_POLLIN | PTX_POLLRDNORM);
 
 	if (unlikely(chrdev->ringbuf_write_size >= chrdev->ringbuf_threshold_size)) {
 		wake_up(&chrdev->ringbuf_wait);
