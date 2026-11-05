@@ -146,7 +146,7 @@ PLEX 社の [Webサイト](http://plex-net.co.jp) にて配布されている公
 	  - チップ構成が大幅に変更された、ロット番号 2021-11 以降の個体のみ対応しています。
 
 > [!NOTE]  
-> 2021 年以降メンテナンスされていない [nns779/px4_drv](https://github.com/nns779/px4_drv) と異なり、新規に下記チューナーのサポートを追加しています。
+> 2021 年以降メンテナンスされていない [nns779/px4_drv](https://github.com/nns779/px4_drv) から、新規に下記チューナーのサポートを追加しています。
 > 
 > - PLEX PX-M1UR
 > - PLEX PX-S1UR
@@ -426,9 +426,9 @@ Ubuntu 20.04 以降と、同じ世代以降の Debian 系ディストリビュ�
 
 `udevadm` の2行は、すでに接続しているチューナーのカードリーダーを、新しくインストールした pcscd から開けるようにするためのものです。
 
-> [!IMPORTANT]  
-> 基本的に、異なるバージョンの px4_drv と px4-drv-pcsc を混在させて利用することはできません。  
-> px4_drv と px4-drv-pcsc の更新後は、必ず pcscd を再起動してください。
+> [!NOTE]  
+> 基本的に、**異なるバージョンの px4_drv と px4-drv-pcsc を混在させて利用することはできません。** 必ず同一バージョンのドライバで揃えてください。    
+> また、**px4_drv と px4-drv-pcsc を更新した後は、必ず pcscd を再起動してください。**
 
 > [!IMPORTANT]  
 > **PX4 系・PX-MLT 系チューナーでは、カードの抜き差しを検出するため、pcscd が内蔵カードリーダーを認識している間は、チューナーを使っていなくてもチューナー本体に給電されます。**  
@@ -495,7 +495,7 @@ Ubuntu 24.04 / Debian 13 以降の pcscd は、接続してきたプログラム
 
 > [!NOTE]  
 > この問題は内蔵カードリーダー固有の問題ではなく、外付けカードリーダーでも同様に発生します。  
-> カードリーダーへのアクセスが拒否された場合、pcscd のログに `is NOT authorized for action: access_pcsc` が出力されます。
+> カードリーダーへのアクセスが拒否された場合、pcscd のログに `is NOT authorized for action: access_pcsc` が出力されます。  
 > なお、Ubuntu 22.04 / Debian 12 以前の pcscd は当該チェックを行わないため、この設定を記述する必要はありません。
 
 カードリーダーへのアクセスが拒否される場合には、次の polkit ルールを `/etc/polkit-1/rules.d/50-pcscd-recorder.rules` に配置し、  
@@ -513,7 +513,7 @@ polkit.addRule(function(action, subject) {
 
 > [!NOTE]  
 > recisdb などの受信ソフトウェアは、カードリーダーのデバイスファイルには直接アクセスせず、pcscd 経由で間接的にアクセスします。  
-> チューナーデバイスの `video` グループと異なり、recisdb を実行するユーザーを `pcscd` グループに追加する必要はありません。
+> チューナーデバイスへのアクセスに必要な `video` グループとは異なり、recisdb を実行するユーザーを `pcscd` グループに追加する必要はありません。
 
 #### Docker 環境からカードリーダーにアクセスする場合
 
@@ -572,34 +572,75 @@ Mirakurun の場合は、環境変数 `DISABLE_PCSCD=1` を設定した上で、
 
 ## アンインストール (Linux)
 
-### 1. ドライバのアンインストール
+### 1. チューナーとカードリーダーを使っているプロセスの停止
+
+**px4_drv のカーネルモジュールは、チューナーやカードリーダーのデバイスファイルが開かれている間はアンロードできません。**  
+Mirakurun や EDCB などの録画ソフトウェアを停止したうえで、pcscd も停止してください。  
+pcscd は、内蔵カードリーダーを認識している間、カードリーダー用デバイスファイル (`/dev/px4card/*`) を開き続けています。
+
+	$ sudo systemctl stop pcscd.socket pcscd.service
+
+Docker コンテナ内で pcscd を動かしている場合は、そのコンテナを停止してください。
+
+### 2. pcscd 用ドライバ (px4-drv-pcsc) のアンインストール
+
+px4-drv-pcsc をインストールしていない場合は、この手順は不要です。
 
 #### Debian パッケージを使用してインストールした場合
 
+	$ sudo apt purge px4-drv-pcsc
+
+#### ソースコードからビルドしてインストールした場合
+
+	$ sudo make -C pcsc uninstall
+
+> [!NOTE]  
+> Docker イメージに px4-drv-pcsc を追加していた場合は、Dockerfile から px4-drv-pcsc をインストールする行を削除し、イメージをビルドし直してください。
+
+### 3. ドライバのアンインストール
+
+#### Debian パッケージを使用してインストールした場合
+
+	$ sudo modprobe -r px4_drv
 	$ sudo apt purge px4-drv-dkms
 
 #### DKMS を使用してインストールした場合
 
+	$ sudo modprobe -r px4_drv
 	$ sudo dkms remove px4_drv/0.7.1 --all
 	$ sudo rm -rf /usr/src/px4_drv-0.7.1
 
+> [!IMPORTANT]  
+> **Debian パッケージや DKMS でのアンインストールでは、ロード中のカーネルモジュールはアンロードされません。**  
+> `modprobe -r` を実行せずにアンインストールすると、ディスク上のファイルが削除された後も、PC を再起動するまで古いカーネルモジュールが動作し続けます。  
+> この状態で別のバージョンの px4_drv をインストールすると、動作中のカーネルモジュールと px4-drv-pcsc のバージョンが食い違うため、必ず先にアンロードしてください。
+
 #### DKMS を使用せずにインストールした場合
 
-内蔵カードリーダーを pcscd で使っている場合は、pcscd がデバイスファイルを開いたままでモジュールを外せないため、先に pcscd を止めます。
-
-	$ sudo systemctl stop pcscd.socket pcscd.service
-	$ sudo modprobe -r px4_drv
 	$ cd driver
 	$ sudo make uninstall
 	$ cd ../
 
-### 2. ファームウェアのアンインストール
+`make uninstall` は、カーネルモジュールをアンロードしてから、インストール済みのすべてのカーネル向けのカーネルモジュールを削除します。
+
+> [!TIP]  
+> `modprobe -r` や `make uninstall` が `Module px4_drv is in use` で失敗した場合は、チューナーかカードリーダーを使っているプロセスが残存しています。  
+> [1. の手順](#1-チューナーとカードリーダーを使っているプロセスの停止) で停止したプロセスを確認してから、再度実行してください。
+
+### 4. ファームウェアのアンインストール
 
 > [!NOTE]  
 > **px4_drv を Debian パッケージや DKMS を使用してインストールした場合、ファームウェアは自動的にアンインストールされます。**  
 > Debian パッケージや DKMS を使用してインストールを行った場合は、この手順はスキップしてください。
 
 	$ sudo rm /lib/firmware/it930x-firmware.bin
+
+### 5. pcscd の再開
+
+外付けカードリーダーを引き続き利用する場合は、[1. の手順](#1-チューナーとカードリーダーを使っているプロセスの停止) で停止した pcscd を再開してください。  
+なお、ドライバのアンインストール後に PC を再起動した場合、pcscd も外付けカードリーダーの接続に合わせて再度自動的に起動するため、手動での起動は不要です。
+
+	$ sudo systemctl start pcscd.socket
 
 ## 受信方法
 
