@@ -697,7 +697,7 @@ static int isdb2056_chrdev_set_stream_id(struct ptx_chrdev *chrdev,
 	if (chrdev->current_system != PTX_ISDB_S_SYSTEM)
 		return -EINVAL;
 
-	if (stream_id < 12) {
+	if (stream_id < TC90522_ISDB_S_RELATIVE_STREAM_COUNT) {
 		i = 100;
 		while (i--) {
 			ret = tc90522_tmcc_get_tsid_s(tc90522_s,
@@ -741,6 +741,10 @@ static int isdb2056_chrdev_set_stream_id(struct ptx_chrdev *chrdev,
 
 		msleep(10);
 	}
+
+	/* 最後の読み出しが失敗した場合は、TSID 不一致より通信エラーを優先する */
+	if (ret)
+		return ret;
 
 	if (tsid2 != tsid)
 		ret = -EAGAIN;

@@ -608,7 +608,9 @@ static int pxmlt_chrdev_set_stream_id(struct ptx_chrdev *chrdev, u16 stream_id)
 		"pxmlt_chrdev_set_stream_id %u:%u\n",
 		chrdev_group->id, chrdev->id);
 
-	if (stream_id < 12) {
+	/* CXD2856ER のスロット指定は 0〜7 のみ有効（set_slot_isdbs の範囲検査）。
+	 * 8 以上はドライバの stream_id 規約で絶対 TSID として指定する。 */
+	if (stream_id < 8) {
 		ret = cxd2856er_set_slot_isdbs(&chrdevm->cxd2856er, stream_id);
 		if (ret)
 			dev_err(pxmlt->dev,

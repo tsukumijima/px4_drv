@@ -831,7 +831,7 @@ static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 		"px4_chrdev_set_stream_id_s %u:%u\n",
 		chrdev_group->id, chrdev->id);
 
-	if (stream_id < 12) {
+	if (stream_id < TC90522_ISDB_S_RELATIVE_STREAM_COUNT) {
 		i = 100;
 		while (i--) {
 			ret = tc90522_tmcc_get_tsid_s(tc90522,
@@ -875,6 +875,10 @@ static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 
 		msleep(10);
 	}
+
+	/* TSID の読み出し失敗は、不一致による再試行要求に置き換えない */
+	if (ret)
+		return ret;
 
 	if (tsid2 != tsid)
 		ret = -EAGAIN;
