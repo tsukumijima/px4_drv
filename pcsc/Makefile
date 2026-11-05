@@ -44,4 +44,12 @@ install: all
 	install -D -m 0755 $(BUILD)/libifd-px4.so $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle/Contents/Linux/libifd-px4.so
 	install -D -m 0644 Info.plist $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle/Contents/Info.plist
 
-.PHONY: all check install integration-build
+# USBDROPDIR には他の IFD ハンドラーも配置されるため、install で作成したファイルとバンドルのディレクトリだけを削除する
+uninstall:
+	test -n "$(USBDROPDIR)"
+	rm -f $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle/Contents/Linux/libifd-px4.so $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle/Contents/Info.plist
+	if [ -d $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle ]; then \
+	rmdir $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle/Contents/Linux $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle/Contents $(DESTDIR)$(USBDROPDIR)/ifd-px4.bundle; \
+	fi
+
+.PHONY: all check install integration-build uninstall
