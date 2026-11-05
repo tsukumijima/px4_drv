@@ -56,15 +56,26 @@ install:
 	$(cmd_prefix)depmod -a $(KVER)
 	$(cmd_prefix)modprobe px4_drv
 
+# カーネル更新で残った旧バージョンのモジュールも含め、全カーネルから削除する
+# モジュール削除によって空になったディレクトリもあわせて削除する
 uninstall:
 	$(cmd_prefix)if [ `grep -e '^px4_drv' /proc/modules | wc -l` -ne 0 ]; then \
 	modprobe -r px4_drv; \
 	fi
-	$(cmd_prefix)rm -fv $(INSTALL_DIR)/px4_drv.ko
+	$(cmd_prefix)for dir in /lib/modules/*/misc; do \
+	if [ -f $$dir/px4_drv.ko ]; then \
+	rm -fv $$dir/px4_drv.ko; \
+	kver=$${dir%/misc}; \
+	kver=$${kver##*/}; \
+	rmdir --ignore-fail-on-non-empty $$dir /lib/modules/$$kver; \
+	if [ -d /lib/modules/$$kver/kernel ]; then \
+	depmod -a $$kver; \
+	fi; \
+	fi; \
+	done
 	$(cmd_prefix)if [ `find /lib/modules/ -name 'px4_drv.ko*' | wc -l` -eq 0 ]; then \
 	rm -fv /etc/udev/rules.d/90-px4.rules /etc/udev/rules.d/99-px4video.rules; \
 	fi
-	$(cmd_prefix)depmod -a $(KVER)
 
 FORCE:
 
