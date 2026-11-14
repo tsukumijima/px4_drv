@@ -614,6 +614,10 @@ BonDriver は専用のものが必要になるため、公式 (Jacky版) BonDriv
 recpt1 や [BonDriverProxy_Linux](https://github.com/u-n-k-n-o-w-n/BonDriverProxy_Linux) 等の PT シリーズ用 chardev ドライバに対応したソフトウェアを使用することで、TS データを受信することが可能です。  
 recpt1 は、PLEX 社より配布されているものを使用する必要はありません。
 
+Linux の `poll` / `epoll` の受信通知は、リングバッファへの書き込みが既存の読み出し起床閾値に達したとき、または TSMF の受信処理で flush したときに届きます。閾値に達する前に入力が途切れると、すでに待機中の呼び出しには、バッファに未読データがあっても次の起床条件まで通知が届かないことがあります。`O_NONBLOCK` の `read()` で未読データを読み出せます。
+
+`EPOLLET` を使う場合は、読み出し可能の通知を受けたら、`O_NONBLOCK` の `read()` が `EAGAIN` を返すまで読み出してください。EOF または別のエラーが返った場合は、受信終了またはエラーとして処理してください。
+
 BonDriverProxy_Linux と、PLEX PX-MLT5PE や e-Better DTV02A-1T1S-U などのデバイスファイル1つで ISDB-T と ISDB-S のどちらも受信可能なチューナーを組み合わせて使用する場合は、BonDriver として BonDriverProxy_Linux に同梱されている BonDriver_LinuxPT の代わりに、[BonDriver_LinuxPTX](https://github.com/nns779/BonDriver_LinuxPTX) を使用してください。
 
 ## ケーブルテレビ (ISDB-C) / スカパー！プレミアムサービス光 (J.83B) の受信
