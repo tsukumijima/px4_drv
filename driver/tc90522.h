@@ -18,8 +18,8 @@
 
 #include "i2c_comm.h"
 
-/* TC90522 の TMCC TSID 表は 0xCE〜0xDD の 2 バイト×8 要素で、相対番号は 0〜7。
- * stream_id が 8 以上なら絶対 TSID とみなすのは、放送規格のTSID値域ではなくドライバの選択規約。 */
+/* TC90522 has 8 TMCC TSID entries (2 bytes each from register 0xce) for relative TS numbers 0-7
+ * a stream_id of this value or greater is treated as an absolute TSID */
 #define TC90522_ISDB_S_RELATIVE_STREAM_COUNT 8
 
 struct tc90522_priv {

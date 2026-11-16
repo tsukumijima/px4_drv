@@ -828,7 +828,7 @@ static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 		msleep(10);
 	}
 
-	/* TSID の読み出し失敗は、不一致による再試行要求に置き換えない */
+	/* if the last tc90522_get_tsid_s() failed, tsid2 is unset or left from a previous read, so return the error without comparing */
 	if (ret)
 		return ret;
 
