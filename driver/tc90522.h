@@ -18,6 +18,10 @@
 
 #include "i2c_comm.h"
 
+/* TC90522 has 8 TMCC TSID entries (2 bytes each from register 0xce) for relative TS numbers 0-7
+ * a stream_id of this value or greater is treated as an absolute TSID */
+#define TC90522_ISDB_S_RELATIVE_STREAM_COUNT 8
+
 struct tc90522_priv {
 	struct mutex lock;
 };

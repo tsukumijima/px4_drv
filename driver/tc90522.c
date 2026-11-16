@@ -432,7 +432,7 @@ int tc90522_tmcc_get_tsid_s(struct tc90522_demod *demod, u8 idx, u16 *tsid)
 	int ret = 0;
 	u8 b[2];
 
-	if (idx >= 12)
+	if (idx >= TC90522_ISDB_S_RELATIVE_STREAM_COUNT)
 		return -EINVAL;
 
 	ret = tc90522_read_regs(demod, 0xce + (idx * 2), &b[0], 2);
@@ -604,5 +604,5 @@ int tc90522_is_signal_locked_t(struct tc90522_demod *demod, bool *lock)
 exit:
 	mutex_unlock(&demod->priv.lock);
 
-	return 0;
+	return ret;
 }

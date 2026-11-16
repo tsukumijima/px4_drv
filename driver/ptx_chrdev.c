@@ -17,11 +17,27 @@
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <linux/fs.h>
+#include <linux/poll.h>
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <linux/spinlock.h>
 #include <linux/jiffies.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0)
+/* Linux 4.15 以前の .poll は unsigned int と POLL* を使う */
+typedef unsigned int ptx_poll_mask_t;
+#define PTX_POLLIN POLLIN
+#define PTX_POLLRDNORM POLLRDNORM
+#define PTX_POLLHUP POLLHUP
+#define PTX_POLLERR POLLERR
+#else
+typedef __poll_t ptx_poll_mask_t;
+#define PTX_POLLIN EPOLLIN
+#define PTX_POLLRDNORM EPOLLRDNORM
+#define PTX_POLLHUP EPOLLHUP
+#define PTX_POLLERR EPOLLERR
+#endif
 
 /* USB の受信処理からも使う状態だけを保護し、選局の I/O と待機はロックの外で行う */
 struct ptx_tsmf_stream {
@@ -153,7 +169,19 @@ static ssize_t ptx_chrdev_read(struct file *file,
 	while (likely(remain)) {
 		size_t len;
 
-		if (wait_event_interruptible(chrdev->ringbuf_wait,
+		/* O_NONBLOCK ではデータを待たず、読み出せるデータがなければ受信中は -EAGAIN、停止後は EOF を返す */
+		if (file->f_flags & O_NONBLOCK) {
+			if (!ringbuffer_is_readable(chrdev->ringbuf)) {
+				if (unlikely(!atomic_read(&group->available))) {
+					if (remain == count)
+						ret = -EIO;
+				} else if (ringbuffer_is_running(chrdev->ringbuf)) {
+					if (remain == count)
+						ret = -EAGAIN;
+				}
+				break;
+			}
+		} else if (wait_event_interruptible(chrdev->ringbuf_wait,
 					     likely(ringbuffer_is_readable(chrdev->ringbuf)) ||
 					     unlikely(!ringbuffer_is_running(chrdev->ringbuf)) ||
 					     unlikely(!atomic_read(&group->available)))) {
@@ -165,8 +193,24 @@ static ssize_t ptx_chrdev_read(struct file *file,
 
 		len = remain;
 		ret = ringbuffer_read_user(chrdev->ringbuf, p, &len);
-		if (unlikely(ret || !len))
+		if (unlikely(ret))
 			break;
+
+		if (unlikely(!len)) {
+			/* 読み出せることを確認してから読み出すまでに、同じデバイスファイルを読む別の read() がデータを読み切ることがある
+			 * 受信中に 0 を返すと利用側は EOF と解釈して受信を終えるため、まだ何も読んでいなければ待ち直し (O_NONBLOCK では -EAGAIN)、
+			 * 読み出し済みのデータがあればそれを返す */
+			if (unlikely(!atomic_read_acquire(&group->available))) {
+				if (remain == count)
+					ret = -EIO;
+			} else if (ringbuffer_is_running(chrdev->ringbuf)) {
+				if (!(file->f_flags & O_NONBLOCK) && remain == count)
+					continue;
+				if (remain == count && (file->f_flags & O_NONBLOCK))
+					ret = -EAGAIN;
+			}
+			break;
+		}
 
 		p += len;
 		remain -= len;
@@ -178,6 +222,30 @@ static ssize_t ptx_chrdev_read(struct file *file,
 	}
 
 	return likely(!ret) ? (count - remain) : ret;
+}
+
+/* poll の待機者は read() と同じ ringbuf_wait で待ち、リングバッファへの書き込みが閾値に達したときと TSMF の flush 時に起床する
+ * 受信データを書き込むたびに起床させると、USB の受信完了処理の中で TS パケットごとに起床処理が走り、URB の再投入が遅れるため */
+static ptx_poll_mask_t ptx_chrdev_poll(struct file *file, poll_table *wait)
+{
+	struct ptx_chrdev *chrdev = file->private_data;
+	struct ptx_chrdev_group *group = chrdev->parent;
+	ptx_poll_mask_t mask = 0;
+
+	poll_wait(file, &chrdev->ringbuf_wait, wait);
+
+	if (unlikely(!atomic_read_acquire(&group->available)))
+		return PTX_POLLERR | PTX_POLLHUP;
+
+	/* リングバッファへの書き込みは read() か poll() が呼ばれた時点で始まるため、poll() で待つ利用者のためにここでも開始する */
+	ringbuffer_ready_read(chrdev->ringbuf);
+
+	if (ringbuffer_is_readable(chrdev->ringbuf))
+		mask |= PTX_POLLIN | PTX_POLLRDNORM;
+	if (!ringbuffer_is_running(chrdev->ringbuf))
+		mask |= PTX_POLLHUP;
+
+	return mask;
 }
 
 static int ptx_chrdev_release(struct inode *inode, struct file *file)
@@ -196,7 +264,7 @@ static int ptx_chrdev_release(struct inode *inode, struct file *file)
 			chrdev->ops->set_capture(chrdev, false);
 
 		ringbuffer_stop(chrdev->ringbuf);
-		wake_up(&chrdev->ringbuf_wait);
+		wake_up_poll(&chrdev->ringbuf_wait, PTX_POLLHUP);
 		chrdev->streaming = false;
 	}
 
@@ -407,7 +475,8 @@ static int ptx_chrdev_tune(struct ptx_chrdev *chrdev, enum ptx_system_type syste
 				msleep(10);
 			}
 
-			if (ret != -ECANCELED && !locked)
+			/* -EAGAIN は未ロック (信号を受信できていない) ことを示すため、最後の check_lock() が通信エラーで失敗した場合はそのエラーを返す */
+			if (!ret && !locked)
 				ret = -EAGAIN;
 
 			if (ret)
@@ -606,6 +675,9 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 		if (!ret) {
 			ringbuffer_reset(chrdev->ringbuf);
 			ringbuffer_start(chrdev->ringbuf);
+			/* START より前に poll / epoll で待ち始めた利用者は、ptx_chrdev_poll() が呼ばれるまでリングバッファへの書き込みが始まらないため、
+			 * ここで起床させて poll() を再評価させる */
+			wake_up(&chrdev->ringbuf_wait);
 			chrdev->streaming = true;
 		}
 
@@ -624,7 +696,7 @@ static long ptx_chrdev_unlocked_ioctl(struct file *file,
 
 		if (!ret) {
 			ringbuffer_stop(chrdev->ringbuf);
-			wake_up(&chrdev->ringbuf_wait);
+			wake_up_poll(&chrdev->ringbuf_wait, PTX_POLLHUP);
 			chrdev->streaming = false;
 		}
 
@@ -848,6 +920,7 @@ static struct file_operations ptx_chrdev_fops = {
 	.owner = THIS_MODULE,
 	.open = ptx_chrdev_open,
 	.read = ptx_chrdev_read,
+	.poll = ptx_chrdev_poll,
 	.release = ptx_chrdev_release,
 	.unlocked_ioctl = ptx_chrdev_unlocked_ioctl
 };
@@ -1357,7 +1430,8 @@ void ptx_chrdev_group_destroy(struct ptx_chrdev_group *chrdev_group)
 	atomic_xchg(&chrdev_group->available, 0);
 
 	for (i = 0; i < chrdev_group->chrdev_num; i++) {
-		wake_up(&chrdev_group->chrdev[i].ringbuf_wait);
+		wake_up_poll(&chrdev_group->chrdev[i].ringbuf_wait,
+			     PTX_POLLERR | PTX_POLLHUP);
 		device_destroy(ctx->class,
 			       MKDEV(MAJOR(ctx->dev_base),
 				     chrdev_group->minor_base + i));

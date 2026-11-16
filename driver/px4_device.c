@@ -831,7 +831,7 @@ static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 		"px4_chrdev_set_stream_id_s %u:%u\n",
 		chrdev_group->id, chrdev->id);
 
-	if (stream_id < 12) {
+	if (stream_id < TC90522_ISDB_S_RELATIVE_STREAM_COUNT) {
 		i = 100;
 		while (i--) {
 			ret = tc90522_tmcc_get_tsid_s(tc90522,
@@ -875,6 +875,10 @@ static int px4_chrdev_set_stream_id_s(struct ptx_chrdev *chrdev, u16 stream_id)
 
 		msleep(10);
 	}
+
+	/* if the last tc90522_get_tsid_s() failed, tsid2 is unset or left from a previous read, so return the error without comparing */
+	if (ret)
+		return ret;
 
 	if (tsid2 != tsid)
 		ret = -EAGAIN;
