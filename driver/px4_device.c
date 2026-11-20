@@ -19,6 +19,9 @@
 #define PX4_DEVICE_TS_SYNC_COUNT	4
 #define PX4_DEVICE_TS_SYNC_SIZE		(188 * PX4_DEVICE_TS_SYNC_COUNT)
 
+/* 初期化のときにループスルーを持つ R850 を合わせる周波数 (kHz、UHF 13ch) */
+#define PX4_DEVICE_R850_PRIME_FREQ	473143
+
 struct px4_stream_context {
 	struct ptx_chrdev *chrdev[PX4_CHRDEV_NUM];
 	u8 remain_buf[PX4_DEVICE_TS_SYNC_SIZE];
@@ -317,6 +320,35 @@ static int px4_chrdev_open(struct ptx_chrdev *chrdev)
 				"px4_chrdev_open %u:%u: px4_backend_init() failed. (ret: %d)\n",
 				chrdev_group->id, chrdev->id, ret);
 			goto fail_backend_init;
+		}
+
+		/*
+		 * ループスルーを持つ R850 (T0) は、初期化のあとの最初の選局でレジスタが書き換わる間、
+		 * ループスルーの先 (T1) の受信を乱すことがある。2 回目以降の選局では乱れないため、
+		 * T1 がまだ受信していない初期化の時点で、一度選局のときと同じ状態にしておく。
+		 */
+		for (i = 0; i < PX4_CHRDEV_NUM; i++) {
+			struct px4_chrdev *c = &px4->chrdev4[i];
+			struct r850_system_config sys;
+
+			if (c->chrdev->system_cap != PTX_ISDB_T_SYSTEM ||
+			    !c->tuner.r850.config.loop_through)
+				continue;
+
+			sys.system = R850_SYSTEM_ISDB_T;
+			sys.bandwidth = R850_BANDWIDTH_6M;
+			sys.if_freq = 4063;
+
+			ret = r850_set_system(&c->tuner.r850, &sys);
+			if (!ret)
+				ret = r850_set_frequency(&c->tuner.r850,
+							 PX4_DEVICE_R850_PRIME_FREQ);
+			if (ret) {
+				dev_err(px4->dev,
+					"px4_chrdev_open %u:%u: priming r850 (%d) failed. (ret: %d)\n",
+					chrdev_group->id, chrdev->id, i, ret);
+				goto fail_backend;
+			}
 		}
 
 		for (i = 0; i < PX4_CHRDEV_NUM; i++) {
